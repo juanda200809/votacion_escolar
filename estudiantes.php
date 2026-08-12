@@ -9,18 +9,21 @@ if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
 include("config/conexion.php");
 
 /*=========================================
-=            GUARDAR ESTUDIANTE           =
+=          GUARDAR ESTUDIANTE             =
 =========================================*/
 
-if(isset($_POST['guardar'])){
+if (isset($_POST['guardar'])) {
 
     $documento = trim($_POST['documento']);
     $nombre = trim($_POST['nombre']);
     $apellido = trim($_POST['apellido']);
-    $correo = trim($_POST['correo']);
     $curso = trim($_POST['curso']);
-    $password = trim($_POST['password']);
-    $password_hash = password_hash($password, PASSWORD_DEFAULT);
+
+    /*
+     * La contraseña será automáticamente
+     * el mismo documento del estudiante.
+     */
+    $password_hash = password_hash($documento, PASSWORD_DEFAULT);
 
     // Verificar si el documento ya existe
     $verificar = $conn->query("
@@ -29,52 +32,72 @@ if(isset($_POST['guardar'])){
         WHERE documento='$documento'
     ");
 
-    if($verificar->num_rows > 0){
+    if ($verificar->num_rows > 0) {
 
-        $mensaje = "<div class='alerta error'>
-                        Ya existe un estudiante con ese documento.
-                    </div>";
+        $mensaje = "
+        <div class='alerta error'>
+            <i class='bi bi-exclamation-triangle-fill'></i>
+            Ya existe un usuario con ese documento.
+        </div>";
 
-    }else{
+    } else {
 
-        $sql = "INSERT INTO usuarios
-        (documento,nombre,apellido,correo,curso,password,rol)
-
-        VALUES
-
+        /*
+         * Como ya no utilizaremos correo,
+         * dejamos ese campo vacío.
+         */
+        $sql = "
+        INSERT INTO usuarios
         (
-        '$documento',
-        '$nombre',
-        '$apellido',
-        '$correo',
-        '$curso',
-        '$password_hash',
-        'estudiante'
-        )";
+            documento,
+            nombre,
+            apellido,
+            correo,
+            curso,
+            password,
+            rol
+        )
+        VALUES
+        (
+            '$documento',
+            '$nombre',
+            '$apellido',
+            '',
+            '$curso',
+            '$password_hash',
+            'estudiante'
+        )
+        ";
 
-        if($conn->query($sql)){
+        if ($conn->query($sql)) {
 
-            $mensaje = "<div class='alerta ok'>
-                            Estudiante registrado correctamente.
-                        </div>";
+            $mensaje = "
+            <div class='alerta ok'>
+                <i class='bi bi-check-circle-fill'></i>
+                Estudiante registrado correctamente.
+                <br>
+                <strong>Usuario:</strong> $documento
+                <br>
+                <strong>Contraseña:</strong> su documento
+            </div>";
 
-        }else{
+        } else {
 
-            $mensaje = "<div class='alerta error'>
-                            Error al registrar estudiante.
-                        </div>";
-
+            $mensaje = "
+            <div class='alerta error'>
+                <i class='bi bi-x-circle-fill'></i>
+                Error al registrar el estudiante:
+                " . $conn->error . "
+            </div>";
         }
-
     }
-
 }
 
 /*=========================================
 =             ELIMINAR                    =
 =========================================*/
 
-if(isset($_GET['eliminar'])){
+if (isset($_GET['eliminar'])) {
 
     $id = intval($_GET['eliminar']);
 
@@ -86,7 +109,6 @@ if(isset($_GET['eliminar'])){
 
     header("Location: estudiantes.php");
     exit();
-
 }
 
 /*=========================================
@@ -94,10 +116,10 @@ if(isset($_GET['eliminar'])){
 =========================================*/
 
 $estudiantes = $conn->query("
-SELECT *
-FROM usuarios
-WHERE rol='estudiante'
-ORDER BY nombre ASC
+    SELECT *
+    FROM usuarios
+    WHERE rol='estudiante'
+    ORDER BY nombre ASC
 ");
 
 $total = $estudiantes->num_rows;
@@ -131,52 +153,38 @@ href="css/estilos.css">
 
 <style>
 
-body{
-
-background:#eef3f9;
-
+body {
+    background:#eef3f9;
 }
 
-.card-form{
-
-border:none;
-border-radius:15px;
-box-shadow:0 5px 15px rgba(0,0,0,.15);
-
+.card-form {
+    border:none;
+    border-radius:15px;
+    box-shadow:0 5px 15px rgba(0,0,0,.15);
 }
 
-.table{
-
-background:white;
-
+.table {
+    background:white;
 }
 
-.alerta{
-
-padding:15px;
-border-radius:8px;
-margin-bottom:20px;
-
+.alerta {
+    padding:15px;
+    border-radius:8px;
+    margin-bottom:20px;
 }
 
-.ok{
-
-background:#d1fae5;
-color:#065f46;
-
+.ok {
+    background:#d1fae5;
+    color:#065f46;
 }
 
-.error{
-
-background:#fee2e2;
-color:#991b1b;
-
+.error {
+    background:#fee2e2;
+    color:#991b1b;
 }
 
-.buscar{
-
-max-width:350px;
-
+.buscar {
+    max-width:350px;
 }
 
 </style>
@@ -186,6 +194,8 @@ max-width:350px;
 <body>
 
 <div class="container py-4">
+
+<!-- ENCABEZADO -->
 
 <div class="d-flex justify-content-between align-items-center mb-4">
 
@@ -209,17 +219,23 @@ Volver al Panel
 
 </div>
 
+
+<!-- MENSAJE -->
+
 <?php
 
-if(isset($mensaje)){
-
-echo $mensaje;
-
+if (isset($mensaje)) {
+    echo $mensaje;
 }
 
 ?>
 
+
 <div class="row">
+
+<!-- =========================================
+     FORMULARIO
+========================================= -->
 
 <div class="col-md-4">
 
@@ -227,7 +243,9 @@ echo $mensaje;
 
 <div class="card-body">
 
-<h4 class="mb-3">
+<h4 class="mb-4">
+
+<i class="bi bi-person-plus-fill"></i>
 
 Registrar Estudiante
 
@@ -235,21 +253,31 @@ Registrar Estudiante
 
 <form method="POST">
 
+<!-- DOCUMENTO -->
+
 <div class="mb-3">
 
-<label>Documento</label>
+<label class="form-label">
+Documento
+</label>
 
 <input
 type="text"
 name="documento"
 class="form-control"
-required>
+required
+autocomplete="off">
 
 </div>
 
+
+<!-- NOMBRE -->
+
 <div class="mb-3">
 
-<label>Nombre</label>
+<label class="form-label">
+Nombre
+</label>
 
 <input
 type="text"
@@ -259,9 +287,14 @@ required>
 
 </div>
 
+
+<!-- APELLIDO -->
+
 <div class="mb-3">
 
-<label>Apellido</label>
+<label class="form-label">
+Apellido
+</label>
 
 <input
 type="text"
@@ -271,20 +304,14 @@ required>
 
 </div>
 
-<div class="mb-3">
 
-<label>Correo</label>
-
-<input
-type="email"
-name="correo"
-class="form-control">
-
-</div>
+<!-- CURSO -->
 
 <div class="mb-3">
 
-<label>Curso</label>
+<label class="form-label">
+Curso
+</label>
 
 <input
 type="text"
@@ -294,17 +321,24 @@ required>
 
 </div>
 
-<div class="mb-3">
 
-<label>Contraseña</label>
+<!-- AVISO DE CONTRASEÑA -->
 
-<input
-type="password"
-name="password"
-class="form-control"
-required>
+<div class="alert alert-info">
+
+<i class="bi bi-info-circle-fill"></i>
+
+<strong>Contraseña automática</strong>
+
+<br>
+
+La contraseña del estudiante será
+su mismo número de documento.
 
 </div>
+
+
+<!-- BOTÓN -->
 
 <button
 type="submit"
@@ -325,14 +359,22 @@ Guardar Estudiante
 
 </div>
 
+
+<!-- =========================================
+     LISTA DE ESTUDIANTES
+========================================= -->
+
 <div class="col-md-8">
-    <div class="card card-form">
+
+<div class="card card-form">
 
 <div class="card-body">
 
 <div class="d-flex justify-content-between align-items-center mb-3">
 
 <h4>
+
+<i class="bi bi-list-ul"></i>
 
 Lista de Estudiantes
 
@@ -346,11 +388,17 @@ Total: <?php echo $total; ?>
 
 </div>
 
+
+<!-- BUSCADOR -->
+
 <input
 type="text"
 id="buscar"
 class="form-control buscar mb-3"
 placeholder="🔍 Buscar estudiante...">
+
+
+<!-- TABLA -->
 
 <div class="table-responsive">
 
@@ -378,21 +426,35 @@ placeholder="🔍 Buscar estudiante...">
 
 <tbody id="tablaEstudiantes">
 
-<?php while($e = $estudiantes->fetch_assoc()){ ?>
+<?php
+
+while ($e = $estudiantes->fetch_assoc()) {
+
+?>
 
 <tr>
 
-<td><?php echo $e['id']; ?></td>
+<td>
+<?php echo $e['id']; ?>
+</td>
 
-<td><?php echo $e['documento']; ?></td>
+<td>
+<?php echo $e['documento']; ?>
+</td>
 
-<td><?php echo $e['nombre']; ?></td>
+<td>
+<?php echo $e['nombre']; ?>
+</td>
 
-<td><?php echo $e['apellido']; ?></td>
+<td>
+<?php echo $e['apellido']; ?>
+</td>
 
-<td><?php echo $e['curso']; ?></td>
+<td>
+<?php echo $e['curso']; ?>
+</td>
 
-<td width="220">
+<td>
 
 <a
 href="editar_estudiante.php?id=<?php echo $e['id']; ?>"
@@ -419,7 +481,11 @@ Eliminar
 
 </tr>
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 </tbody>
 
@@ -437,37 +503,48 @@ Eliminar
 
 </div>
 
+
+<!-- =========================================
+     BUSCADOR
+========================================= -->
+
 <script>
 
-const buscar=document.getElementById("buscar");
+const buscar = document.getElementById("buscar");
 
-buscar.addEventListener("keyup",function(){
+buscar.addEventListener("keyup", function(){
 
-let texto=this.value.toLowerCase();
+    let texto = this.value.toLowerCase();
 
-let filas=document.querySelectorAll("#tablaEstudiantes tr");
+    let filas = document.querySelectorAll(
+        "#tablaEstudiantes tr"
+    );
 
-filas.forEach(function(fila){
+    filas.forEach(function(fila){
 
-let contenido=fila.textContent.toLowerCase();
+        let contenido =
+            fila.textContent.toLowerCase();
 
-if(contenido.indexOf(texto)>-1){
+        if(contenido.indexOf(texto) > -1){
 
-fila.style.display="";
+            fila.style.display = "";
 
-}else{
+        }else{
 
-fila.style.display="none";
+            fila.style.display = "none";
 
-}
+        }
 
-});
+    });
 
 });
 
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+</script>
 
 </body>
 
