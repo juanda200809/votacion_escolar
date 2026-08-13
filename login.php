@@ -1,3 +1,4 @@
+```php
 <?php
 
 session_start();
@@ -11,21 +12,23 @@ include("config/conexion.php");
 
 if(isset($_SESSION['id'])){
 
-    if($_SESSION['rol'] == "administrador"){
+    $rolSesion = strtolower(trim($_SESSION['rol']));
+
+    if($rolSesion == "administrador"){
 
         header("Location: admin.php");
         exit();
 
     }
 
-    if($_SESSION['rol'] == "estudiante"){
+    if($rolSesion == "estudiante"){
 
         header("Location: votar.php");
         exit();
 
     }
 
-    if($_SESSION['rol'] == "jurado"){
+    if($rolSesion == "jurado"){
 
         header("Location: jurado.php");
         exit();
@@ -52,6 +55,10 @@ if(isset($_POST['ingresar'])){
     $password = trim($_POST['password']);
 
 
+    /*=========================================
+    VALIDAR CAMPOS
+    =========================================*/
+
     if($documento == "" || $password == ""){
 
         $error = "Debe completar todos los campos.";
@@ -59,7 +66,9 @@ if(isset($_POST['ingresar'])){
     }else{
 
 
-        /* Buscar usuario */
+        /*=========================================
+        BUSCAR USUARIO
+        =========================================*/
 
         $sql = $conn->query("
             SELECT *
@@ -75,13 +84,15 @@ if(isset($_POST['ingresar'])){
 
 
             /*=========================================
-            =      VALIDAR CONTRASEÑA
+            VALIDAR CONTRASEÑA
             =========================================*/
 
             $loginCorrecto = false;
 
 
-            /* Contraseña cifrada */
+            /*-----------------------------------------
+            CONTRASEÑA CIFRADA
+            -----------------------------------------*/
 
             if(password_verify($password, $usuario['password'])){
 
@@ -90,14 +101,17 @@ if(isset($_POST['ingresar'])){
             }
 
 
-            /* Contraseña antigua en texto */
+            /*-----------------------------------------
+            CONTRASEÑA ANTIGUA EN TEXTO PLANO
+            -----------------------------------------*/
 
             elseif($password == $usuario['password']){
 
                 $loginCorrecto = true;
 
 
-                /* Convertir automáticamente a contraseña cifrada */
+                /* Convertir automáticamente
+                   a contraseña cifrada */
 
                 $nuevaPassword = password_hash(
                     $password,
@@ -115,23 +129,40 @@ if(isset($_POST['ingresar'])){
 
 
             /*=========================================
-            =          INICIAR SESIÓN
+            INICIAR SESIÓN
             =========================================*/
 
             if($loginCorrecto){
+
+
+                /*
+                 * IMPORTANTE:
+                 *
+                 * trim() elimina espacios
+                 * strtolower() convierte el rol
+                 * a minúsculas.
+                 *
+                 * Por ejemplo:
+                 *
+                 * "Jurado"  -> "jurado"
+                 * " jurado " -> "jurado"
+                 */
+
+                $rol = strtolower(trim($usuario['rol']));
+
 
                 $_SESSION['id'] = $usuario['id'];
 
                 $_SESSION['nombre'] = $usuario['nombre'];
 
-                $_SESSION['rol'] = $usuario['rol'];
+                $_SESSION['rol'] = $rol;
 
 
                 /*=========================================
-                =          REDIRECCIONES
+                REDIRECCIÓN ADMINISTRADOR
                 =========================================*/
 
-                if($usuario['rol'] == "administrador"){
+                if($rol == "administrador"){
 
                     header("Location: admin.php");
                     exit();
@@ -139,7 +170,11 @@ if(isset($_POST['ingresar'])){
                 }
 
 
-                if($usuario['rol'] == "estudiante"){
+                /*=========================================
+                REDIRECCIÓN ESTUDIANTE
+                =========================================*/
+
+                if($rol == "estudiante"){
 
                     header("Location: votar.php");
                     exit();
@@ -147,7 +182,11 @@ if(isset($_POST['ingresar'])){
                 }
 
 
-                if($usuario['rol'] == "jurado"){
+                /*=========================================
+                REDIRECCIÓN JURADO
+                =========================================*/
+
+                if($rol == "jurado"){
 
                     header("Location: jurado.php");
                     exit();
@@ -155,17 +194,21 @@ if(isset($_POST['ingresar'])){
                 }
 
 
-                /* Si el rol no existe */
+                /*=========================================
+                ROL NO VÁLIDO
+                =========================================*/
 
                 $error = "El usuario tiene un rol no válido.";
 
                 session_destroy();
+
 
             }else{
 
                 $error = "Contraseña incorrecta.";
 
             }
+
 
         }else{
 
@@ -193,15 +236,21 @@ content="width=device-width, initial-scale=1">
 <title>Sistema de Votaciones</title>
 
 
+<!-- BOOTSTRAP -->
+
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
+<!-- ICONOS -->
+
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
+
+<!-- CSS DEL PROYECTO -->
 
 <link
 rel="stylesheet"
@@ -309,6 +358,8 @@ color:gray;
 <div class="login">
 
 
+<!-- LOGO -->
+
 <div class="logo">
 
 🗳️
@@ -316,12 +367,16 @@ color:gray;
 </div>
 
 
+<!-- TÍTULO -->
+
 <h2>
 
 Sistema de Votaciones
 
 </h2>
 
+
+<!-- MENSAJE DE ERROR -->
 
 <?php
 
@@ -344,8 +399,12 @@ if($error != ""){
 ?>
 
 
+<!-- FORMULARIO -->
+
 <form method="POST">
 
+
+<!-- DOCUMENTO -->
 
 <div class="mb-3">
 
@@ -386,6 +445,8 @@ autocomplete="off">
 </div>
 
 
+<!-- CONTRASEÑA -->
+
 <div class="mb-4">
 
 <label>
@@ -422,6 +483,8 @@ placeholder="Ingrese su contraseña"
 required>
 
 
+<!-- MOSTRAR CONTRASEÑA -->
+
 <button
 
 class="btn btn-outline-secondary"
@@ -447,6 +510,8 @@ id="iconoPassword">
 
 </div>
 
+
+<!-- RECORDAR DOCUMENTO -->
 
 <div class="form-check mb-4">
 
@@ -474,6 +539,8 @@ Recordar documento
 </div>
 
 
+<!-- BOTÓN INGRESAR -->
+
 <button
 
 type="submit"
@@ -497,6 +564,8 @@ Ingresar
 <hr>
 
 
+<!-- INFORMACIÓN -->
+
 <div class="text-center">
 
 <h6>
@@ -515,6 +584,8 @@ Versión 2.0
 </div>
 
 
+<!-- FOOTER -->
+
 <div class="footer">
 
 © <?php echo date("Y"); ?>
@@ -526,6 +597,8 @@ Todos los derechos reservados
 
 </div>
 
+
+<!-- JAVASCRIPT -->
 
 <script>
 
@@ -559,6 +632,8 @@ icono.className =
 </script>
 
 
+<!-- BOOTSTRAP JS -->
+
 <script
 src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
@@ -567,3 +642,4 @@ src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.j
 </body>
 
 </html>
+```
