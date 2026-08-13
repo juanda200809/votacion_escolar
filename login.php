@@ -1,109 +1,89 @@
 <?php
-
 session_start();
 
 include("config/conexion.php");
 
+/*=========================================
+=      SI YA HAY UNA SESIÓN
+=========================================*/
 
-/* =========================================
-   SI YA HAY UNA SESIÓN INICIADA
-========================================= */
+if (isset($_SESSION['id'])) {
 
-if(isset($_SESSION['id'])){
-
-    if($_SESSION['rol'] == "administrador"){
+    if ($_SESSION['rol'] == "administrador") {
 
         header("Location: admin.php");
         exit();
 
-    }elseif($_SESSION['rol'] == "jurado"){
-
-        header("Location: jurados.php");
-        exit();
-
-    }elseif($_SESSION['rol'] == "estudiante"){
+    } elseif ($_SESSION['rol'] == "estudiante") {
 
         header("Location: votar.php");
         exit();
 
-    }else{
+    } elseif ($_SESSION['rol'] == "jurado") {
 
-        session_destroy();
-
-        $error = "Usuario tiene un rol no válido.";
+        header("Location: jurado.php");
+        exit();
 
     }
 
 }
 
-
 $error = "";
 
+/*=========================================
+=      PROCESAR LOGIN
+=========================================*/
 
-/* =========================================
-   PROCESAR LOGIN
-========================================= */
-
-if(isset($_POST['ingresar'])){
+if (isset($_POST['ingresar'])) {
 
     $documento = trim($_POST['documento']);
     $password = trim($_POST['password']);
 
-
-    /* Verificar campos */
-
-    if($documento == "" || $password == ""){
+    if ($documento == "" || $password == "") {
 
         $error = "Debe completar todos los campos.";
 
-    }else{
+    } else {
 
-
-        /* Buscar usuario */
+        $documentoSeguro = $conn->real_escape_string($documento);
 
         $sql = $conn->query("
             SELECT *
             FROM usuarios
-            WHERE documento='$documento'
+            WHERE documento='$documentoSeguro'
+            LIMIT 1
         ");
 
-
-        if($sql && $sql->num_rows > 0){
+        if ($sql && $sql->num_rows > 0) {
 
             $usuario = $sql->fetch_assoc();
 
-
-            /* =========================================
-               VALIDAR CONTRASEÑA
-            ========================================= */
+            /*=========================================
+            =      VALIDAR CONTRASEÑA
+            =========================================*/
 
             $loginCorrecto = false;
 
-
             /* Contraseña cifrada */
 
-            if(password_verify($password, $usuario['password'])){
+            if (password_verify($password, $usuario['password'])) {
 
                 $loginCorrecto = true;
 
             }
 
+            /* Compatibilidad con contraseñas antiguas */
 
-            /* Contraseña antigua en texto plano */
-
-            elseif($password == $usuario['password']){
+            elseif ($password == $usuario['password']) {
 
                 $loginCorrecto = true;
 
-
-                /* Convertir automáticamente
-                   a contraseña cifrada */
+                /* Convertir automáticamente a contraseña cifrada */
 
                 $nuevaPassword = password_hash(
                     $password,
                     PASSWORD_DEFAULT
                 );
-
 
                 $conn->query("
                     UPDATE usuarios
@@ -113,76 +93,58 @@ if(isset($_POST['ingresar'])){
 
             }
 
+            /*=========================================
+            =      INICIAR SESIÓN
+            =========================================*/
 
-            /* =========================================
-               LOGIN CORRECTO
-            ========================================= */
-
-            if($loginCorrecto){
-
-
-                /* Guardar datos de sesión */
+            if ($loginCorrecto) {
 
                 $_SESSION['id'] = $usuario['id'];
-
                 $_SESSION['nombre'] = $usuario['nombre'];
-
                 $_SESSION['rol'] = $usuario['rol'];
-
-
-                /* =========================================
-                   REDIRECCIONES SEGÚN EL ROL
-                ========================================= */
-
 
                 /* ADMINISTRADOR */
 
-                if($usuario['rol'] == "administrador"){
+                if ($usuario['rol'] == "administrador") {
 
                     header("Location: admin.php");
                     exit();
 
                 }
 
-
-                /* JURADO */
-
-                elseif($usuario['rol'] == "jurado"){
-
-                    header("Location: jurados.php");
-                    exit();
-
-                }
-
-
                 /* ESTUDIANTE */
 
-                elseif($usuario['rol'] == "estudiante"){
+                elseif ($usuario['rol'] == "estudiante") {
 
                     header("Location: votar.php");
                     exit();
 
                 }
 
+                /* JURADO */
 
-                /* ROL DESCONOCIDO */
+                elseif ($usuario['rol'] == "jurado") {
 
-                else{
-
-                    session_destroy();
-
-                    $error = "Usuario tiene un rol no válido.";
+                    header("Location: jurado.php");
+                    exit();
 
                 }
 
-            }else{
+                /* ROL NO RECONOCIDO */
+
+                else {
+
+                    $error = "El usuario tiene un rol no válido.";
+
+                }
+
+            } else {
 
                 $error = "Contraseña incorrecta.";
 
             }
 
-
-        }else{
+        } else {
 
             $error = "Documento no registrado.";
 
@@ -207,110 +169,101 @@ content="width=device-width, initial-scale=1">
 
 <title>Sistema de Votaciones</title>
 
-
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
-
 
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-
 <link
 rel="stylesheet"
 href="css/estilos.css">
 
-
 <style>
 
-body{
+body {
 
-background:linear-gradient(
-135deg,
-#0d47a1,
-#1565c0
-);
+    background: linear-gradient(
+        135deg,
+        #0d47a1,
+        #1565c0
+    );
 
-height:100vh;
+    min-height: 100vh;
 
-display:flex;
+    display: flex;
 
-justify-content:center;
+    justify-content: center;
 
-align-items:center;
-
-}
-
-
-.login{
-
-width:430px;
-
-background:white;
-
-padding:40px;
-
-border-radius:20px;
-
-box-shadow:
-0 10px 30px rgba(0,0,0,.25);
+    align-items: center;
 
 }
 
+.login {
 
-.logo{
+    width: 430px;
 
-font-size:70px;
+    background: white;
 
-text-align:center;
+    padding: 40px;
 
-margin-bottom:15px;
+    border-radius: 20px;
 
-}
-
-
-.login h2{
-
-text-align:center;
-
-margin-bottom:30px;
-
-color:#0d47a1;
+    box-shadow:
+        0 10px 30px
+        rgba(0,0,0,.25);
 
 }
 
+.logo {
 
-.input-group-text{
+    font-size: 70px;
 
-background:#0d6efd;
+    text-align: center;
 
-color:white;
-
-}
-
-
-.btn-login{
-
-width:100%;
-
-padding:12px;
-
-font-size:18px;
+    margin-bottom: 15px;
 
 }
 
+.login h2 {
 
-.footer{
+    text-align: center;
 
-margin-top:20px;
+    margin-bottom: 30px;
 
-text-align:center;
+    color: #0d47a1;
 
-font-size:13px;
+}
 
-color:gray;
+.input-group-text {
+
+    background: #0d6efd;
+
+    color: white;
+
+}
+
+.btn-login {
+
+    width: 100%;
+
+    padding: 12px;
+
+    font-size: 18px;
+
+}
+
+.footer {
+
+    margin-top: 20px;
+
+    text-align: center;
+
+    font-size: 13px;
+
+    color: gray;
 
 }
 
@@ -318,12 +271,9 @@ color:gray;
 
 </head>
 
-
 <body>
 
-
 <div class="login">
-
 
 <div class="logo">
 
@@ -331,37 +281,25 @@ color:gray;
 
 </div>
 
-
 <h2>
 
 Sistema de Votaciones
 
 </h2>
 
-
-<?php
-
-if($error != ""){
-
-?>
+<?php if ($error != "") { ?>
 
 <div class="alert alert-danger">
+
+<i class="bi bi-exclamation-triangle-fill"></i>
 
 <?php echo htmlspecialchars($error); ?>
 
 </div>
 
-<?php
-
-}
-
-?>
-
+<?php } ?>
 
 <form method="POST">
-
-
-<!-- DOCUMENTO -->
 
 <div class="mb-3">
 
@@ -373,9 +311,7 @@ Documento
 
 </label>
 
-
 <div class="input-group">
-
 
 <span class="input-group-text">
 
@@ -383,30 +319,17 @@ Documento
 
 </span>
 
-
 <input
-
 type="text"
-
 name="documento"
-
 class="form-control"
-
 placeholder="Ingrese su documento"
-
 required
-
-autocomplete="off"
-
->
-
+autocomplete="off">
 
 </div>
 
 </div>
-
-
-<!-- CONTRASEÑA -->
 
 <div class="mb-4">
 
@@ -418,9 +341,7 @@ Contraseña
 
 </label>
 
-
 <div class="input-group">
-
 
 <span class="input-group-text">
 
@@ -428,114 +349,46 @@ Contraseña
 
 </span>
 
-
 <input
-
 type="password"
-
 name="password"
-
 id="password"
-
 class="form-control"
-
 placeholder="Ingrese su contraseña"
-
-required
-
->
-
+required>
 
 <button
-
 class="btn btn-outline-secondary"
-
 type="button"
-
-onclick="mostrarPassword()"
-
->
-
+onclick="mostrarPassword()">
 
 <i
-
 class="bi bi-eye"
-
 id="iconoPassword">
-
 </i>
-
 
 </button>
 
-
 </div>
 
 </div>
-
-
-<!-- RECORDAR DOCUMENTO -->
-
-<div class="form-check mb-4">
-
-
-<input
-
-class="form-check-input"
-
-type="checkbox"
-
-id="recordar"
-
-
->
-
-
-<label
-
-class="form-check-label"
-
-for="recordar"
-
->
-
-Recordar documento
-
-</label>
-
-
-</div>
-
-
-<!-- BOTÓN -->
 
 <button
-
 type="submit"
-
 name="ingresar"
-
-class="btn btn-primary btn-login"
-
->
-
+class="btn btn-primary btn-login">
 
 <i class="bi bi-box-arrow-in-right"></i>
 
 Ingresar
 
-
 </button>
-
 
 </form>
 
-
 <hr>
 
-
 <div class="text-center">
-
 
 <h6>
 
@@ -543,79 +396,57 @@ Sistema de Votaciones Escolares
 
 </h6>
 
-
 <small>
 
 Versión 2.0
 
 </small>
 
-
 </div>
 
-
 <div class="footer">
-
 
 © <?php echo date("Y"); ?>
 
 Todos los derechos reservados
 
-
 </div>
 
-
 </div>
-
 
 <script>
 
+function mostrarPassword() {
 
-function mostrarPassword(){
+    let pass =
+        document.getElementById("password");
 
+    let icono =
+        document.getElementById("iconoPassword");
 
-let pass =
-document.getElementById("password");
+    if (pass.type == "password") {
 
+        pass.type = "text";
 
-let icono =
-document.getElementById("iconoPassword");
+        icono.className =
+            "bi bi-eye-slash";
 
+    } else {
 
-if(pass.type == "password"){
+        pass.type = "password";
 
+        icono.className =
+            "bi bi-eye";
 
-pass.type = "text";
-
-
-icono.className =
-"bi bi-eye-slash";
-
-
-}else{
-
-
-pass.type = "password";
-
-
-icono.className =
-"bi bi-eye";
-
+    }
 
 }
-
-}
-
 
 </script>
-
 
 <script
-
 src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-
 </script>
-
 
 </body>
 
