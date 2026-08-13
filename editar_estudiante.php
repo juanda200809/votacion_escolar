@@ -1,18 +1,21 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
+if (
+    !isset($_SESSION['id']) ||
+    $_SESSION['rol'] != 'administrador'
+) {
     header("Location: index.php");
     exit();
 }
 
 include("config/conexion.php");
 
-/*=========================================
-=          VERIFICAR ID DEL ESTUDIANTE    =
-=========================================*/
+/* =========================================
+   VERIFICAR ID
+========================================= */
 
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+if (!isset($_GET['id'])) {
     header("Location: estudiantes.php");
     exit();
 }
@@ -20,28 +23,9 @@ if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
 $id = intval($_GET['id']);
 
 
-/*=========================================
-=          BUSCAR ESTUDIANTE              =
-=========================================*/
-
-$consulta = $conn->query("
-    SELECT *
-    FROM usuarios
-    WHERE id=$id
-    AND rol='estudiante'
-");
-
-if ($consulta->num_rows == 0) {
-    header("Location: estudiantes.php");
-    exit();
-}
-
-$estudiante = $consulta->fetch_assoc();
-
-
-/*=========================================
-=          ACTUALIZAR ESTUDIANTE          =
-=========================================*/
+/* =========================================
+   ACTUALIZAR ESTUDIANTE
+========================================= */
 
 if (isset($_POST['actualizar'])) {
 
@@ -50,84 +34,107 @@ if (isset($_POST['actualizar'])) {
     $apellido = trim($_POST['apellido']);
     $curso = trim($_POST['curso']);
 
-    /*
-     * La contraseña será automáticamente
-     * el documento del estudiante.
-     */
+    /* La contraseña será automáticamente
+       el mismo documento */
+
     $password_hash = password_hash(
         $documento,
         PASSWORD_DEFAULT
     );
 
 
-    /*=====================================
-    =      VERIFICAR DOCUMENTO DUPLICADO =
-    =====================================*/
+    /* Verificar que el documento no pertenezca
+       a otro usuario */
 
-    $verificar = $conn->query("
+    $verificar = $conn->prepare("
         SELECT id
         FROM usuarios
-        WHERE documento='$documento'
-        AND id != $id
+        WHERE documento = ?
+        AND id != ?
     ");
 
-    if ($verificar->num_rows > 0) {
+    $verificar->bind_param(
+        "si",
+        $documento,
+        $id
+    );
+
+    $verificar->execute();
+
+    $resultado = $verificar->get_result();
+
+
+    if ($resultado->num_rows > 0) {
 
         $mensaje = "
         <div class='alerta error'>
-            <i class='bi bi-exclamation-triangle-fill'></i>
             Ya existe otro usuario con ese documento.
         </div>";
 
     } else {
 
-        /*=================================
-        =       ACTUALIZAR DATOS          =
-        =================================*/
+        $actualizar = $conn->prepare("
+            UPDATE usuarios
+            SET
+                documento = ?,
+                nombre = ?,
+                apellido = ?,
+                curso = ?,
+                password = ?
+            WHERE id = ?
+            AND rol = 'estudiante'
+        ");
 
-        $sql = "
-        UPDATE usuarios
-        SET
-            documento='$documento',
-            nombre='$nombre',
-            apellido='$apellido',
-            correo='',
-            curso='$curso',
-            password='$password_hash'
-        WHERE id=$id
-        AND rol='estudiante'
-        ";
+        $actualizar->bind_param(
+            "sssssi",
+            $documento,
+            $nombre,
+            $apellido,
+            $curso,
+            $password_hash,
+            $id
+        );
 
-        if ($conn->query($sql)) {
 
-            $mensaje = "
-            <div class='alerta ok'>
-                <i class='bi bi-check-circle-fill'></i>
-                Estudiante actualizado correctamente.
-                <br>
-                <strong>La nueva contraseña es su documento.</strong>
-            </div>";
+        if ($actualizar->execute()) {
 
-            /*
-             * Actualizar los datos mostrados
-             * en el formulario.
-             */
-            $estudiante['documento'] = $documento;
-            $estudiante['nombre'] = $nombre;
-            $estudiante['apellido'] = $apellido;
-            $estudiante['curso'] = $curso;
+            header("Location: estudiantes.php");
+            exit();
 
         } else {
 
             $mensaje = "
             <div class='alerta error'>
-                <i class='bi bi-x-circle-fill'></i>
-                Error al actualizar el estudiante:
-                " . $conn->error . "
+                Error al actualizar el estudiante.
             </div>";
         }
     }
 }
+
+
+/* =========================================
+   OBTENER ESTUDIANTE
+========================================= */
+
+$stmt = $conn->prepare("
+    SELECT *
+    FROM usuarios
+    WHERE id = ?
+    AND rol = 'estudiante'
+");
+
+$stmt->bind_param("i", $id);
+$stmt->execute();
+
+$resultado = $stmt->get_result();
+
+if ($resultado->num_rows == 0) {
+
+    header("Location: estudiantes.php");
+    exit();
+}
+
+$estudiante = $resultado->fetch_assoc();
 
 ?>
 
@@ -139,8 +146,7 @@ if (isset($_POST['actualizar'])) {
 
 <meta charset="UTF-8">
 
-<meta
-name="viewport"
+<meta name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>Editar Estudiante</title>
@@ -153,82 +159,60 @@ rel="stylesheet">
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-<link
-rel="stylesheet"
-href="css/estilos.css">
-
 <style>
 
 body {
-    background:#eef3f9;
+    background: #eef3f9;
 }
 
 .card-form {
 
-    max-width:700px;
+    max-width: 700px;
+    margin: 50px auto;
 
-    margin:auto;
+    border: none;
+    border-radius: 15px;
 
-    border:none;
-
-    border-radius:15px;
-
-    box-shadow:0 5px 15px rgba(0,0,0,.15);
-
-}
-
-.alerta {
-
-    padding:15px;
-
-    border-radius:8px;
-
-    margin-bottom:20px;
-
-}
-
-.ok {
-
-    background:#d1fae5;
-
-    color:#065f46;
-
-}
-
-.error {
-
-    background:#fee2e2;
-
-    color:#991b1b;
-
+    box-shadow:
+        0 5px 20px rgba(0,0,0,.15);
 }
 
 .titulo {
 
-    color:#0d47a1;
+    color: #0d47a1;
+    font-weight: bold;
+}
 
+.alerta {
+
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.error {
+
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.info {
+
+    background: #dbeafe;
+    color: #1e40af;
 }
 
 </style>
 
 </head>
 
-
 <body>
 
-
-<div class="container py-5">
-
+<div class="container">
 
 <div class="card card-form">
 
-
 <div class="card-body p-4">
-
-
-<!-- =====================================
-     TITULO
-===================================== -->
 
 <h2 class="titulo mb-4">
 
@@ -239,24 +223,14 @@ Editar Estudiante
 </h2>
 
 
-<!-- =====================================
-     MENSAJE
-===================================== -->
-
 <?php
 
 if (isset($mensaje)) {
-
     echo $mensaje;
-
 }
 
 ?>
 
-
-<!-- =====================================
-     FORMULARIO
-===================================== -->
 
 <form method="POST">
 
@@ -272,15 +246,10 @@ if (isset($mensaje)) {
 </label>
 
 <input
-
 type="text"
-
 name="documento"
-
 class="form-control"
-
 value="<?php echo htmlspecialchars($estudiante['documento']); ?>"
-
 required>
 
 </div>
@@ -297,15 +266,10 @@ required>
 </label>
 
 <input
-
 type="text"
-
 name="nombre"
-
 class="form-control"
-
 value="<?php echo htmlspecialchars($estudiante['nombre']); ?>"
-
 required>
 
 </div>
@@ -322,15 +286,10 @@ required>
 </label>
 
 <input
-
 type="text"
-
 name="apellido"
-
 class="form-control"
-
 value="<?php echo htmlspecialchars($estudiante['apellido']); ?>"
-
 required>
 
 </div>
@@ -347,36 +306,31 @@ required>
 </label>
 
 <input
-
 type="text"
-
 name="curso"
-
 class="form-control"
-
 value="<?php echo htmlspecialchars($estudiante['curso']); ?>"
-
 required>
 
 </div>
 
 
-<!-- AVISO DE CONTRASEÑA -->
+<!-- INFORMACIÓN DE CONTRASEÑA -->
 
-<div class="alert alert-info">
+<div class="alerta info">
 
 <i class="bi bi-info-circle-fill"></i>
 
-<strong>Contraseña automática</strong>
-
-<br>
+<strong>Contraseña:</strong>
 
 La contraseña del estudiante será automáticamente
 su número de documento.
 
 <br><br>
 
-Si cambia el documento, también cambiará la contraseña.
+Por ejemplo:
+
+<strong>1072709874</strong>
 
 </div>
 
@@ -385,26 +339,20 @@ Si cambia el documento, también cambiará la contraseña.
 
 <div class="d-flex gap-2">
 
-
 <button
-
 type="submit"
-
 name="actualizar"
-
 class="btn btn-success flex-fill">
 
-<i class="bi bi-check-circle-fill"></i>
+<i class="bi bi-check-circle"></i>
 
-Guardar Cambios
+Guardar cambios
 
 </button>
 
 
 <a
-
 href="estudiantes.php"
-
 class="btn btn-secondary flex-fill">
 
 <i class="bi bi-arrow-left-circle"></i>
@@ -413,24 +361,16 @@ Cancelar
 
 </a>
 
-
 </div>
 
 
 </form>
 
-
 </div>
 
 </div>
 
-
 </div>
-
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
 
 </body>
 
