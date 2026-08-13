@@ -1,106 +1,65 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
-    header("Location: index.php");
+/* =========================================
+   VERIFICAR SESIÓN DEL JURADO
+========================================= */
+
+if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'jurado') {
+    header("Location: login.php");
     exit();
 }
 
 include("config/conexion.php");
 
-/*=========================================
-=            GUARDAR ESTUDIANTE           =
-=========================================*/
+$mensaje = "";
+$tipoMensaje = "";
 
-if(isset($_POST['guardar'])){
+/* =========================================
+   INGRESAR ESTUDIANTE
+========================================= */
+
+if (isset($_POST['ingresar_estudiante'])) {
 
     $documento = trim($_POST['documento']);
-    $nombre = trim($_POST['nombre']);
-    $apellido = trim($_POST['apellido']);
-    $correo = trim($_POST['correo']);
-    $curso = trim($_POST['curso']);
-    $password = trim($_POST['password']);
-    $password_hash = password_hash($password, PASSWORD_DEFAULT);
 
-    // Verificar si el documento ya existe
-    $verificar = $conn->query("
-        SELECT id
-        FROM usuarios
-        WHERE documento='$documento'
-    ");
+    if ($documento == "") {
 
-    if($verificar->num_rows > 0){
+        $mensaje = "Debe ingresar el documento del estudiante.";
+        $tipoMensaje = "danger";
 
-        $mensaje = "<div class='alerta error'>
-                        Ya existe un estudiante con ese documento.
-                    </div>";
+    } else {
 
-    }else{
+        /* Buscar estudiante */
 
-        $sql = "INSERT INTO usuarios
-        (documento,nombre,apellido,correo,curso,password,rol)
+        $consulta = $conn->query("
+            SELECT *
+            FROM usuarios
+            WHERE documento='$documento'
+            AND rol='estudiante'
+            LIMIT 1
+        ");
 
-        VALUES
+        if ($consulta->num_rows == 0) {
 
-        (
-        '$documento',
-        '$nombre',
-        '$apellido',
-        '$correo',
-        '$curso',
-        '$password_hash',
-        'jurado'
-        )";
+            $mensaje = "No se encontró un estudiante con ese documento.";
+            $tipoMensaje = "danger";
 
-        if($conn->query($sql)){
+        } else {
 
-            $mensaje = "<div class='alerta ok'>
-                            Estudiante registrado correctamente.
-                        </div>";
+            $estudiante = $consulta->fetch_assoc();
 
-        }else{
+            /* Guardar estudiante en la sesión del jurado */
 
-            $mensaje = "<div class='alerta error'>
-                            Error al registrar estudiante.
-                        </div>";
+            $_SESSION['estudiante_jurado'] = $estudiante['id'];
 
+            /* Ir a la pantalla de votación */
+
+            header("Location: votar_jurado.php");
+            exit();
         }
-
     }
-
 }
-
-/*=========================================
-=             ELIMINAR                    =
-=========================================*/
-
-if(isset($_GET['eliminar'])){
-
-    $id = intval($_GET['eliminar']);
-
-    $conn->query("
-        DELETE FROM usuarios
-        WHERE id=$id
-        AND rol='jurado'
-    ");
-
-    header("Location: estudiantes.php");
-    exit();
-
-}
-
-/*=========================================
-=             CONSULTA                    =
-=========================================*/
-
-$estudiantes = $conn->query("
-SELECT *
-FROM usuarios
-WHERE rol='estudiante'
-ORDER BY nombre ASC
-");
-
-$total = $estudiantes->num_rows;
 
 ?>
 
@@ -115,7 +74,7 @@ $total = $estudiantes->num_rows;
 <meta name="viewport"
 content="width=device-width, initial-scale=1">
 
-<title>Gestión de Estudiantes</title>
+<title>Jurado de Votación</title>
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -131,51 +90,88 @@ href="css/estilos.css">
 
 <style>
 
-body{
+body {
 
-background:#eef3f9;
+    background:linear-gradient(
+        135deg,
+        #0d47a1,
+        #1565c0
+    );
 
-}
+    min-height:100vh;
 
-.card-form{
+    display:flex;
 
-border:none;
-border-radius:15px;
-box-shadow:0 5px 15px rgba(0,0,0,.15);
+    justify-content:center;
 
-}
-
-.table{
-
-background:white;
+    align-items:center;
 
 }
 
-.alerta{
+.jurado {
 
-padding:15px;
-border-radius:8px;
-margin-bottom:20px;
+    width:450px;
 
-}
+    background:white;
 
-.ok{
+    padding:40px;
 
-background:#d1fae5;
-color:#065f46;
+    border-radius:20px;
 
-}
-
-.error{
-
-background:#fee2e2;
-color:#991b1b;
+    box-shadow:
+        0 10px 30px rgba(0,0,0,.25);
 
 }
 
-.buscar{
+.logo {
 
-max-width:350px;
+    font-size:70px;
+
+    text-align:center;
+
+    margin-bottom:15px;
+
+}
+
+.jurado h2 {
+
+    text-align:center;
+
+    color:#0d47a1;
+
+    margin-bottom:10px;
+
+}
+
+.subtitulo {
+
+    text-align:center;
+
+    color:#777;
+
+    margin-bottom:30px;
+
+}
+
+.btn-ingresar {
+
+    width:100%;
+
+    padding:12px;
+
+    font-size:18px;
+
+}
+
+.info-jurado {
+
+    background:#eef5ff;
+
+    border-radius:10px;
+
+    padding:15px;
+
+    margin-bottom:25px;
 
 }
 
@@ -185,289 +181,166 @@ max-width:350px;
 
 <body>
 
-<div class="container py-4">
+<div class="jurado">
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="logo">
+
+🗳️
+
+</div>
 
 <h2>
 
-<i class="bi bi-people-fill"></i>
-
-Gestion de jurados
+Jurado de Votación
 
 </h2>
 
-<a
-href="admin.php"
-class="btn btn-primary">
+<p class="subtitulo">
 
-<i class="bi bi-arrow-left-circle"></i>
+Ingreso de estudiantes
 
-Volver al Panel
+</p>
 
-</a>
 
-</div>
+<!-- =========================================
+     INFORMACIÓN DEL JURADO
+========================================= -->
+
+<div class="info-jurado">
+
+<strong>
+
+<i class="bi bi-person-badge-fill"></i>
+
+Jurado:
+
+</strong>
 
 <?php
 
-if(isset($mensaje)){
-
-echo $mensaje;
-
-}
+echo htmlspecialchars(
+$_SESSION['nombre']
+);
 
 ?>
 
-<div class="row">
+</div>
 
-<div class="col-md-4">
 
-<div class="card card-form">
+<!-- =========================================
+     MENSAJE
+========================================= -->
 
-<div class="card-body">
+<?php if ($mensaje != "") { ?>
 
-<h4 class="mb-3">
+<div class="alert alert-<?php
+echo $tipoMensaje;
+?>">
 
-Registrar nuevo jurado
+<i class="bi bi-exclamation-triangle-fill"></i>
 
-</h4>
+<?php
+
+echo htmlspecialchars($mensaje);
+
+?>
+
+</div>
+
+<?php } ?>
+
+
+<!-- =========================================
+     FORMULARIO ESTUDIANTE
+========================================= -->
 
 <form method="POST">
 
-<div class="mb-3">
+<div class="mb-4">
 
-<label>Documento</label>
+<label class="form-label">
+
+<i class="bi bi-person-vcard-fill"></i>
+
+Documento del estudiante
+
+</label>
+
+<div class="input-group">
+
+<span class="input-group-text">
+
+<i class="bi bi-person-fill"></i>
+
+</span>
 
 <input
+
 type="text"
+
 name="documento"
-class="form-control"
-required>
+
+class="form-control form-control-lg"
+
+placeholder="Ingrese el documento"
+
+autocomplete="off"
+
+required
+
+autofocus>
 
 </div>
 
-<div class="mb-3">
-
-<label>Nombre</label>
-
-<input
-type="text"
-name="nombre"
-class="form-control"
-required>
-
 </div>
 
-<div class="mb-3">
-
-<label>Apellido</label>
-
-<input
-type="text"
-name="apellido"
-class="form-control"
-required>
-
-</div>
-
-<div class="mb-3">
-
-<label>Correo</label>
-
-<input
-type="email"
-name="correo"
-class="form-control">
-
-</div>
-
-<div class="mb-3">
-
-<label>Curso</label>
-
-<input
-type="text"
-name="curso"
-class="form-control"
-required>
-
-</div>
-
-<div class="mb-3">
-
-<label>Contraseña</label>
-
-<input
-type="password"
-name="password"
-class="form-control"
-required>
-
-</div>
 
 <button
+
 type="submit"
-name="guardar"
-class="btn btn-success w-100">
 
-<i class="bi bi-person-plus-fill"></i>
+name="ingresar_estudiante"
 
-Guardar Estudiante
+class="btn btn-primary btn-ingresar">
+
+<i class="bi bi-box-arrow-in-right"></i>
+
+Ingresar estudiante
 
 </button>
 
 </form>
 
-</div>
 
-</div>
+<hr class="my-4">
 
-</div>
 
-<div class="col-md-8">
-    <div class="card card-form">
+<!-- =========================================
+     CERRAR SESIÓN
+========================================= -->
 
-<div class="card-body">
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-
-<h4>
-
-Lista de jurados
-
-</h4>
-
-<span class="badge bg-primary fs-6">
-
-Total: <?php echo $total; ?>
-
-</span>
-
-</div>
-
-<input
-type="text"
-id="buscar"
-class="form-control buscar mb-3"
-placeholder="🔍 Buscar estudiante...">
-
-<div class="table-responsive">
-
-<table class="table table-bordered table-hover align-middle">
-
-<thead class="table-primary">
-
-<tr>
-
-<th>ID</th>
-
-<th>Documento</th>
-
-<th>Nombre</th>
-
-<th>Apellido</th>
-
-<th>Curso</th>
-
-<th>Acciones</th>
-
-</tr>
-
-</thead>
-
-<tbody id="tablaEstudiantes">
-
-<?php while($e = $estudiantes->fetch_assoc()){ ?>
-
-<tr>
-
-<td><?php echo $e['id']; ?></td>
-
-<td><?php echo $e['documento']; ?></td>
-
-<td><?php echo $e['nombre']; ?></td>
-
-<td><?php echo $e['apellido']; ?></td>
-
-<td><?php echo $e['curso']; ?></td>
-
-<td width="220">
+<div class="text-center">
 
 <a
-href="editar_estudiante.php?id=<?php echo $e['id']; ?>"
-class="btn btn-warning btn-sm">
 
-<i class="bi bi-pencil-square"></i>
+href="logout.php"
 
-Editar
+class="btn btn-outline-danger">
+
+<i class="bi bi-box-arrow-right"></i>
+
+Cerrar sesión del jurado
 
 </a>
 
-<a
-href="?eliminar=<?php echo $e['id']; ?>"
-class="btn btn-danger btn-sm"
-onclick="return confirm('¿Desea eliminar este estudiante?')">
-
-<i class="bi bi-trash-fill"></i>
-
-Eliminar
-
-</a>
-
-</td>
-
-</tr>
-
-<?php } ?>
-
-</tbody>
-
-</table>
-
 </div>
 
 </div>
 
-</div>
 
-</div>
-
-</div>
-
-</div>
-
-<script>
-
-const buscar=document.getElementById("buscar");
-
-buscar.addEventListener("keyup",function(){
-
-let texto=this.value.toLowerCase();
-
-let filas=document.querySelectorAll("#tablaEstudiantes tr");
-
-filas.forEach(function(fila){
-
-let contenido=fila.textContent.toLowerCase();
-
-if(contenido.indexOf(texto)>-1){
-
-fila.style.display="";
-
-}else{
-
-fila.style.display="none";
-
-}
-
-});
-
-});
-
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 </body>
 
