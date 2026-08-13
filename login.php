@@ -1,35 +1,39 @@
 <?php
+
 session_start();
 
 include("config/conexion.php");
 
 
 /* =========================================
-   SI YA HAY UNA SESIÓN ACTIVA
+   SI YA HAY UNA SESIÓN INICIADA
 ========================================= */
 
-if (isset($_SESSION['id'])) {
+if(isset($_SESSION['id'])){
 
-    if ($_SESSION['rol'] == "administrador") {
+    if($_SESSION['rol'] == "administrador"){
 
         header("Location: admin.php");
+        exit();
 
-    } elseif ($_SESSION['rol'] == "jurado") {
+    }elseif($_SESSION['rol'] == "jurado"){
 
-        header("Location: jurado.php");
+        header("Location: jurados.php");
+        exit();
 
-    } elseif ($_SESSION['rol'] == "estudiante") {
+    }elseif($_SESSION['rol'] == "estudiante"){
 
         header("Location: votar.php");
+        exit();
 
-    } else {
+    }else{
 
         session_destroy();
 
-        header("Location: login.php");
+        $error = "Usuario tiene un rol no válido.";
+
     }
 
-    exit();
 }
 
 
@@ -40,75 +44,54 @@ $error = "";
    PROCESAR LOGIN
 ========================================= */
 
-if (isset($_POST['ingresar'])) {
+if(isset($_POST['ingresar'])){
 
     $documento = trim($_POST['documento']);
     $password = trim($_POST['password']);
 
 
-    /* =====================================
-       VALIDAR CAMPOS
-    ===================================== */
+    /* Verificar campos */
 
-    if ($documento == "" || $password == "") {
+    if($documento == "" || $password == ""){
 
         $error = "Debe completar todos los campos.";
 
-    } else {
+    }else{
 
 
-        /* =================================
-           BUSCAR USUARIO
-        ================================= */
+        /* Buscar usuario */
 
-        $stmt = $conn->prepare("
+        $sql = $conn->query("
             SELECT *
             FROM usuarios
-            WHERE documento = ?
-            LIMIT 1
+            WHERE documento='$documento'
         ");
 
-        $stmt->bind_param("s", $documento);
 
-        $stmt->execute();
+        if($sql && $sql->num_rows > 0){
 
-        $resultado = $stmt->get_result();
+            $usuario = $sql->fetch_assoc();
 
 
-        /* =================================
-           VERIFICAR SI EXISTE
-        ================================= */
-
-        if ($resultado->num_rows > 0) {
-
-            $usuario = $resultado->fetch_assoc();
+            /* =========================================
+               VALIDAR CONTRASEÑA
+            ========================================= */
 
             $loginCorrecto = false;
 
 
-            /* =================================
-               CONTRASEÑA CIFRADA
-            ================================= */
+            /* Contraseña cifrada */
 
-            if (
-                password_verify(
-                    $password,
-                    $usuario['password']
-                )
-            ) {
+            if(password_verify($password, $usuario['password'])){
 
                 $loginCorrecto = true;
+
             }
 
 
-            /* =================================
-               CONTRASEÑAS ANTIGUAS
-               EN TEXTO PLANO
-            ================================= */
+            /* Contraseña antigua en texto plano */
 
-            elseif (
-                $password == $usuario['password']
-            ) {
+            elseif($password == $usuario['password']){
 
                 $loginCorrecto = true;
 
@@ -122,33 +105,23 @@ if (isset($_POST['ingresar'])) {
                 );
 
 
-                $actualizar = $conn->prepare("
+                $conn->query("
                     UPDATE usuarios
-                    SET password = ?
-                    WHERE id = ?
+                    SET password='$nuevaPassword'
+                    WHERE id=".$usuario['id']."
                 ");
 
-                $actualizar->bind_param(
-                    "si",
-                    $nuevaPassword,
-                    $usuario['id']
-                );
-
-                $actualizar->execute();
             }
 
 
-            /* =================================
+            /* =========================================
                LOGIN CORRECTO
-            ================================= */
+            ========================================= */
 
-            if ($loginCorrecto) {
+            if($loginCorrecto){
 
 
-                /* Regenerar sesión */
-
-                session_regenerate_id(true);
-
+                /* Guardar datos de sesión */
 
                 $_SESSION['id'] = $usuario['id'];
 
@@ -157,69 +130,69 @@ if (isset($_POST['ingresar'])) {
                 $_SESSION['rol'] = $usuario['rol'];
 
 
-                /* =================================
-                   ADMINISTRADOR
-                ================================= */
+                /* =========================================
+                   REDIRECCIONES SEGÚN EL ROL
+                ========================================= */
 
-                if ($usuario['rol'] == "administrador") {
+
+                /* ADMINISTRADOR */
+
+                if($usuario['rol'] == "administrador"){
 
                     header("Location: admin.php");
-
                     exit();
+
                 }
 
 
-                /* =================================
-                   JURADO
-                ================================= */
+                /* JURADO */
 
-                elseif ($usuario['rol'] == "jurado") {
+                elseif($usuario['rol'] == "jurado"){
 
-                    header("Location: jurado.php");
-
+                    header("Location: jurados.php");
                     exit();
+
                 }
 
 
-                /* =================================
-                   ESTUDIANTE
-                ================================= */
+                /* ESTUDIANTE */
 
-                elseif ($usuario['rol'] == "estudiante") {
+                elseif($usuario['rol'] == "estudiante"){
 
                     header("Location: votar.php");
-
                     exit();
+
                 }
 
 
-                /* =================================
-                   ROL DESCONOCIDO
-                ================================= */
+                /* ROL DESCONOCIDO */
 
-                else {
+                else{
 
                     session_destroy();
 
-                    $error = "El usuario tiene un rol no válido.";
+                    $error = "Usuario tiene un rol no válido.";
+
                 }
 
-
-            } else {
+            }else{
 
                 $error = "Contraseña incorrecta.";
+
             }
 
 
-        } else {
+        }else{
 
             $error = "Documento no registrado.";
+
         }
+
     }
+
 }
 
 ?>
-
 
 <!DOCTYPE html>
 
@@ -252,86 +225,93 @@ href="css/estilos.css">
 
 <style>
 
-body {
+body{
 
-    background: linear-gradient(
-        135deg,
-        #0d47a1,
-        #1565c0
-    );
+background:linear-gradient(
+135deg,
+#0d47a1,
+#1565c0
+);
 
-    height: 100vh;
+height:100vh;
 
-    display: flex;
+display:flex;
 
-    justify-content: center;
+justify-content:center;
 
-    align-items: center;
+align-items:center;
+
 }
 
 
-.login {
+.login{
 
-    width: 430px;
+width:430px;
 
-    background: white;
+background:white;
 
-    padding: 40px;
+padding:40px;
 
-    border-radius: 20px;
+border-radius:20px;
 
-    box-shadow:
-        0 10px 30px rgba(0,0,0,.25);
+box-shadow:
+0 10px 30px rgba(0,0,0,.25);
+
 }
 
 
-.logo {
+.logo{
 
-    font-size: 70px;
+font-size:70px;
 
-    text-align: center;
+text-align:center;
 
-    margin-bottom: 15px;
+margin-bottom:15px;
+
 }
 
 
-.login h2 {
+.login h2{
 
-    text-align: center;
+text-align:center;
 
-    margin-bottom: 30px;
+margin-bottom:30px;
 
-    color: #0d47a1;
+color:#0d47a1;
+
 }
 
 
-.input-group-text {
+.input-group-text{
 
-    background: #0d6efd;
+background:#0d6efd;
 
-    color: white;
+color:white;
+
 }
 
 
-.btn-login {
+.btn-login{
 
-    width: 100%;
+width:100%;
 
-    padding: 12px;
+padding:12px;
 
-    font-size: 18px;
+font-size:18px;
+
 }
 
 
-.footer {
+.footer{
 
-    margin-top: 20px;
+margin-top:20px;
 
-    text-align: center;
+text-align:center;
 
-    font-size: 13px;
+font-size:13px;
 
-    color: gray;
+color:gray;
+
 }
 
 </style>
@@ -361,7 +341,7 @@ Sistema de Votaciones
 
 <?php
 
-if ($error != "") {
+if($error != ""){
 
 ?>
 
@@ -381,9 +361,7 @@ if ($error != "") {
 <form method="POST">
 
 
-<!-- =====================================
-     DOCUMENTO
-===================================== -->
+<!-- DOCUMENTO -->
 
 <div class="mb-3">
 
@@ -428,9 +406,7 @@ autocomplete="off"
 </div>
 
 
-<!-- =====================================
-     CONTRASEÑA
-===================================== -->
+<!-- CONTRASEÑA -->
 
 <div class="mb-4">
 
@@ -480,13 +456,15 @@ onclick="mostrarPassword()"
 
 >
 
+
 <i
 
 class="bi bi-eye"
 
-id="iconoPassword"
+id="iconoPassword">
 
-></i>
+</i>
+
 
 </button>
 
@@ -496,9 +474,7 @@ id="iconoPassword"
 </div>
 
 
-<!-- =====================================
-     RECORDAR DOCUMENTO
-===================================== -->
+<!-- RECORDAR DOCUMENTO -->
 
 <div class="form-check mb-4">
 
@@ -531,9 +507,7 @@ Recordar documento
 </div>
 
 
-<!-- =====================================
-     BOTÓN
-===================================== -->
+<!-- BOTÓN -->
 
 <button
 
@@ -545,9 +519,11 @@ class="btn btn-primary btn-login"
 
 >
 
+
 <i class="bi bi-box-arrow-in-right"></i>
 
 Ingresar
+
 
 </button>
 
@@ -580,9 +556,11 @@ Versión 2.0
 
 <div class="footer">
 
+
 © <?php echo date("Y"); ?>
 
 Todos los derechos reservados
+
 
 </div>
 
@@ -593,38 +571,49 @@ Todos los derechos reservados
 <script>
 
 
-function mostrarPassword() {
-
-    let pass =
-        document.getElementById("password");
+function mostrarPassword(){
 
 
-    let icono =
-        document.getElementById("iconoPassword");
+let pass =
+document.getElementById("password");
 
 
-    if (pass.type == "password") {
+let icono =
+document.getElementById("iconoPassword");
 
-        pass.type = "text";
 
-        icono.className =
-            "bi bi-eye-slash";
+if(pass.type == "password"){
 
-    } else {
 
-        pass.type = "password";
+pass.type = "text";
 
-        icono.className =
-            "bi bi-eye";
-    }
+
+icono.className =
+"bi bi-eye-slash";
+
+
+}else{
+
+
+pass.type = "password";
+
+
+icono.className =
+"bi bi-eye";
+
 
 }
+
+}
+
 
 </script>
 
 
 <script
+
 src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+
 </script>
 
 
