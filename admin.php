@@ -1,155 +1,49 @@
 <?php
-
 session_start();
 
-/* =========================================
-   VERIFICAR SESIÓN DEL ADMINISTRADOR
-========================================= */
-
-if (!isset($_SESSION['id']) || !isset($_SESSION['rol'])) {
-
+if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
     header("Location: login.php");
     exit();
-
 }
-
-if ($_SESSION['rol'] !== 'administrador') {
-
-    header("Location: login.php");
-    exit();
-
-}
-
-
-/* =========================================
-   CONEXIÓN
-========================================= */
 
 include("config/conexion.php");
 
+/*==========================
+    ESTADÍSTICAS
+==========================*/
 
-/* =========================================
-   CONTAR ESTUDIANTES
-========================================= */
+$totalEstudiantes = $conn->query("
+SELECT COUNT(*) total
+FROM usuarios
+WHERE rol='estudiante'
+")->fetch_assoc()['total'];
 
-$consultaEstudiantes = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM usuarios
-    WHERE rol='estudiante'
+$totalCandidatos = $conn->query("
+SELECT COUNT(*) total
+FROM candidatos
+")->fetch_assoc()['total'];
+
+$totalVotos = $conn->query("
+SELECT COUNT(*) total
+FROM votos
+")->fetch_assoc()['total'];
+
+$estado = "Cerrada";
+
+$consulta = $conn->query("
+SELECT estado
+FROM elecciones
+LIMIT 1
 ");
 
-$totalEstudiantes = 0;
-
-if ($consultaEstudiantes) {
-
-    $fila = $consultaEstudiantes->fetch_assoc();
-
-    $totalEstudiantes = $fila['total'];
-
+if($consulta->num_rows>0){
+    $estado = ucfirst($consulta->fetch_assoc()['estado']);
 }
 
-
-/* =========================================
-   CONTAR JURADOS
-========================================= */
-
-$consultaJurados = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM usuarios
-    WHERE rol='jurado'
-");
-
-$totalJurados = 0;
-
-if ($consultaJurados) {
-
-    $fila = $consultaJurados->fetch_assoc();
-
-    $totalJurados = $fila['total'];
-
-}
-
-
-/* =========================================
-   CONTAR CANDIDATOS
-========================================= */
-
-$consultaCandidatos = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM candidatos
-");
-
-$totalCandidatos = 0;
-
-if ($consultaCandidatos) {
-
-    $fila = $consultaCandidatos->fetch_assoc();
-
-    $totalCandidatos = $fila['total'];
-
-}
-
-
-/* =========================================
-   CONTAR VOTOS
-========================================= */
-
-$consultaVotos = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM votos
-");
-
-$totalVotos = 0;
-
-if ($consultaVotos) {
-
-    $fila = $consultaVotos->fetch_assoc();
-
-    $totalVotos = $fila['total'];
-
-}
-
-
-/* =========================================
-   BUSCAR ELECCIÓN
-========================================= */
-
-$consultaEleccion = $conn->query("
-    SELECT *
-    FROM elecciones
-    ORDER BY id DESC
-    LIMIT 1
-");
-
-$eleccion = null;
-
-if ($consultaEleccion && $consultaEleccion->num_rows > 0) {
-
-    $eleccion = $consultaEleccion->fetch_assoc();
-
-}
-
-
-/* =========================================
-   DATOS DE LA ELECCIÓN
-========================================= */
-
-$estadoEleccion = "Sin elección";
-
-$nombreEleccion = "No hay elecciones registradas";
-
-if ($eleccion) {
-
-    $estadoEleccion = $eleccion['estado'];
-
-    $nombreEleccion = $eleccion['nombre'];
-
-}
-
+$fecha = date("d/m/Y");
+$hora  = date("h:i A");
 ?>
-
 <!DOCTYPE html>
-
 <html lang="es">
 
 <head>
@@ -159,358 +53,316 @@ if ($eleccion) {
 <meta name="viewport"
 content="width=device-width, initial-scale=1">
 
-<title>Panel de Administrador</title>
+<title>Panel Administrador</title>
 
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
-<!-- BOOTSTRAP -->
-
-<link
-href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
-
-
-<!-- ICONOS -->
-
-<link
-rel="stylesheet"
+<link rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
+<link rel="stylesheet"
+href="css/estilos.css">
 
 <style>
+    .card-dashboard{
 
-body {
-
-    background: #eef3f9;
-
-    min-height: 100vh;
+animation: aparecer .6s ease;
 
 }
 
+@keyframes aparecer{
 
-/* =========================================
-   ENCABEZADO
-========================================= */
+from{
 
-.header {
+opacity:0;
 
-    background: linear-gradient(
-        135deg,
-        #0d47a1,
-        #1565c0
-    );
-
-    color: white;
-
-    padding: 25px 0;
-
-    margin-bottom: 30px;
-
-    box-shadow:
-        0 5px 15px rgba(0,0,0,.15);
+transform:translateY(25px);
 
 }
 
+to{
 
-.header h1 {
+opacity:1;
 
-    margin: 0;
-
-    font-weight: 600;
-
-}
-
-
-.header p {
-
-    margin: 5px 0 0;
-
-    opacity: .9;
+transform:translateY(0);
 
 }
 
+}
 
-/* =========================================
-   TARJETAS DE ESTADÍSTICAS
-========================================= */
+.card-dashboard:hover{
 
-.stat-card {
+transform:translateY(-8px);
 
-    background: white;
+transition:.3s;
 
-    border-radius: 15px;
+box-shadow:0 15px 35px rgba(0,0,0,.18);
 
-    padding: 25px;
+}
+    .btn{
+    transition:.3s;
+}
 
-    box-shadow:
-        0 5px 15px rgba(0,0,0,.10);
+.btn:hover{
+    transform:translateY(-4px);
+}
 
-    transition: .3s;
+.btn i{
+    display:block;
+    margin-bottom:8px;
+}
+    .card-dashboard .card-body{
 
-    height: 100%;
+padding:35px 20px;
+
+min-height:240px;
+
+display:flex;
+
+flex-direction:column;
+
+justify-content:center;
+
+align-items:center;
 
 }
 
+.numero{
 
-.stat-card:hover {
+font-size:48px;
 
-    transform: translateY(-5px);
+font-weight:bold;
 
-}
+margin:10px 0;
 
-
-.stat-icon {
-
-    font-size: 40px;
-
-    color: #0d6efd;
+color:#0d6efd;
 
 }
 
+.icono{
 
-.stat-number {
-
-    font-size: 32px;
-
-    font-weight: bold;
-
-    color: #0d47a1;
+font-size:65px;
 
 }
 
+.titulo{
 
-/* =========================================
-   TARJETAS DEL MENÚ
-========================================= */
+font-size:20px;
 
-.menu-card {
+font-weight:600;
 
-    background: white;
+color:#555;
 
-    border-radius: 15px;
+text-align:center;
 
-    padding: 25px;
-
-    box-shadow:
-        0 5px 15px rgba(0,0,0,.10);
-
-    height: 100%;
+line-height:1.4;
 
 }
 
-
-.menu-card h4 {
-
-    color: #0d47a1;
-
-    margin-bottom: 20px;
-
+body{
+    background:#eef3f8;
 }
 
-
-/* =========================================
-   ESTADO ELECCIÓN
-========================================= */
-
-.estado {
-
-    font-size: 18px;
-
-    font-weight: bold;
-
+.main{
+    margin-left:250px;
+    padding:35px;
 }
 
-
-.estado-abierta {
-
-    color: #198754;
-
+.card-dashboard{
+    border:none;
+    border-radius:18px;
+    transition:.3s;
+    box-shadow:0 8px 20px rgba(0,0,0,.12);
 }
 
-
-.estado-cerrada {
-
-    color: #dc3545;
-
+.card-dashboard:hover{
+    transform:translateY(-6px);
 }
 
-
-.estado-sin {
-
-    color: #6c757d;
-
+.numero{
+    font-size:45px;
+    font-weight:bold;
+    color:#0d6efd;
 }
 
-
-/* =========================================
-   BOTONES
-========================================= */
-
-.menu-btn {
-
-    width: 100%;
-
-    margin-bottom: 10px;
-
-    padding: 12px;
-
-    text-align: left;
-
+.icono{
+    font-size:60px;
 }
 
+.titulo{
+    font-size:17px;
+    color:#666;
+}
+
+.estado-abierta{
+    color:green;
+    font-weight:bold;
+}
+
+.estado-cerrada{
+    color:red;
+    font-weight:bold;
+}
 
 </style>
 
 </head>
 
-
 <body>
 
+<nav class="navbar navbar-dark bg-primary shadow"
+style="margin-left:250px;width:calc(100% - 250px);">
 
-<!-- =========================================
-     ENCABEZADO
-========================================= -->
+<div class="container-fluid">
 
-<div class="header">
+<span class="navbar-brand">
 
-<div class="container">
+🗳 Sistema de Votaciones Escolares
 
-<div class="d-flex justify-content-between align-items-center">
+</span>
 
-<div>
+<span class="text-white">
 
-<h1>
+Administrador
 
-<i class="bi bi-speedometer2"></i>
-
-Panel de Administrador
-
-</h1>
-
-<p>
-
-Sistema de Votaciones Escolares
-
-</p>
+</span>
 
 </div>
 
+</nav>
+    <div class="sidebar">
 
-<div>
+<h2 class="text-center text-white mt-3 mb-4">
+🗳️ VOTACIONES
+</h2>
 
-<a
-href="logout.php"
-class="btn btn-light">
+<a href="admin.php">
+<i class="bi bi-house-fill"></i>
+Inicio
+</a>
 
+<a href="estudiantes.php">
+<i class="bi bi-people-fill"></i>
+Estudiantes
+</a>
+
+<a href="candidatos.php">
+<i class="bi bi-person-badge-fill"></i>
+Candidatos
+</a>
+
+<a href="resultados.php">
+<i class="bi bi-trophy-fill"></i>
+Resultados
+</a>
+<a href="elecciones.php">
+
+<i class="bi bi-calendar-event-fill"></i>
+
+Elecciones
+
+</a>
+
+<a href="graficas.php">
+<i class="bi bi-bar-chart-fill"></i>
+Gráficas
+</a>
+
+<a href="abrir_eleccion.php">
+<i class="bi bi-unlock-fill"></i>
+Abrir Elección
+</a>
+
+<a href="cerrar_eleccion.php">
+<i class="bi bi-lock-fill"></i>
+Cerrar Elección
+</a>
+
+<a href="logout.php">
 <i class="bi bi-box-arrow-right"></i>
-
-Cerrar sesión
-
+Cerrar Sesión
 </a>
 
 </div>
 
-</div>
+<div class="main">
+    <!-- ENCABEZADO -->
 
-</div>
+<div class="d-flex justify-content-between align-items-center mb-4">
 
-</div>
+<div>
 
-
-<div class="container pb-5">
-
-
-<!-- =========================================
-     BIENVENIDA
-========================================= -->
-
-<div class="mb-4">
-
-<h3>
+<h2 class="fw-bold">
 
 Bienvenido,
 
-<strong>
+<?php echo $_SESSION['nombre']; ?> 👋
+<div class="alert alert-primary mt-3 shadow-sm">
 
-<?php
+<h5 class="mb-1">
 
-echo htmlspecialchars(
-    $_SESSION['nombre'] ?? 'Administrador'
-);
+👋 ¡Bienvenido al Panel de Administración!
 
-?>
+</h5>
 
-</strong>
+Administre estudiantes, candidatos, votaciones y resultados desde un solo lugar.
 
-</h3>
+</div>
+
+</h2>
 
 <p class="text-muted">
 
-Desde este panel puede administrar todo el sistema.
+Panel de Administración del Sistema de Votaciones Escolares
 
 </p>
 
 </div>
 
+<div class="text-end">
 
-<!-- =========================================
-     ESTADÍSTICAS
-========================================= -->
+<strong>📅 Fecha:</strong>
 
-<div class="row g-4 mb-4">
+<?php echo $fecha; ?>
 
+<br>
 
-<!-- ESTUDIANTES -->
+<strong>🕒 Hora:</strong>
 
-<div class="col-md-3">
-
-<div class="stat-card">
-
-<div class="stat-icon">
-
-<i class="bi bi-people-fill"></i>
+<?php echo $hora; ?>
 
 </div>
 
-<div class="stat-number">
+</div>
+<div class="row g-4">
+
+<!-- ESTUDIANTES -->
+
+<div class="col-xl-3 col-md-6">
+
+<div class="card card-dashboard">
+
+<div class="card-body text-center">
+
+<div class="icono">
+
+👨‍🎓
+
+</div>
+
+<div class="numero">
 
 <?php echo $totalEstudiantes; ?>
 
 </div>
 
-<h6>
+<div class="titulo">
 
-Estudiantes
-
-</h6>
+Estudiantes Registrados
 
 </div>
 
 </div>
-
-
-<!-- JURADOS -->
-
-<div class="col-md-3">
-
-<div class="stat-card">
-
-<div class="stat-icon">
-
-<i class="bi bi-person-badge-fill"></i>
-
-</div>
-
-<div class="stat-number">
-
-<?php echo $totalJurados; ?>
-
-</div>
-
-<h6>
-
-Jurados
-
-</h6>
 
 </div>
 
@@ -519,56 +371,59 @@ Jurados
 
 <!-- CANDIDATOS -->
 
-<div class="col-md-3">
+<div class="col-xl-3 col-md-6">
 
-<div class="stat-card">
+<div class="card card-dashboard">
 
-<div class="stat-icon">
+<div class="card-body text-center">
 
-<i class="bi bi-person-vcard-fill"></i>
+<div class="icono">
+
+🗳️
 
 </div>
 
-<div class="stat-number">
+<div class="numero">
 
 <?php echo $totalCandidatos; ?>
 
 </div>
 
-<h6>
+<div class="titulo">
 
-Candidatos
-
-</h6>
+Candidatos Inscritos
 
 </div>
 
 </div>
 
+</div>
+
+</div>
 
 <!-- VOTOS -->
 
-<div class="col-md-3">
+<div class="col-xl-3 col-md-6">
 
-<div class="stat-card">
+<div class="card card-dashboard">
 
-<div class="stat-icon">
+<div class="card-body text-center">
 
-<i class="bi bi-check2-square"></i>
+<div class="icono">
+
+✅
 
 </div>
 
-<div class="stat-number">
+<div class="numero">
 
 <?php echo $totalVotos; ?>
 
 </div>
 
-<h6>
+<div class="titulo">
 
-Votos registrados
-
-</h6>
+Votos Registrados
 
 </div>
 
@@ -576,124 +431,64 @@ Votos registrados
 
 </div>
 
+</div>
 
-<!-- =========================================
-     ELECCIÓN ACTUAL
-========================================= -->
+<!-- ESTADO -->
 
-<div class="menu-card mb-4">
+<div class="col-xl-3 col-md-6">
 
-<h4>
+<div class="card card-dashboard">
 
-<i class="bi bi-megaphone-fill"></i>
+<div class="card-body text-center">
 
-Elección actual
-
-</h4>
-
-
-<div class="row align-items-center">
-
-<div class="col-md-8">
-
-<h5>
-
-<?php echo htmlspecialchars($nombreEleccion); ?>
-
-</h5>
-
-
-<p class="mb-0">
-
-Estado:
+<div class="icono">
 
 <?php
 
-if ($estadoEleccion == "abierta") {
+if($estado=="Abierta"){
 
-?>
+echo "🟢";
 
-<span class="estado estado-abierta">
+}else{
 
-<i class="bi bi-unlock-fill"></i>
-
-ABIERTA
-
-</span>
-
-<?php
-
-} elseif ($estadoEleccion == "cerrada") {
-
-?>
-
-<span class="estado estado-cerrada">
-
-<i class="bi bi-lock-fill"></i>
-
-CERRADA
-
-</span>
-
-<?php
-
-} else {
-
-?>
-
-<span class="estado estado-sin">
-
-SIN ELECCIÓN
-
-</span>
-
-<?php
+echo "🔴";
 
 }
 
 ?>
 
-</p>
+</div>
+<div class="alert alert-success mt-4">
+
+<h5>
+
+📈 Estado General del Sistema
+
+</h5>
+
+<ul>
+
+<li>Total estudiantes: <b><?php echo $totalEstudiantes; ?></b></li>
+
+<li>Total candidatos: <b><?php echo $totalCandidatos; ?></b></li>
+
+<li>Total votos registrados: <b><?php echo $totalVotos; ?></b></li>
+
+<li>Elección: <b><?php echo $estado; ?></b></li>
+
+</ul>
 
 </div>
 
+<div class="numero" style="font-size:28px;">
 
-<div class="col-md-4 text-md-end mt-3 mt-md-0">
+<?php echo $estado; ?>
 
+</div>
 
-<?php if ($eleccion) { ?>
+<div class="titulo">
 
-
-<?php if ($estadoEleccion == "cerrada") { ?>
-
-<a
-href="abrir_eleccion.php"
-class="btn btn-success">
-
-<i class="bi bi-unlock-fill"></i>
-
-Abrir elección
-
-</a>
-
-<?php } else { ?>
-
-<a
-href="cerrar_eleccion.php"
-class="btn btn-danger"
-onclick="return confirm('¿Está seguro de cerrar la elección?');">
-
-<i class="bi bi-lock-fill"></i>
-
-Cerrar elección
-
-</a>
-
-<?php } ?>
-
-
-<?php } ?>
-
+Estado de la Elección
 
 </div>
 
@@ -701,223 +496,276 @@ Cerrar elección
 
 </div>
 
-
-<!-- =========================================
-     ADMINISTRACIÓN
-========================================= -->
-
-<div class="row g-4">
-
-
-<!-- GESTIÓN DE USUARIOS -->
-
-<div class="col-md-6">
-
-<div class="menu-card">
-
-<h4>
-
-<i class="bi bi-people-fill"></i>
-
-Gestión de usuarios
-
-</h4>
-
-
-<a
-href="estudiantes.php"
-class="btn btn-primary menu-btn">
-
-<i class="bi bi-person-lines-fill"></i>
-
-Gestionar estudiantes
-
-</a>
-
-
-<a
-href="crear_jurado.php"
-class="btn btn-primary menu-btn">
-
-<i class="bi bi-person-badge-fill"></i>
-
-Gestionar jurados
-
-</a>
-
-
 </div>
 
 </div>
+<!-- ACCESOS RÁPIDOS -->
 
+<div class="card card-dashboard mt-5">
 
-<!-- GESTIÓN ELECTORAL -->
+    <div class="card-body">
 
-<div class="col-md-6">
-
-<div class="menu-card">
-
-<h4>
-
-<i class="bi bi-ballot-fill"></i>
-
-Gestión electoral
-
-</h4>
-
-
-<a
-href="candidatos.php"
-class="btn btn-primary menu-btn">
-
-<i class="bi bi-person-vcard-fill"></i>
-
-Gestionar candidatos
-
-</a>
-
-
-<a
-href="elecciones.php"
-class="btn btn-primary menu-btn">
-
-<i class="bi bi-calendar-event-fill"></i>
-
-Gestionar elecciones
-
-</a>
-
-
-<a
-href="resultados.php"
-class="btn btn-success menu-btn">
-
-<i class="bi bi-bar-chart-fill"></i>
-
-Ver resultados
-
-</a>
-
-
-</div>
-
-</div>
-
-
-<!-- REPORTES -->
-
-<div class="col-md-6">
-
-<div class="menu-card">
-
-<h4>
-
-<i class="bi bi-file-earmark-text-fill"></i>
-
-Reportes
-
-</h4>
-
-
-<a
-href="resultados.php"
-class="btn btn-outline-primary menu-btn">
-
-<i class="bi bi-clipboard-data-fill"></i>
-
-Resultados de votación
-
-</a>
-
-
-<a
-href="graficas.php"
-class="btn btn-outline-primary menu-btn">
-
-<i class="bi bi-pie-chart-fill"></i>
-
-Gráficas
-
-</a>
-
-
-</div>
-
-</div>
-
-
-<!-- CONFIGURACIÓN -->
-
-<div class="col-md-6">
-
-<div class="menu-card">
-
-<h4>
-
-<i class="bi bi-gear-fill"></i>
-
-Sistema
-
-</h4>
-
-
-<a
+        <h3 class="mb-4">
+            <a
 href="admin.php"
-class="btn btn-outline-secondary menu-btn">
+class="btn btn-outline-primary">
 
 <i class="bi bi-arrow-clockwise"></i>
 
-Actualizar panel
+Actualizar Panel
 
 </a>
+            <i class="bi bi-lightning-charge-fill text-warning"></i>
+            Accesos Rápidos
+        </h3>
 
+        <div class="row g-3">
 
-<a
-href="logout.php"
-class="btn btn-outline-danger menu-btn">
+            <div class="col-lg-4 col-md-6">
+                <a href="estudiantes.php" class="btn btn-primary w-100 p-3">
+                    <i class="bi bi-people-fill fs-4"></i><br>
+                    Gestionar Estudiantes
+                </a>
+            </div>
 
-<i class="bi bi-box-arrow-right"></i>
+            <div class="col-lg-4 col-md-6">
+                <a href="candidatos.php" class="btn btn-success w-100 p-3">
+                    <i class="bi bi-person-badge-fill fs-4"></i><br>
+                    Gestionar Candidatos
+                </a>
+            </div>
 
-Cerrar sesión
+            <div class="col-lg-4 col-md-6">
+                <a href="resultados.php" class="btn btn-warning w-100 p-3">
+                    <i class="bi bi-trophy-fill fs-4"></i><br>
+                    Ver Resultados
+                </a>
+            </div>
 
-</a>
+            <div class="col-lg-4 col-md-6">
+                <a href="graficas.php" class="btn btn-info w-100 p-3 text-white">
+                    <i class="bi bi-bar-chart-fill fs-4"></i><br>
+                    Ver Gráficas
+                </a>
+            </div>
 
+            <div class="col-lg-4 col-md-6">
+                <a href="pdf_resultados.php" class="btn btn-danger w-100 p-3">
+                    <i class="bi bi-file-earmark-pdf-fill fs-4"></i><br>
+                    Descargar PDF
+                </a>
+            </div>
+
+            <div class="col-lg-4 col-md-6">
+                <a href="logout.php" class="btn btn-dark w-100 p-3">
+                    <i class="bi bi-box-arrow-right fs-4"></i><br>
+                    Cerrar Sesión
+                </a>
+                
+            </div>
+
+        </div>
+
+    </div>
 
 </div>
+<!-- INFORMACIÓN DEL SISTEMA -->
+
+<div class="row mt-5">
+
+    <!-- Información -->
+
+    <div class="col-lg-8">
+
+        <div class="card card-dashboard">
+
+            <div class="card-body">
+
+                <h3 class="mb-4">
+
+                    <i class="bi bi-info-circle-fill text-primary"></i>
+
+                    Información del Sistema
+
+                </h3>
+
+                <table class="table table-hover align-middle">
+
+                    <tr>
+                        <th width="35%">Administrador</th>
+                        <td><?php echo $_SESSION['nombre']; ?></td>
+                    </tr>
+
+                    <tr>
+                        <th>Fecha</th>
+                        <td><?php echo $fecha; ?></td>
+                    </tr>
+
+                    <tr>
+                        <th>Hora</th>
+                        <td><?php echo $hora; ?></td>
+                    </tr>
+
+                    <tr>
+                        <th>Estado de la elección</th>
+
+                        <td>
+
+                        <?php if($estado=="Abierta"){ ?>
+
+                            <span class="badge bg-success fs-6">
+                                🟢 Abierta
+                            </span>
+
+                        <?php }else{ ?>
+
+                            <span class="badge bg-danger fs-6">
+                                🔴 Cerrada
+                            </span>
+
+                        <?php } ?>
+
+                        </td>
+
+                    </tr>
+
+                    <tr>
+                        <th>Versión</th>
+                        <td>2.0 Profesional</td>
+                    </tr>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+        <!-- Resumen -->
+
+    <div class="col-lg-4">
+
+        <div class="card card-dashboard">
+
+            <div class="card-body">
+
+                <h3 class="mb-4">
+
+                    <i class="bi bi-clipboard-data-fill text-success"></i>
+
+                    Resumen
+
+                </h3>
+
+                <ul class="list-group">
+
+                    <li class="list-group-item d-flex justify-content-between">
+
+                        Estudiantes
+
+                        <span class="badge bg-primary">
+
+                            <?php echo $totalEstudiantes; ?>
+
+                        </span>
+
+                    </li>
+
+                    <li class="list-group-item d-flex justify-content-between">
+
+                        Candidatos
+
+                        <span class="badge bg-success">
+
+                            <?php echo $totalCandidatos; ?>
+
+                        </span>
+
+                    </li>
+
+                    <li class="list-group-item d-flex justify-content-between">
+
+                        Votos
+
+                        <span class="badge bg-warning text-dark">
+
+                            <?php echo $totalVotos; ?>
+
+                        </span>
+
+                    </li>
+
+                    <li class="list-group-item d-flex justify-content-between">
+
+                        Estado
+
+                        <?php if($estado=="Abierta"){ ?>
+
+                        <span class="badge bg-success">
+
+                            Activa
+
+                        </span>
+
+                        <?php }else{ ?>
+
+                        <span class="badge bg-danger">
+
+                            Cerrada
+
+                        </span>
+
+                        <?php } ?>
+
+                    </li>
+
+                </ul>
+
+            </div>
+
+        </div>
+
+    </div>
 
 </div>
+<hr class="mt-5">
 
+<footer class="text-center mt-5 text-secondary">
 
-</div>
+<hr>
 
+<p>
 
-<!-- =========================================
-     PIE
-========================================= -->
+<b>Sistema de Votaciones Escolares v2.0</b>
 
-<div class="text-center mt-5 text-muted">
+</p>
 
-<small>
+<p>
 
-Sistema de Votaciones Escolares
+Desarrollado por <b>Juan David Otero Cantor</b>
 
-<br>
+</p>
 
-Versión 2.0
+<p>
 
-</small>
+© <?php echo date("Y"); ?> Todos los derechos reservados.
 
-</div>
+</p>
 
+</footer>
+<script>
 
-</div>
+function actualizarHora(){
+    <span id="reloj"></span>
 
+const ahora=new Date();
 
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+document.getElementById("reloj").innerHTML=ahora.toLocaleTimeString();
+
+}
+
+setInterval(actualizarHora,1000);
+
+actualizarHora();
+
 </script>
-
-
-</body>
-
-</html>
