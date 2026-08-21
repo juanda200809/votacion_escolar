@@ -1,19 +1,62 @@
 <?php
+
 session_start();
+
+include("config/conexion.php");
 
 /* =========================================
    VERIFICAR SESIÓN DEL JURADO
 ========================================= */
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'jurado') {
+if (!isset($_SESSION['id'])) {
+
     header("Location: login.php");
     exit();
+
 }
 
-include("config/conexion.php");
+if (!isset($_SESSION['rol']) || $_SESSION['rol'] !== 'jurado') {
+
+    session_destroy();
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+/* =========================================
+   DATOS DEL JURADO
+========================================= */
+
+$idJurado = (int) $_SESSION['id'];
+
+$consultaJurado = $conn->query("
+    SELECT id, documento, nombre, apellido, rol
+    FROM usuarios
+    WHERE id = $idJurado
+    LIMIT 1
+");
+
+if (!$consultaJurado || $consultaJurado->num_rows == 0) {
+
+    session_destroy();
+
+    header("Location: login.php");
+    exit();
+
+}
+
+$jurado = $consultaJurado->fetch_assoc();
+
+
+/* =========================================
+   VARIABLES
+========================================= */
 
 $mensaje = "";
 $tipoMensaje = "";
+
 
 /* =========================================
    INGRESAR ESTUDIANTE
@@ -21,7 +64,7 @@ $tipoMensaje = "";
 
 if (isset($_POST['ingresar_estudiante'])) {
 
-    $documento = trim($_POST['documento']);
+    $documento = trim($_POST['documento'] ?? '');
 
     if ($documento == "") {
 
@@ -30,17 +73,24 @@ if (isset($_POST['ingresar_estudiante'])) {
 
     } else {
 
+        $documentoSeguro = $conn->real_escape_string($documento);
+
         /* Buscar estudiante */
 
         $consulta = $conn->query("
-            SELECT *
+            SELECT id, documento, nombre, apellido, curso, rol
             FROM usuarios
-            WHERE documento='$documento'
-            AND rol='estudiante'
+            WHERE documento = '$documentoSeguro'
+            AND rol = 'estudiante'
             LIMIT 1
         ");
 
-        if ($consulta->num_rows == 0) {
+        if (!$consulta) {
+
+            $mensaje = "Ocurrió un error al consultar el estudiante.";
+            $tipoMensaje = "danger";
+
+        } elseif ($consulta->num_rows == 0) {
 
             $mensaje = "No se encontró un estudiante con ese documento.";
             $tipoMensaje = "danger";
@@ -49,16 +99,22 @@ if (isset($_POST['ingresar_estudiante'])) {
 
             $estudiante = $consulta->fetch_assoc();
 
-            /* Guardar estudiante en la sesión del jurado */
+            /* Guardar estudiante */
 
             $_SESSION['estudiante_jurado'] = $estudiante['id'];
 
-            /* Ir a la pantalla de votación */
+            $_SESSION['nombre_estudiante_jurado'] =
+                $estudiante['nombre'] . " " . $estudiante['apellido'];
+
+            /* Ir a votación */
 
             header("Location: votar_jurado.php");
             exit();
+
         }
+
     }
+
 }
 
 ?>
@@ -76,102 +132,115 @@ content="width=device-width, initial-scale=1">
 
 <title>Jurado de Votación</title>
 
+
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
+
 
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
+
 <link
 rel="stylesheet"
 href="css/estilos.css">
+
 
 <style>
 
 body {
 
-    background:linear-gradient(
+    background: linear-gradient(
         135deg,
         #0d47a1,
         #1565c0
     );
 
-    min-height:100vh;
+    min-height: 100vh;
 
-    display:flex;
+    display: flex;
 
-    justify-content:center;
+    justify-content: center;
 
-    align-items:center;
+    align-items: center;
+
+    padding: 20px;
 
 }
+
 
 .jurado {
 
-    width:450px;
+    width: 450px;
 
-    background:white;
+    max-width: 100%;
 
-    padding:40px;
+    background: white;
 
-    border-radius:20px;
+    padding: 40px;
 
-    box-shadow:
-        0 10px 30px rgba(0,0,0,.25);
+    border-radius: 20px;
+
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
 
 }
+
 
 .logo {
 
-    font-size:70px;
+    font-size: 70px;
 
-    text-align:center;
+    text-align: center;
 
-    margin-bottom:15px;
+    margin-bottom: 15px;
 
 }
+
 
 .jurado h2 {
 
-    text-align:center;
+    text-align: center;
 
-    color:#0d47a1;
+    color: #0d47a1;
 
-    margin-bottom:10px;
+    margin-bottom: 10px;
 
 }
+
 
 .subtitulo {
 
-    text-align:center;
+    text-align: center;
 
-    color:#777;
+    color: #777;
 
-    margin-bottom:30px;
+    margin-bottom: 30px;
 
 }
+
 
 .btn-ingresar {
 
-    width:100%;
+    width: 100%;
 
-    padding:12px;
+    padding: 12px;
 
-    font-size:18px;
+    font-size: 18px;
 
 }
 
+
 .info-jurado {
 
-    background:#eef5ff;
+    background: #eef5ff;
 
-    border-radius:10px;
+    border-radius: 10px;
 
-    padding:15px;
+    padding: 15px;
 
-    margin-bottom:25px;
+    margin-bottom: 25px;
 
 }
 
@@ -179,9 +248,14 @@ body {
 
 </head>
 
+
 <body>
 
+
 <div class="jurado">
+
+
+<!-- LOGO -->
 
 <div class="logo">
 
@@ -189,11 +263,13 @@ body {
 
 </div>
 
+
 <h2>
 
 Jurado de Votación
 
 </h2>
+
 
 <p class="subtitulo">
 
@@ -202,9 +278,7 @@ Ingreso de estudiantes
 </p>
 
 
-<!-- =========================================
-     INFORMACIÓN DEL JURADO
-========================================= -->
+<!-- INFORMACIÓN DEL JURADO -->
 
 <div class="info-jurado">
 
@@ -219,23 +293,35 @@ Jurado:
 <?php
 
 echo htmlspecialchars(
-$_SESSION['nombre']
+    $jurado['nombre'] . " " . $jurado['apellido']
 );
 
 ?>
 
+<br>
+
+<small class="text-muted">
+
+Documento:
+
+<?php
+
+echo htmlspecialchars(
+    $jurado['documento']
+);
+
+?>
+
+</small>
+
 </div>
 
 
-<!-- =========================================
-     MENSAJE
-========================================= -->
+<!-- MENSAJE -->
 
 <?php if ($mensaje != "") { ?>
 
-<div class="alert alert-<?php
-echo $tipoMensaje;
-?>">
+<div class="alert alert-<?php echo $tipoMensaje; ?>">
 
 <i class="bi bi-exclamation-triangle-fill"></i>
 
@@ -250,11 +336,10 @@ echo htmlspecialchars($mensaje);
 <?php } ?>
 
 
-<!-- =========================================
-     FORMULARIO ESTUDIANTE
-========================================= -->
+<!-- FORMULARIO -->
 
 <form method="POST">
+
 
 <div class="mb-4">
 
@@ -266,13 +351,16 @@ Documento del estudiante
 
 </label>
 
+
 <div class="input-group">
+
 
 <span class="input-group-text">
 
 <i class="bi bi-person-fill"></i>
 
 </span>
+
 
 <input
 
@@ -309,15 +397,14 @@ Ingresar estudiante
 
 </button>
 
+
 </form>
 
 
 <hr class="my-4">
 
 
-<!-- =========================================
-     CERRAR SESIÓN
-========================================= -->
+<!-- CERRAR SESIÓN -->
 
 <div class="text-center">
 
@@ -335,12 +422,14 @@ Cerrar sesión del jurado
 
 </div>
 
+
 </div>
 
 
 <script
 src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
+
 
 </body>
 
