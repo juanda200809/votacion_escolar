@@ -6,14 +6,37 @@ session_start();
    VERIFICAR ADMINISTRADOR
 ========================================= */
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
+if (
+    !isset($_SESSION['id']) ||
+    $_SESSION['rol'] != 'administrador'
+) {
 
     header("Location: login.php");
     exit();
 
 }
 
+
+/* =========================================
+   CONEXIÓN
+========================================= */
+
 include("config/conexion.php");
+
+
+/* =========================================
+   CONFIGURAR ARCHIVO EXCEL
+========================================= */
+
+header("Content-Type: application/vnd.ms-excel; charset=UTF-8");
+
+header(
+    "Content-Disposition: attachment; filename=estudiantes_votaciones.xls"
+);
+
+header("Pragma: no-cache");
+
+header("Expires: 0");
 
 
 /* =========================================
@@ -21,103 +44,68 @@ include("config/conexion.php");
 ========================================= */
 
 $sql = $conn->query("
+
     SELECT
+
         id,
+        documento,
         nombre,
         apellido,
-        documento,
+        correo,
         curso
+
     FROM usuarios
-    WHERE rol='estudiante'
+
+    WHERE rol = 'estudiante'
+
     ORDER BY nombre ASC
+
 ");
 
 
 /* =========================================
-   NOMBRE DEL ARCHIVO
+   ENCABEZADO DEL EXCEL
 ========================================= */
 
-$nombreArchivo = "estudiantes_" . date("Y-m-d") . ".xls";
-
-
-/* =========================================
-   ENCABEZADOS PARA EXCEL
-========================================= */
-
-header("Content-Type: application/vnd.ms-excel; charset=UTF-8");
-
-header(
-    "Content-Disposition: attachment; filename=\"$nombreArchivo\""
-);
-
-header("Pragma: no-cache");
-
-header("Expires: 0");
+echo "\xEF\xBB\xBF";
 
 ?>
 
-<!DOCTYPE html>
-
-<html lang="es">
-
-<head>
-
-<meta charset="UTF-8">
-
-<style>
-
-table {
-
-    border-collapse: collapse;
-
-}
-
-th {
-
-    background: #0d6efd;
-
-    color: white;
-
-    font-weight: bold;
-
-    padding: 10px;
-
-    border: 1px solid #000;
-
-}
-
-td {
-
-    padding: 8px;
-
-    border: 1px solid #000;
-
-}
-
-</style>
-
-</head>
-
-<body>
-
-<table>
+<table border="1">
 
 <tr>
 
-<th>ID</th>
+    <th colspan="6">
 
-<th>Nombre</th>
+        LISTA DE ESTUDIANTES
 
-<th>Apellido</th>
+    </th>
 
-<th>Documento</th>
+</tr>
 
-<th>Curso</th>
+
+<tr>
+
+    <th>ID</th>
+
+    <th>DOCUMENTO</th>
+
+    <th>NOMBRE</th>
+
+    <th>APELLIDO</th>
+
+    <th>CORREO</th>
+
+    <th>CURSO</th>
 
 </tr>
 
 
 <?php
+
+/* =========================================
+   MOSTRAR ESTUDIANTES
+========================================= */
 
 while ($estudiante = $sql->fetch_assoc()) {
 
@@ -125,35 +113,82 @@ while ($estudiante = $sql->fetch_assoc()) {
 
 <tr>
 
-<td>
+    <td>
 
-<?php echo $estudiante['id']; ?>
+        <?php
 
-</td>
+        echo htmlspecialchars(
+            $estudiante['id']
+        );
 
-<td>
+        ?>
 
-<?php echo htmlspecialchars($estudiante['nombre']); ?>
+    </td>
 
-</td>
 
-<td>
+    <td>
 
-<?php echo htmlspecialchars($estudiante['apellido']); ?>
+        <?php
 
-</td>
+        echo htmlspecialchars(
+            $estudiante['documento']
+        );
 
-<td>
+        ?>
 
-<?php echo htmlspecialchars($estudiante['documento']); ?>
+    </td>
 
-</td>
 
-<td>
+    <td>
 
-<?php echo htmlspecialchars($estudiante['curso']); ?>
+        <?php
 
-</td>
+        echo htmlspecialchars(
+            $estudiante['nombre']
+        );
+
+        ?>
+
+    </td>
+
+
+    <td>
+
+        <?php
+
+        echo htmlspecialchars(
+            $estudiante['apellido']
+        );
+
+        ?>
+
+    </td>
+
+
+    <td>
+
+        <?php
+
+        echo htmlspecialchars(
+            $estudiante['correo']
+        );
+
+        ?>
+
+    </td>
+
+
+    <td>
+
+        <?php
+
+        echo htmlspecialchars(
+            $estudiante['curso']
+        );
+
+        ?>
+
+    </td>
 
 </tr>
 
@@ -164,7 +199,3 @@ while ($estudiante = $sql->fetch_assoc()) {
 ?>
 
 </table>
-
-</body>
-
-</html>
