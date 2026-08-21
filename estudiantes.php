@@ -1,128 +1,202 @@
 <?php
+
 session_start();
 
+/* =========================================
+   VERIFICAR ADMINISTRADOR
+========================================= */
+
 if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
-    header("Location: index.php");
+
+    header("Location: login.php");
     exit();
+
 }
 
 include("config/conexion.php");
 
-/*=========================================
-=          GUARDAR ESTUDIANTE             =
-=========================================*/
+
+/* =========================================
+   VARIABLES
+========================================= */
+
+$mensaje = "";
+$tipoMensaje = "";
+
+
+/* =========================================
+   GUARDAR ESTUDIANTE
+========================================= */
 
 if (isset($_POST['guardar'])) {
 
     $documento = trim($_POST['documento']);
     $nombre = trim($_POST['nombre']);
     $apellido = trim($_POST['apellido']);
+    $correo = trim($_POST['correo']);
     $curso = trim($_POST['curso']);
+    $password = trim($_POST['password']);
 
-    /*
-     * La contraseña será automáticamente
-     * el mismo documento del estudiante.
-     */
-    $password_hash = password_hash($documento, PASSWORD_DEFAULT);
 
-    // Verificar si el documento ya existe
-    $verificar = $conn->query("
-        SELECT id
-        FROM usuarios
-        WHERE documento='$documento'
-    ");
+    /* =========================================
+       VALIDAR CAMPOS
+    ========================================= */
 
-    if ($verificar->num_rows > 0) {
+    if (
+        $documento == "" ||
+        $nombre == "" ||
+        $apellido == "" ||
+        $curso == "" ||
+        $password == ""
+    ) {
 
-        $mensaje = "
-        <div class='alerta error'>
-            <i class='bi bi-exclamation-triangle-fill'></i>
-            Ya existe un usuario con ese documento.
-        </div>";
+        $mensaje = "Debe completar todos los campos obligatorios.";
+        $tipoMensaje = "danger";
 
     } else {
 
-        /*
-         * Como ya no utilizaremos correo,
-         * dejamos ese campo vacío.
-         */
-        $sql = "
-        INSERT INTO usuarios
-        (
-            documento,
-            nombre,
-            apellido,
-            correo,
-            curso,
-            password,
-            rol
-        )
-        VALUES
-        (
-            '$documento',
-            '$nombre',
-            '$apellido',
-            '',
-            '$curso',
-            '$password_hash',
-            'estudiante'
-        )
-        ";
 
-        if ($conn->query($sql)) {
+        /* =========================================
+           VERIFICAR DOCUMENTO
+        ========================================= */
 
-            $mensaje = "
-            <div class='alerta ok'>
-                <i class='bi bi-check-circle-fill'></i>
-                Estudiante registrado correctamente.
-                <br>
-                <strong>Usuario:</strong> $documento
-                <br>
-                <strong>Contraseña:</strong> su documento
-            </div>";
+        $verificar = $conn->prepare("
+            SELECT id
+            FROM usuarios
+            WHERE documento = ?
+            LIMIT 1
+        ");
+
+        $verificar->bind_param(
+            "s",
+            $documento
+        );
+
+        $verificar->execute();
+
+        $resultado = $verificar->get_result();
+
+
+        if ($resultado->num_rows > 0) {
+
+            $mensaje = "Ya existe un usuario con ese documento.";
+            $tipoMensaje = "danger";
 
         } else {
 
-            $mensaje = "
-            <div class='alerta error'>
-                <i class='bi bi-x-circle-fill'></i>
-                Error al registrar el estudiante:
-                " . $conn->error . "
-            </div>";
+
+            /* =========================================
+               CIFRAR CONTRASEÑA
+            ========================================= */
+
+            $passwordHash = password_hash(
+                $password,
+                PASSWORD_DEFAULT
+            );
+
+
+            /* =========================================
+               INSERTAR ESTUDIANTE
+            ========================================= */
+
+            $insertar = $conn->prepare("
+                INSERT INTO usuarios
+                (
+                    documento,
+                    nombre,
+                    apellido,
+                    correo,
+                    curso,
+                    password,
+                    rol
+                )
+                VALUES
+                (?, ?, ?, ?, ?, ?, 'estudiante')
+            ");
+
+
+            $insertar->bind_param(
+                "ssssss",
+                $documento,
+                $nombre,
+                $apellido,
+                $correo,
+                $curso,
+                $passwordHash
+            );
+
+
+            if ($insertar->execute()) {
+
+                $mensaje = "Estudiante registrado correctamente.";
+                $tipoMensaje = "success";
+
+            } else {
+
+                $mensaje =
+                    "Error al registrar estudiante: " .
+                    $conn->error;
+
+                $tipoMensaje = "danger";
+
+            }
+
         }
+
     }
+
 }
 
-/*=========================================
-=             ELIMINAR                    =
-=========================================*/
+
+/* =========================================
+   ELIMINAR ESTUDIANTE
+========================================= */
 
 if (isset($_GET['eliminar'])) {
 
     $id = intval($_GET['eliminar']);
 
-    $conn->query("
+
+    $eliminar = $conn->prepare("
         DELETE FROM usuarios
-        WHERE id=$id
-        AND rol='estudiante'
+        WHERE id = ?
+        AND rol = 'estudiante'
     ");
 
+    $eliminar->bind_param(
+        "i",
+        $id
+    );
+
+    $eliminar->execute();
+
+
     header("Location: estudiantes.php");
+
     exit();
+
 }
 
-/*=========================================
-=             CONSULTA                    =
-=========================================*/
+
+/* =========================================
+   CONSULTAR ESTUDIANTES
+========================================= */
 
 $estudiantes = $conn->query("
-    SELECT *
+    SELECT
+        id,
+        documento,
+        nombre,
+        apellido,
+        correo,
+        curso
     FROM usuarios
-    WHERE rol='estudiante'
+    WHERE rol = 'estudiante'
     ORDER BY nombre ASC
 ");
 
-$total = $estudiantes->num_rows;
+
+$totalEstudiantes = $estudiantes->num_rows;
 
 ?>
 
@@ -139,65 +213,272 @@ content="width=device-width, initial-scale=1">
 
 <title>Gestión de Estudiantes</title>
 
+
+<!-- BOOTSTRAP -->
+
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
+
+
+<!-- ICONOS -->
 
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-<link
-rel="stylesheet"
-href="css/estilos.css">
 
 <style>
 
+/* =========================================
+   GENERAL
+========================================= */
+
 body {
-    background:#eef3f9;
+
+    background: #eef3f9;
+
+    font-family: Arial, sans-serif;
+
 }
 
-.card-form {
-    border:none;
-    border-radius:15px;
-    box-shadow:0 5px 15px rgba(0,0,0,.15);
+
+/* =========================================
+   CONTENEDOR
+========================================= */
+
+.contenedor {
+
+    max-width: 1250px;
+
+    margin: auto;
+
+    padding: 30px;
+
 }
 
-.table {
-    background:white;
+
+/* =========================================
+   ENCABEZADO
+========================================= */
+
+.encabezado {
+
+    background: #0d47a1;
+
+    color: white;
+
+    padding: 20px 25px;
+
+    border-radius: 15px;
+
+    margin-bottom: 25px;
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
 }
 
-.alerta {
-    padding:15px;
-    border-radius:8px;
-    margin-bottom:20px;
+
+.encabezado h2 {
+
+    margin: 0;
+
 }
 
-.ok {
-    background:#d1fae5;
-    color:#065f46;
+
+/* =========================================
+   TARJETAS
+========================================= */
+
+.card {
+
+    border: none;
+
+    border-radius: 15px;
+
+    box-shadow:
+        0 5px 18px rgba(0,0,0,.10);
+
 }
 
-.error {
-    background:#fee2e2;
-    color:#991b1b;
+
+/* =========================================
+   ICONO
+========================================= */
+
+.icono-estudiante {
+
+    font-size: 60px;
+
+    text-align: center;
+
+    color: #0d6efd;
+
 }
+
+
+/* =========================================
+   TITULO FORMULARIO
+========================================= */
+
+.form-title {
+
+    color: #0d47a1;
+
+    font-weight: bold;
+
+}
+
+
+/* =========================================
+   BOTÓN GUARDAR
+========================================= */
+
+.btn-guardar {
+
+    background: #198754;
+
+    color: white;
+
+    width: 100%;
+
+    padding: 12px;
+
+    font-size: 17px;
+
+    font-weight: bold;
+
+}
+
+
+.btn-guardar:hover {
+
+    background: #157347;
+
+    color: white;
+
+}
+
+
+/* =========================================
+   CONTADOR
+========================================= */
+
+.contador {
+
+    background: #0d6efd;
+
+    color: white;
+
+    padding: 8px 15px;
+
+    border-radius: 20px;
+
+    font-weight: bold;
+
+}
+
+
+/* =========================================
+   BUSCADOR
+========================================= */
 
 .buscar {
-    max-width:350px;
+
+    max-width: 350px;
+
+}
+
+
+/* =========================================
+   TABLA
+========================================= */
+
+.table thead {
+
+    background: #0d6efd;
+
+    color: white;
+
+}
+
+
+.table th {
+
+    vertical-align: middle;
+
+}
+
+
+.table td {
+
+    vertical-align: middle;
+
+}
+
+
+/* =========================================
+   EXPORTAR
+========================================= */
+
+.btn-excel {
+
+    background: #198754;
+
+    color: white;
+
+}
+
+
+.btn-excel:hover {
+
+    background: #157347;
+
+    color: white;
+
+}
+
+
+/* =========================================
+   RESPONSIVE
+========================================= */
+
+@media(max-width:768px){
+
+    .encabezado {
+
+        flex-direction: column;
+
+        gap: 15px;
+
+        text-align: center;
+
+    }
+
 }
 
 </style>
 
 </head>
 
+
 <body>
 
-<div class="container py-4">
 
-<!-- ENCABEZADO -->
+<div class="contenedor">
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+
+<!-- =========================================
+     ENCABEZADO
+========================================= -->
+
+<div class="encabezado">
+
+<div>
 
 <h2>
 
@@ -207,9 +488,31 @@ Gestión de Estudiantes
 
 </h2>
 
+<small>
+
+Administración de estudiantes del sistema
+
+</small>
+
+</div>
+
+
+<div>
+
+<a
+href="exportar_estudiantes.php"
+class="btn btn-success me-2">
+
+<i class="bi bi-file-earmark-excel-fill"></i>
+
+Exportar Excel
+
+</a>
+
+
 <a
 href="admin.php"
-class="btn btn-primary">
+class="btn btn-light">
 
 <i class="bi bi-arrow-left-circle"></i>
 
@@ -219,53 +522,81 @@ Volver al Panel
 
 </div>
 
-
-<!-- MENSAJE -->
-
-<?php
-
-if (isset($mensaje)) {
-    echo $mensaje;
-}
-
-?>
+</div>
 
 
-<div class="row">
+<!-- =========================================
+     MENSAJE
+========================================= -->
+
+<?php if ($mensaje != "") { ?>
+
+<div class="alert alert-<?php echo $tipoMensaje; ?>">
+
+<i class="bi bi-info-circle-fill"></i>
+
+<?php echo htmlspecialchars($mensaje); ?>
+
+</div>
+
+<?php } ?>
+
+
+<div class="row g-4">
+
 
 <!-- =========================================
      FORMULARIO
 ========================================= -->
 
-<div class="col-md-4">
+<div class="col-lg-4">
 
-<div class="card card-form">
+<div class="card">
 
-<div class="card-body">
+<div class="card-body p-4">
 
-<h4 class="mb-4">
+
+<div class="icono-estudiante">
 
 <i class="bi bi-person-plus-fill"></i>
 
-Registrar Estudiante
+</div>
+
+
+<h4 class="text-center form-title mb-4">
+
+Registrar nuevo estudiante
 
 </h4>
 
+
 <form method="POST">
+
 
 <!-- DOCUMENTO -->
 
 <div class="mb-3">
 
 <label class="form-label">
+
+<i class="bi bi-person-vcard-fill"></i>
+
 Documento
+
 </label>
 
 <input
+
 type="text"
+
 name="documento"
+
 class="form-control"
+
+placeholder="Documento"
+
 required
+
 autocomplete="off">
 
 </div>
@@ -276,13 +607,23 @@ autocomplete="off">
 <div class="mb-3">
 
 <label class="form-label">
+
+<i class="bi bi-person-fill"></i>
+
 Nombre
+
 </label>
 
 <input
+
 type="text"
+
 name="nombre"
+
 class="form-control"
+
+placeholder="Nombre"
+
 required>
 
 </div>
@@ -293,14 +634,49 @@ required>
 <div class="mb-3">
 
 <label class="form-label">
+
+<i class="bi bi-person-fill"></i>
+
 Apellido
+
 </label>
 
 <input
+
 type="text"
+
 name="apellido"
+
 class="form-control"
+
+placeholder="Apellido"
+
 required>
+
+</div>
+
+
+<!-- CORREO -->
+
+<div class="mb-3">
+
+<label class="form-label">
+
+<i class="bi bi-envelope-fill"></i>
+
+Correo
+
+</label>
+
+<input
+
+type="email"
+
+name="correo"
+
+class="form-control"
+
+placeholder="Correo electrónico">
 
 </div>
 
@@ -310,30 +686,51 @@ required>
 <div class="mb-3">
 
 <label class="form-label">
+
+<i class="bi bi-mortarboard-fill"></i>
+
 Curso
+
 </label>
 
 <input
+
 type="text"
+
 name="curso"
+
 class="form-control"
+
+placeholder="Ejemplo: 11A"
+
 required>
 
 </div>
 
 
-<!-- AVISO DE CONTRASEÑA -->
+<!-- CONTRASEÑA -->
 
-<div class="alert alert-info">
+<div class="mb-4">
 
-<i class="bi bi-info-circle-fill"></i>
+<label class="form-label">
 
-<strong>Contraseña automática</strong>
+<i class="bi bi-key-fill"></i>
 
-<br>
+Contraseña
 
-La contraseña del estudiante será
-su mismo número de documento.
+</label>
+
+<input
+
+type="text"
+
+name="password"
+
+class="form-control"
+
+placeholder="Contraseña"
+
+required>
 
 </div>
 
@@ -341,9 +738,12 @@ su mismo número de documento.
 <!-- BOTÓN -->
 
 <button
+
 type="submit"
+
 name="guardar"
-class="btn btn-success w-100">
+
+class="btn btn-guardar">
 
 <i class="bi bi-person-plus-fill"></i>
 
@@ -351,7 +751,9 @@ Guardar Estudiante
 
 </button>
 
+
 </form>
+
 
 </div>
 
@@ -364,11 +766,12 @@ Guardar Estudiante
      LISTA DE ESTUDIANTES
 ========================================= -->
 
-<div class="col-md-8">
+<div class="col-lg-8">
 
-<div class="card card-form">
+<div class="card">
 
-<div class="card-body">
+<div class="card-body p-4">
+
 
 <div class="d-flex justify-content-between align-items-center mb-3">
 
@@ -380,9 +783,10 @@ Lista de Estudiantes
 
 </h4>
 
-<span class="badge bg-primary fs-6">
 
-Total: <?php echo $total; ?>
+<span class="contador">
+
+Total: <?php echo $totalEstudiantes; ?>
 
 </span>
 
@@ -392,19 +796,22 @@ Total: <?php echo $total; ?>
 <!-- BUSCADOR -->
 
 <input
+
 type="text"
+
 id="buscar"
-class="form-control buscar mb-3"
+
+class="form-control buscar mb-4"
+
 placeholder="🔍 Buscar estudiante...">
 
 
-<!-- TABLA -->
-
 <div class="table-responsive">
 
-<table class="table table-bordered table-hover align-middle">
 
-<thead class="table-primary">
+<table class="table table-bordered table-hover">
+
+<thead>
 
 <tr>
 
@@ -424,58 +831,23 @@ placeholder="🔍 Buscar estudiante...">
 
 </thead>
 
+
 <tbody id="tablaEstudiantes">
+
 
 <?php
 
-while ($e = $estudiantes->fetch_assoc()) {
+if ($estudiantes->num_rows == 0) {
 
 ?>
 
 <tr>
 
-<td>
-<?php echo $e['id']; ?>
-</td>
+<td
+colspan="6"
+class="text-center text-muted">
 
-<td>
-<?php echo $e['documento']; ?>
-</td>
-
-<td>
-<?php echo $e['nombre']; ?>
-</td>
-
-<td>
-<?php echo $e['apellido']; ?>
-</td>
-
-<td>
-<?php echo $e['curso']; ?>
-</td>
-
-<td>
-
-<a
-href="editar_estudiante.php?id=<?php echo $e['id']; ?>"
-class="btn btn-warning btn-sm">
-
-<i class="bi bi-pencil-square"></i>
-
-Editar
-
-</a>
-
-<a
-href="?eliminar=<?php echo $e['id']; ?>"
-class="btn btn-danger btn-sm"
-onclick="return confirm('¿Desea eliminar este estudiante?')">
-
-<i class="bi bi-trash-fill"></i>
-
-Eliminar
-
-</a>
+No hay estudiantes registrados.
 
 </td>
 
@@ -485,13 +857,123 @@ Eliminar
 
 }
 
+
+while ($estudiante = $estudiantes->fetch_assoc()) {
+
 ?>
+
+<tr>
+
+
+<td>
+
+<?php echo $estudiante['id']; ?>
+
+</td>
+
+
+<td>
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['documento']
+);
+
+?>
+
+</td>
+
+
+<td>
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['nombre']
+);
+
+?>
+
+</td>
+
+
+<td>
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['apellido']
+);
+
+?>
+
+</td>
+
+
+<td>
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['curso']
+);
+
+?>
+
+</td>
+
+
+<td>
+
+
+<a
+
+href="editar_estudiante.php?id=<?php echo $estudiante['id']; ?>"
+
+class="btn btn-warning btn-sm">
+
+<i class="bi bi-pencil-square"></i>
+
+Editar
+
+</a>
+
+
+<a
+
+href="estudiantes.php?eliminar=<?php echo $estudiante['id']; ?>"
+
+class="btn btn-danger btn-sm"
+
+onclick="return confirm('¿Está seguro de eliminar este estudiante?');">
+
+<i class="bi bi-trash-fill"></i>
+
+Eliminar
+
+</a>
+
+
+</td>
+
+
+</tr>
+
+<?php
+
+}
+
+?>
+
 
 </tbody>
 
 </table>
 
+
 </div>
+
 
 </div>
 
@@ -499,7 +981,28 @@ Eliminar
 
 </div>
 
+
 </div>
+
+
+<!-- =========================================
+     BOTÓN VOLVER
+========================================= -->
+
+<div class="text-center mt-4">
+
+<a
+href="admin.php"
+class="btn btn-primary">
+
+<i class="bi bi-arrow-left"></i>
+
+Volver al Panel Administrador
+
+</a>
+
+</div>
+
 
 </div>
 
@@ -510,34 +1013,50 @@ Eliminar
 
 <script>
 
-const buscar = document.getElementById("buscar");
+const buscar =
+document.getElementById("buscar");
 
-buscar.addEventListener("keyup", function(){
 
-    let texto = this.value.toLowerCase();
+buscar.addEventListener(
+    "keyup",
+    function()
+    {
 
-    let filas = document.querySelectorAll(
-        "#tablaEstudiantes tr"
-    );
+        let texto =
+            this.value.toLowerCase();
 
-    filas.forEach(function(fila){
 
-        let contenido =
-            fila.textContent.toLowerCase();
+        let filas =
+            document.querySelectorAll(
+                "#tablaEstudiantes tr"
+            );
 
-        if(contenido.indexOf(texto) > -1){
 
-            fila.style.display = "";
+        filas.forEach(
+            function(fila)
+            {
 
-        }else{
+                let contenido =
+                    fila.textContent.toLowerCase();
 
-            fila.style.display = "none";
 
-        }
+                if (
+                    contenido.includes(texto)
+                ) {
 
-    });
+                    fila.style.display = "";
 
-});
+                } else {
+
+                    fila.style.display = "none";
+
+                }
+
+            }
+        );
+
+    }
+);
 
 </script>
 
@@ -545,6 +1064,7 @@ buscar.addEventListener("keyup", function(){
 <script
 src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
+
 
 </body>
 
