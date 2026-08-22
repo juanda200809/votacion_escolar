@@ -2,65 +2,186 @@
 
 session_start();
 
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
-) {
-    header("Location: login.php");
-    exit();
-}
-
 include("config/conexion.php");
 
-$mensaje = "";
-$tipoMensaje = "";
 
+/* =====================================================
+   VERIFICAR SESIÓN
+===================================================== */
 
-/* =========================================
-   ELIMINAR JURADO
-========================================= */
+if (
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol'])
+) {
 
-if (isset($_GET['eliminar'])) {
+    header("Location: login.php");
+    exit();
 
-    $id = (int)$_GET['eliminar'];
-
-    $stmt = $conn->prepare("
-        DELETE FROM usuarios
-        WHERE id = ?
-        AND rol = 'jurado'
-    ");
-
-    $stmt->bind_param("i", $id);
-
-    if ($stmt->execute()) {
-        $mensaje = "Jurado eliminado correctamente.";
-        $tipoMensaje = "success";
-    } else {
-        $mensaje = "No se pudo eliminar el jurado.";
-        $tipoMensaje = "danger";
-    }
-
-    $stmt->close();
 }
 
 
-/* =========================================
-   LISTAR JURADOS
-========================================= */
+/* =====================================================
+   VERIFICAR QUE SEA JURADO
+===================================================== */
 
-$jurados = $conn->query("
+$rol = strtolower(
+    trim(
+        (string)$_SESSION['rol']
+    )
+);
+
+
+if ($rol !== "jurado") {
+
+    /*
+     * Si alguien que no es jurado intenta
+     * entrar directamente a esta página,
+     * lo enviamos a su panel correspondiente.
+     */
+
+    if ($rol === "administrador") {
+
+        header("Location: admin.php");
+        exit();
+
+    }
+
+
+    if ($rol === "estudiante") {
+
+        header("Location: votar.php");
+        exit();
+
+    }
+
+
+    session_unset();
+    session_destroy();
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+/* =====================================================
+   DATOS DEL JURADO
+===================================================== */
+
+$idJurado =
+    (int)$_SESSION['id'];
+
+$nombreJurado =
+    $_SESSION['nombre'] ?? 'Jurado';
+
+
+/* =====================================================
+   OBTENER INFORMACIÓN DEL JURADO
+===================================================== */
+
+$documento = "";
+$apellido = "";
+$curso = "";
+
+
+$stmt = $conn->prepare("
     SELECT
-        id,
         documento,
         nombre,
         apellido,
-        curso,
-        fecha_registro
+        curso
     FROM usuarios
-    WHERE rol = 'jurado'
-    ORDER BY id DESC
+    WHERE id = ?
+    AND LOWER(TRIM(rol)) = 'jurado'
+    LIMIT 1
 ");
+
+
+if ($stmt) {
+
+    $stmt->bind_param(
+        "i",
+        $idJurado
+    );
+
+    $stmt->execute();
+
+    $resultado =
+        $stmt->get_result();
+
+
+    if ($resultado->num_rows > 0) {
+
+        $jurado =
+            $resultado->fetch_assoc();
+
+        $documento =
+            $jurado['documento'];
+
+        $nombreJurado =
+            $jurado['nombre'];
+
+        $apellido =
+            $jurado['apellido'];
+
+        $curso =
+            $jurado['curso'];
+
+    }
+
+    $stmt->close();
+
+}
+
+
+/* =====================================================
+   ELECCIÓN ACTUAL
+===================================================== */
+
+$nombreEleccion =
+    "Sin elección registrada";
+
+$estadoEleccion =
+    "cerrada";
+
+$descripcion =
+    "";
+
+
+$resultado = $conn->query("
+    SELECT
+        nombre,
+        descripcion,
+        estado
+    FROM elecciones
+    ORDER BY id DESC
+    LIMIT 1
+");
+
+
+if (
+    $resultado &&
+    $resultado->num_rows > 0
+) {
+
+    $eleccion =
+        $resultado->fetch_assoc();
+
+    $nombreEleccion =
+        $eleccion['nombre'];
+
+    $descripcion =
+        $eleccion['descripcion'];
+
+    $estadoEleccion =
+        strtolower(
+            trim(
+                $eleccion['estado']
+            )
+        );
+
+}
+
 
 ?>
 
@@ -72,321 +193,741 @@ $jurados = $conn->query("
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
 
-<title>Gestión de Jurados</title>
+<title>
+Panel del Jurado
+</title>
+
+
+<!-- BOOTSTRAP -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
+
+<!-- ICONOS -->
+
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
+
 <style>
 
-body {
-    background:#eef3f9;
+/* =====================================================
+   GENERAL
+===================================================== */
+
+* {
+    box-sizing:border-box;
 }
 
-.contenedor {
-    max-width:1200px;
-    margin:auto;
-    padding:35px 20px;
+
+body {
+
+    margin:0;
+
+    background:#eef3f9;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
 }
+
+
+/* =====================================================
+   SIDEBAR
+===================================================== */
+
+.sidebar {
+
+    position:fixed;
+
+    left:0;
+
+    top:0;
+
+    width:250px;
+
+    height:100vh;
+
+    background:#1453a3;
+
+    color:white;
+
+}
+
+
+.logo {
+
+    text-align:center;
+
+    padding:25px 10px;
+
+    border-bottom:
+        1px solid
+        rgba(255,255,255,.2);
+
+}
+
+
+.logo-icon {
+
+    font-size:50px;
+
+}
+
+
+.logo h1 {
+
+    margin:8px 0 0;
+
+    font-size:30px;
+
+    font-weight:bold;
+
+}
+
+
+.menu {
+
+    padding-top:15px;
+
+}
+
+
+.menu a {
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    color:white;
+
+    text-decoration:none;
+
+    padding:15px 22px;
+
+    font-size:16px;
+
+}
+
+
+.menu a:hover {
+
+    background:#0d4388;
+
+}
+
+
+.menu i {
+
+    width:22px;
+
+    font-size:19px;
+
+}
+
+
+.separador {
+
+    height:1px;
+
+    background:
+        rgba(255,255,255,.2);
+
+    margin:12px 15px;
+
+}
+
+
+/* =====================================================
+   PRINCIPAL
+===================================================== */
+
+.main {
+
+    margin-left:250px;
+
+    min-height:100vh;
+
+}
+
+
+/* =====================================================
+   TOPBAR
+===================================================== */
+
+.topbar {
+
+    height:70px;
+
+    background:#1473ed;
+
+    color:white;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    padding:0 30px;
+
+    box-shadow:
+        0 3px 12px
+        rgba(0,0,0,.15);
+
+}
+
+
+.topbar h4 {
+
+    margin:0;
+
+}
+
+
+/* =====================================================
+   CONTENIDO
+===================================================== */
+
+.contenido {
+
+    padding:35px;
+
+}
+
 
 .titulo {
-    color:#0d47a1;
+
+    color:#1453a3;
+
+    font-size:32px;
+
     font-weight:bold;
+
 }
 
-.card {
-    border:none;
+
+/* =====================================================
+   BIENVENIDA
+===================================================== */
+
+.bienvenida {
+
+    background:#cfe2ff;
+
+    border:
+        1px solid #9ec5fe;
+
+    border-radius:10px;
+
+    padding:25px;
+
+    color:#084298;
+
+}
+
+
+.bienvenida h3 {
+
+    font-weight:bold;
+
+}
+
+
+.bienvenida h2 {
+
+    font-weight:bold;
+
+}
+
+
+/* =====================================================
+   TARJETAS
+===================================================== */
+
+.tarjetas {
+
+    display:grid;
+
+    grid-template-columns:
+        repeat(3,1fr);
+
+    gap:22px;
+
+    margin-top:30px;
+
+}
+
+
+.tarjeta {
+
+    background:white;
+
     border-radius:18px;
-    box-shadow:0 6px 20px rgba(0,0,0,.10);
+
+    padding:30px;
+
+    text-align:center;
+
+    box-shadow:
+        0 6px 18px
+        rgba(0,0,0,.10);
+
 }
 
-.encabezado {
-    background:#0d47a1;
+
+.tarjeta i {
+
+    font-size:55px;
+
+    color:#1473ed;
+
+    margin-bottom:15px;
+
+}
+
+
+.tarjeta h3 {
+
+    color:#1453a3;
+
+    font-weight:bold;
+
+}
+
+
+/* =====================================================
+   ELECCIÓN
+===================================================== */
+
+.eleccion {
+
+    background:white;
+
+    margin-top:30px;
+
+    padding:30px;
+
+    border-radius:18px;
+
+    box-shadow:
+        0 6px 18px
+        rgba(0,0,0,.10);
+
+}
+
+
+.estado-abierta {
+
+    display:inline-block;
+
+    background:#198754;
+
     color:white;
-    border-radius:18px 18px 0 0;
-    padding:20px;
+
+    padding:8px 18px;
+
+    border-radius:8px;
+
+    font-weight:bold;
+
 }
 
-.tabla thead {
-    background:#cfe0ff;
-}
 
-.btn-editar {
-    background:#ffc107;
-    color:#000;
-    border:none;
-}
+.estado-cerrada {
 
-.btn-editar:hover {
-    background:#e0a800;
-}
+    display:inline-block;
 
-.btn-eliminar {
     background:#dc3545;
+
     color:white;
-    border:none;
+
+    padding:8px 18px;
+
+    border-radius:8px;
+
+    font-weight:bold;
+
 }
 
-.btn-eliminar:hover {
-    background:#bb2d3b;
+
+/* =====================================================
+   RESPONSIVE
+===================================================== */
+
+@media(max-width:800px) {
+
+    .sidebar {
+
+        position:relative;
+
+        width:100%;
+
+        height:auto;
+
+    }
+
+
+    .main {
+
+        margin-left:0;
+
+    }
+
+
+    .tarjetas {
+
+        grid-template-columns:1fr;
+
+    }
+
 }
 
 </style>
 
 </head>
 
+
 <body>
 
-<div class="contenedor">
 
-<!-- =========================================
-     CABECERA
-========================================= -->
+<!-- =====================================================
+     SIDEBAR
+===================================================== -->
 
-<div class="d-flex
-            justify-content-between
-            align-items-center
-            flex-wrap
-            gap-3
-            mb-4">
+<div class="sidebar">
 
-<div>
 
-<h2 class="titulo">
+<div class="logo">
 
-<i class="bi bi-person-badge-fill"></i>
+<div class="logo-icon">
+⚖️
+</div>
 
-Gestión de Jurados
-
-</h2>
-
-<p class="text-muted mb-0">
-
-Administra los jurados encargados de las votaciones.
-
-</p>
+<h1>
+JURADO
+</h1>
 
 </div>
 
-<div>
 
-<a
-href="admin.php"
-class="btn btn-outline-primary">
+<div class="menu">
 
-<i class="bi bi-arrow-left"></i>
 
-Volver al panel
+<a href="jurado.php">
+
+<i class="bi bi-house-fill"></i>
+
+Inicio
 
 </a>
 
-<a
-href="crear_jurado.php"
-class="btn btn-primary">
 
-<i class="bi bi-person-plus-fill"></i>
+<a href="resultados.php">
 
-Nuevo jurado
+<i class="bi bi-trophy-fill"></i>
+
+Resultados
 
 </a>
 
-</div>
+
+<a href="graficas.php">
+
+<i class="bi bi-bar-chart-fill"></i>
+
+Gráficas
+
+</a>
+
+
+<div class="separador"></div>
+
+
+<a href="logout.php">
+
+<i class="bi bi-box-arrow-right"></i>
+
+Cerrar sesión
+
+</a>
+
 
 </div>
 
-
-<!-- =========================================
-     MENSAJE
-========================================= -->
-
-<?php if ($mensaje !== "") { ?>
-
-<div class="alert alert-<?php echo $tipoMensaje; ?>">
-
-<i class="bi bi-info-circle-fill"></i>
-
-<?php echo htmlspecialchars($mensaje); ?>
-
 </div>
 
-<?php } ?>
+
+<!-- =====================================================
+     PRINCIPAL
+===================================================== -->
+
+<div class="main">
 
 
-<!-- =========================================
-     TABLA
-========================================= -->
+<div class="topbar">
 
-<div class="card">
+<h4>
 
-<div class="encabezado">
-
-<h4 class="mb-0">
-
-<i class="bi bi-people-fill"></i>
-
-Jurados registrados
+⚖️ Sistema de Votaciones Escolares
 
 </h4>
 
+
+<span>
+
+<i class="bi bi-person-badge-fill"></i>
+
+Jurado
+
+</span>
+
 </div>
 
 
-<div class="card-body p-0">
+<div class="contenido">
 
-<div class="table-responsive">
 
-<table class="table table-bordered table-hover mb-0 tabla">
+<!-- =====================================================
+     TÍTULO
+===================================================== -->
 
-<thead>
+<h1 class="titulo">
 
-<tr>
+Bienvenido,
 
-<th>ID</th>
+<?php echo htmlspecialchars(
+    $nombreJurado
+); ?>
 
-<th>Documento</th>
+👋
 
-<th>Nombre</th>
+</h1>
 
-<th>Apellido</th>
 
-<th>Curso</th>
+<!-- =====================================================
+     BIENVENIDA
+===================================================== -->
 
-<th>Fecha registro</th>
+<div class="bienvenida">
 
-<th>Acciones</th>
+<h3>
 
-</tr>
+⚖️ Panel del Jurado
 
-</thead>
+</h3>
 
-<tbody>
 
-<?php if ($jurados->num_rows === 0) { ?>
+<h2>
 
-<tr>
+Bienvenido al sistema de votaciones escolares.
 
-<td
-colspan="7"
-class="text-center p-4">
+</h2>
 
-<i class="bi bi-person-x fs-2 text-muted"></i>
 
 <p class="mb-0 mt-2">
 
-No hay jurados registrados.
+Desde este panel puedes consultar la información
+de la elección y verificar sus resultados.
 
 </p>
 
-</td>
+</div>
 
-</tr>
+
+<!-- =====================================================
+     TARJETAS
+===================================================== -->
+
+<div class="tarjetas">
+
+
+<div class="tarjeta">
+
+<i class="bi bi-person-badge-fill"></i>
+
+<h3>
+
+Jurado
+
+</h3>
+
+<p>
+
+<?php echo htmlspecialchars(
+    $nombreJurado
+); ?>
+
+<?php echo htmlspecialchars(
+    $apellido
+); ?>
+
+</p>
+
+</div>
+
+
+<div class="tarjeta">
+
+<i class="bi bi-calendar-event-fill"></i>
+
+<h3>
+
+Elección
+
+</h3>
+
+<p>
+
+<?php echo htmlspecialchars(
+    $nombreEleccion
+); ?>
+
+</p>
+
+</div>
+
+
+<div class="tarjeta">
+
+<i class="bi bi-shield-check"></i>
+
+<h3>
+
+Estado
+
+</h3>
+
+
+<?php if ($estadoEleccion === "abierta") { ?>
+
+<span class="estado-abierta">
+
+🟢 Elección abierta
+
+</span>
+
+<?php } else { ?>
+
+<span class="estado-cerrada">
+
+🔴 Elección cerrada
+
+</span>
+
+<?php } ?>
+
+</div>
+
+
+</div>
+
+
+<!-- =====================================================
+     INFORMACIÓN
+===================================================== -->
+
+<div class="eleccion">
+
+
+<h2 class="text-primary">
+
+<i class="bi bi-info-circle-fill"></i>
+
+Información de la elección
+
+</h2>
+
+
+<hr>
+
+
+<h5>
+
+Nombre
+
+</h5>
+
+<p>
+
+<?php echo htmlspecialchars(
+    $nombreEleccion
+); ?>
+
+</p>
+
+
+<h5>
+
+Descripción
+
+</h5>
+
+<p>
+
+<?php
+
+if ($descripcion !== "") {
+
+    echo htmlspecialchars(
+        $descripcion
+    );
+
+} else {
+
+    echo "No hay descripción disponible.";
+
+}
+
+?>
+
+</p>
+
+
+<h5>
+
+Estado
+
+</h5>
+
+
+<?php if ($estadoEleccion === "abierta") { ?>
+
+<span class="estado-abierta">
+
+🟢 Abierta
+
+</span>
+
+<?php } else { ?>
+
+<span class="estado-cerrada">
+
+🔴 Cerrada
+
+</span>
 
 <?php } ?>
 
 
-<?php while ($jurado = $jurados->fetch_assoc()) { ?>
+</div>
 
-<tr>
-
-<td>
-
-<?php echo (int)$jurado['id']; ?>
-
-</td>
-
-<td>
-
-<strong>
-
-<?php echo htmlspecialchars(
-    $jurado['documento']
-); ?>
-
-</strong>
-
-</td>
-
-<td>
-
-<?php echo htmlspecialchars(
-    $jurado['nombre']
-); ?>
-
-</td>
-
-<td>
-
-<?php echo htmlspecialchars(
-    $jurado['apellido']
-); ?>
-
-</td>
-
-<td>
-
-<?php echo htmlspecialchars(
-    $jurado['curso']
-); ?>
-
-</td>
-
-<td>
-
-<?php echo htmlspecialchars(
-    $jurado['fecha_registro']
-); ?>
-
-</td>
-
-<td>
-
-<a
-href="editar_jurado.php?id=<?php echo (int)$jurado['id']; ?>"
-class="btn btn-editar btn-sm">
-
-<i class="bi bi-pencil-square"></i>
-
-Editar
-
-</a>
-
-
-<a
-href="jurados.php?eliminar=<?php echo (int)$jurado['id']; ?>"
-class="btn btn-eliminar btn-sm"
-onclick="return confirm('¿Está seguro de eliminar este jurado?');">
-
-<i class="bi bi-trash-fill"></i>
-
-Eliminar
-
-</a>
-
-</td>
-
-</tr>
-
-<?php } ?>
-
-</tbody>
-
-</table>
 
 </div>
 
 </div>
 
-</div>
-
-</div>
 
 </body>
 
