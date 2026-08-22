@@ -2,6 +2,10 @@
 
 session_start();
 
+/* =========================================================
+   SEGURIDAD
+========================================================= */
+
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
@@ -11,7 +15,15 @@ if (
     exit();
 }
 
+
 include("config/conexion.php");
+
+
+/* =========================================================
+   NOMBRE DEL ADMINISTRADOR
+========================================================= */
+
+$nombreAdmin = $_SESSION['nombre'] ?? 'Administrador';
 
 
 /* =========================================================
@@ -22,10 +34,11 @@ $totalEstudiantes = 0;
 $totalJurados = 0;
 $totalCandidatos = 0;
 $totalVotos = 0;
-$totalElecciones = 0;
 
 
-/* ESTUDIANTES */
+/* =========================================================
+   TOTAL ESTUDIANTES
+========================================================= */
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
@@ -34,12 +47,17 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
+
     $fila = $resultado->fetch_assoc();
-    $totalEstudiantes = (int)$fila['total'];
+
+    $totalEstudiantes =
+        (int)$fila['total'];
 }
 
 
-/* JURADOS */
+/* =========================================================
+   TOTAL JURADOS
+========================================================= */
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
@@ -48,12 +66,17 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
+
     $fila = $resultado->fetch_assoc();
-    $totalJurados = (int)$fila['total'];
+
+    $totalJurados =
+        (int)$fila['total'];
 }
 
 
-/* CANDIDATOS */
+/* =========================================================
+   TOTAL CANDIDATOS
+========================================================= */
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
@@ -61,12 +84,17 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
+
     $fila = $resultado->fetch_assoc();
-    $totalCandidatos = (int)$fila['total'];
+
+    $totalCandidatos =
+        (int)$fila['total'];
 }
 
 
-/* VOTOS */
+/* =========================================================
+   TOTAL VOTOS
+========================================================= */
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
@@ -74,21 +102,11 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
+
     $fila = $resultado->fetch_assoc();
-    $totalVotos = (int)$fila['total'];
-}
 
-
-/* ELECCIONES */
-
-$resultado = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM elecciones
-");
-
-if ($resultado) {
-    $fila = $resultado->fetch_assoc();
-    $totalElecciones = (int)$fila['total'];
+    $totalVotos =
+        (int)$fila['total'];
 }
 
 
@@ -106,21 +124,22 @@ $resultado = $conn->query("
         fecha_inicio,
         fecha_fin,
         estado
+
     FROM elecciones
+
     ORDER BY id DESC
+
     LIMIT 1
 ");
 
-if ($resultado && $resultado->num_rows > 0) {
-    $eleccionActual = $resultado->fetch_assoc();
+if (
+    $resultado &&
+    $resultado->num_rows > 0
+) {
+
+    $eleccionActual =
+        $resultado->fetch_assoc();
 }
-
-
-/* =========================================================
-   NOMBRE DEL ADMINISTRADOR
-========================================================= */
-
-$nombreAdmin = $_SESSION['nombre'] ?? 'Administrador';
 
 ?>
 
@@ -136,15 +155,24 @@ $nombreAdmin = $_SESSION['nombre'] ?? 'Administrador';
 name="viewport"
 content="width=device-width, initial-scale=1">
 
+
 <title>
 Panel de Administración
 </title>
 
 
+<!-- =====================================================
+     BOOTSTRAP
+===================================================== -->
+
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
+
+<!-- =====================================================
+     BOOTSTRAP ICONS
+===================================================== -->
 
 <link
 rel="stylesheet"
@@ -152,6 +180,10 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 
 <style>
+
+/* =========================================================
+   GENERAL
+========================================================= */
 
 * {
     box-sizing: border-box;
@@ -162,18 +194,20 @@ body {
 
     margin: 0;
 
-    background: #eef3f9;
+    background: #f1f5f9;
 
     font-family:
         Arial,
         Helvetica,
         sans-serif;
 
+    color: #1e293b;
+
 }
 
 
 /* =========================================================
-   BARRA LATERAL
+   SIDEBAR
 ========================================================= */
 
 .sidebar {
@@ -184,11 +218,11 @@ body {
 
     top: 0;
 
-    width: 250px;
+    width: 245px;
 
     height: 100vh;
 
-    background: #1459a6;
+    background: #1557a6;
 
     color: white;
 
@@ -197,22 +231,26 @@ body {
 }
 
 
+/* =========================================================
+   LOGO SIDEBAR
+========================================================= */
+
 .logo {
 
     text-align: center;
 
-    padding: 30px 15px;
+    padding: 28px 15px;
 
     border-bottom:
         1px solid
-        rgba(255,255,255,.2);
+        rgba(255,255,255,.15);
 
 }
 
 
-.logo i {
+.logo .icono-colegio {
 
-    font-size: 50px;
+    font-size: 42px;
 
 }
 
@@ -221,16 +259,22 @@ body {
 
     margin-top: 10px;
 
-    font-size: 24px;
+    font-size: 21px;
 
-    font-weight: bold;
+    font-weight: 700;
+
+    letter-spacing: .5px;
 
 }
 
 
+/* =========================================================
+   MENÚ
+========================================================= */
+
 .menu {
 
-    padding: 15px 0;
+    padding: 12px 0;
 
 }
 
@@ -241,15 +285,15 @@ body {
 
     align-items: center;
 
-    gap: 15px;
+    gap: 14px;
 
-    padding: 15px 22px;
+    padding: 13px 22px;
 
     color: white;
 
     text-decoration: none;
 
-    font-size: 16px;
+    font-size: 15px;
 
     transition: .2s;
 
@@ -259,16 +303,31 @@ body {
 .menu a:hover {
 
     background:
-        rgba(255,255,255,.12);
+        rgba(255,255,255,.10);
 
 }
 
 
 .menu a i {
 
-    font-size: 20px;
+    font-size: 19px;
 
-    width: 20px;
+    width: 23px;
+
+}
+
+
+/* =========================================================
+   SEPARADORES
+========================================================= */
+
+.menu hr {
+
+    margin:
+        15px;
+
+    border-color:
+        rgba(255,255,255,.25);
 
 }
 
@@ -279,7 +338,7 @@ body {
 
 .contenido {
 
-    margin-left: 250px;
+    margin-left: 245px;
 
     min-height: 100vh;
 
@@ -292,9 +351,9 @@ body {
 
 .topbar {
 
-    height: 75px;
+    height: 72px;
 
-    background: #1674e8;
+    background: #1976e8;
 
     color: white;
 
@@ -307,8 +366,8 @@ body {
     padding: 0 30px;
 
     box-shadow:
-        0 4px 12px
-        rgba(0,0,0,.15);
+        0 3px 10px
+        rgba(0,0,0,.12);
 
 }
 
@@ -317,7 +376,22 @@ body {
 
     margin: 0;
 
-    font-size: 24px;
+    font-size: 22px;
+
+    font-weight: 600;
+
+}
+
+
+.usuario-admin {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    font-size: 15px;
 
 }
 
@@ -339,15 +413,15 @@ body {
 
 .bienvenida {
 
-    background: #cfe2ff;
+    background: #dbeafe;
 
     border:
         1px solid
-        #9ec5fe;
+        #bfdbfe;
 
-    border-radius: 16px;
+    border-radius: 15px;
 
-    padding: 25px;
+    padding: 24px;
 
     margin-bottom: 25px;
 
@@ -356,18 +430,20 @@ body {
 
 .bienvenida h2 {
 
-    color: #0d47a1;
+    color: #1459a6;
 
-    font-weight: bold;
+    font-weight: 700;
+
+    margin-bottom: 7px;
 
 }
 
 
 .bienvenida p {
 
-    margin-bottom: 0;
+    color: #1e4f8f;
 
-    color: #084298;
+    margin-bottom: 0;
 
 }
 
@@ -383,9 +459,9 @@ body {
     grid-template-columns:
         repeat(4, 1fr);
 
-    gap: 20px;
+    gap: 18px;
 
-    margin-bottom: 30px;
+    margin-bottom: 25px;
 
 }
 
@@ -394,35 +470,42 @@ body {
 
     background: white;
 
-    border-radius: 16px;
+    border-radius: 15px;
 
-    padding: 25px;
+    padding: 23px;
 
     text-align: center;
 
+    border:
+        1px solid
+        #e2e8f0;
+
     box-shadow:
-        0 5px 18px
-        rgba(0,0,0,.10);
+        0 3px 12px
+        rgba(0,0,0,.06);
 
 }
 
 
-.stat i {
+.stat .icono {
 
-    font-size: 40px;
+    font-size: 38px;
 
-    color: #1674e8;
+    color: #1976e8;
 
 }
 
 
 .stat h3 {
 
-    margin: 10px 0 5px;
+    margin:
+        8px 0 3px;
 
     color: #1459a6;
 
-    font-size: 32px;
+    font-size: 30px;
+
+    font-weight: 600;
 
 }
 
@@ -431,7 +514,7 @@ body {
 
     margin: 0;
 
-    color: #6c757d;
+    color: #64748b;
 
 }
 
@@ -444,15 +527,19 @@ body {
 
     background: white;
 
-    border-radius: 16px;
+    border-radius: 15px;
 
-    padding: 25px;
+    padding: 24px;
 
-    margin-bottom: 30px;
+    margin-bottom: 28px;
+
+    border:
+        1px solid
+        #e2e8f0;
 
     box-shadow:
-        0 5px 18px
-        rgba(0,0,0,.10);
+        0 3px 12px
+        rgba(0,0,0,.06);
 
 }
 
@@ -461,61 +548,79 @@ body {
 
     color: #1459a6;
 
-    font-weight: bold;
+    font-weight: 700;
+
+}
+
+
+.eleccion p {
+
+    color: #475569;
+
+}
+
+
+.estado-abierta,
+.estado-cerrada {
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    padding:
+        8px 15px;
+
+    border-radius: 20px;
+
+    font-size: 14px;
+
+    font-weight: 600;
 
 }
 
 
 .estado-abierta {
 
-    display: inline-block;
+    background: #dcfce7;
 
-    background: #198754;
-
-    color: white;
-
-    padding: 8px 15px;
-
-    border-radius: 20px;
-
-    font-weight: bold;
+    color: #166534;
 
 }
 
 
 .estado-cerrada {
 
-    display: inline-block;
+    background: #fee2e2;
 
-    background: #dc3545;
-
-    color: white;
-
-    padding: 8px 15px;
-
-    border-radius: 20px;
-
-    font-weight: bold;
+    color: #991b1b;
 
 }
 
 
 /* =========================================================
-   ACCESOS
+   TÍTULO ACCESOS
 ========================================================= */
 
 .titulo-accesos {
 
     text-align: center;
 
-    color: #222;
+    color: #1e293b;
 
-    font-size: 30px;
+    font-size: 27px;
 
-    margin-bottom: 25px;
+    font-weight: 700;
+
+    margin-bottom: 22px;
 
 }
 
+
+/* =========================================================
+   ACCESOS RÁPIDOS
+========================================================= */
 
 .accesos {
 
@@ -524,16 +629,20 @@ body {
     grid-template-columns:
         repeat(3, 1fr);
 
-    gap: 15px;
+    gap: 17px;
 
 }
 
 
+/* =========================================================
+   TARJETAS
+========================================================= */
+
 .acceso {
 
-    min-height: 125px;
+    min-height: 140px;
 
-    border-radius: 14px;
+    border-radius: 15px;
 
     color: white;
 
@@ -549,11 +658,21 @@ body {
 
     text-align: center;
 
-    font-weight: bold;
+    font-weight: 600;
+
+    font-size: 16px;
+
+    padding: 20px;
 
     transition: .2s;
 
-    padding: 15px;
+    border:
+        1px solid
+        rgba(0,0,0,.05);
+
+    box-shadow:
+        0 3px 10px
+        rgba(0,0,0,.08);
 
 }
 
@@ -562,27 +681,38 @@ body {
 
     color: white;
 
-    transform: translateY(-3px);
+    transform:
+        translateY(-3px);
 
     box-shadow:
-        0 8px 20px
-        rgba(0,0,0,.18);
+        0 7px 18px
+        rgba(0,0,0,.13);
 
 }
 
+
+/* =========================================================
+   ICONOS GRANDES
+========================================================= */
 
 .acceso i {
 
-    font-size: 38px;
+    font-size: 42px;
 
-    margin-bottom: 12px;
+    line-height: 1;
+
+    margin-bottom: 13px;
 
 }
 
 
+/* =========================================================
+   COLORES
+========================================================= */
+
 .azul {
 
-    background: #1674e8;
+    background: #1976e8;
 
 }
 
@@ -596,23 +726,23 @@ body {
 
 .celeste {
 
-    background: #20b8d8;
+    background: #17a9c4;
 
 }
 
 
 .amarillo {
 
-    background: #ffc107;
+    background: #f5b800;
 
-    color: #000;
+    color: #17202a;
 
 }
 
 
 .amarillo:hover {
 
-    color: #000;
+    color: #17202a;
 
 }
 
@@ -624,17 +754,6 @@ body {
 }
 
 
-.negro {
-
-    background: #212529;
-
-}
-
-
-/* =========================================================
-   PDF
-========================================================= */
-
 .pdf {
 
     background: #b02a37;
@@ -642,26 +761,27 @@ body {
 }
 
 
-.pdf:hover {
+.negro {
 
-    background: #8f1f2b;
+    background: #343a40;
 
 }
 
 
 /* =========================================================
-   SEPARADOR
+   FOOTER
 ========================================================= */
 
-.separador {
+.footer {
 
-    border: 0;
+    text-align: center;
 
-    border-top:
-        1px solid
-        #ddd;
+    color: #64748b;
 
-    margin: 30px 0;
+    font-size: 14px;
+
+    padding:
+        30px 10px;
 
 }
 
@@ -671,7 +791,7 @@ body {
 ========================================================= */
 
 @media (
-    max-width: 1000px
+    max-width: 1100px
 ) {
 
     .estadisticas {
@@ -732,7 +852,8 @@ body {
 
     .topbar {
 
-        padding: 0 15px;
+        padding:
+            0 15px;
 
     }
 
@@ -740,6 +861,13 @@ body {
     .topbar h3 {
 
         font-size: 18px;
+
+    }
+
+
+    .container-admin {
+
+        padding: 15px;
 
     }
 
@@ -755,14 +883,19 @@ body {
 
 <!-- =====================================================
      SIDEBAR
-===================================================== -->
+========================================================= -->
 
 <div class="sidebar">
 
 
 <div class="logo">
 
-<i class="bi bi-bank2"></i>
+<div class="icono-colegio">
+
+<i class="bi bi-building-fill"></i>
+
+</div>
+
 
 <h2>
 
@@ -822,7 +955,7 @@ Exportar Excel
 
 <a href="importar_estudiantes.php">
 
-<i class="bi bi-file-earmark-arrow-up-fill"></i>
+<i class="bi bi-cloud-arrow-up-fill"></i>
 
 <span>
 Importar Excel
@@ -875,11 +1008,7 @@ Gráficas
 </a>
 
 
-<hr
-style="
-margin:15px;
-border-color:rgba(255,255,255,.3);
-">
+<hr>
 
 
 <a href="abrir_eleccion.php">
@@ -904,11 +1033,7 @@ Cerrar Elección
 </a>
 
 
-<hr
-style="
-margin:15px;
-border-color:rgba(255,255,255,.3);
-">
+<hr>
 
 
 <a href="logout.php">
@@ -929,54 +1054,76 @@ Cerrar Sesión
 
 <!-- =====================================================
      CONTENIDO
-===================================================== -->
+========================================================= -->
 
 <div class="contenido">
 
 
-<!-- TOPBAR -->
+<!-- =====================================================
+     BARRA SUPERIOR
+========================================================= -->
 
 <div class="topbar">
 
 
 <h3>
 
-<i class="bi bi-shield-lock-fill"></i>
+<i class="bi bi-shield-fill-check"></i>
 
 Sistema de Votaciones Escolares
 
 </h3>
 
 
-<div>
+<div class="usuario-admin">
 
 <i class="bi bi-person-fill"></i>
 
-<?php echo htmlspecialchars(
+<span>
+
+<?php
+
+echo htmlspecialchars(
     $nombreAdmin
-); ?>
+);
+
+?>
+
+</span>
 
 </div>
 
 
 </div>
 
+
+<!-- =====================================================
+     CONTENIDO PRINCIPAL
+========================================================= -->
 
 <div class="container-admin">
 
 
 <!-- =====================================================
      BIENVENIDA
-===================================================== -->
+========================================================= -->
 
 <div class="bienvenida">
 
 
 <h2>
 
-Bienvenido, <?php echo htmlspecialchars(
+Bienvenido,
+<?php
+
+echo htmlspecialchars(
     $nombreAdmin
-); ?> 👋
+);
+
+?>
+
+
+<i class="bi bi-hand-wave"></i>
 
 </h2>
 
@@ -994,20 +1141,31 @@ del sistema de votaciones escolares.
 
 <!-- =====================================================
      ESTADÍSTICAS
-===================================================== -->
+========================================================= -->
 
 <div class="estadisticas">
 
 
 <div class="stat">
 
+
+<div class="icono">
+
 <i class="bi bi-people-fill"></i>
+
+</div>
+
 
 <h3>
 
-<?php echo $totalEstudiantes; ?>
+<?php
+
+echo $totalEstudiantes;
+
+?>
 
 </h3>
+
 
 <p>
 
@@ -1015,18 +1173,30 @@ Estudiantes
 
 </p>
 
+
 </div>
 
 
 <div class="stat">
 
+
+<div class="icono">
+
 <i class="bi bi-person-badge-fill"></i>
+
+</div>
+
 
 <h3>
 
-<?php echo $totalJurados; ?>
+<?php
+
+echo $totalJurados;
+
+?>
 
 </h3>
+
 
 <p>
 
@@ -1034,18 +1204,30 @@ Jurados
 
 </p>
 
+
 </div>
 
 
 <div class="stat">
 
+
+<div class="icono">
+
 <i class="bi bi-person-vcard-fill"></i>
+
+</div>
+
 
 <h3>
 
-<?php echo $totalCandidatos; ?>
+<?php
+
+echo $totalCandidatos;
+
+?>
 
 </h3>
+
 
 <p>
 
@@ -1053,24 +1235,37 @@ Candidatos
 
 </p>
 
+
 </div>
 
 
 <div class="stat">
 
+
+<div class="icono">
+
 <i class="bi bi-check2-square"></i>
+
+</div>
+
 
 <h3>
 
-<?php echo $totalVotos; ?>
+<?php
+
+echo $totalVotos;
+
+?>
 
 </h3>
+
 
 <p>
 
 Votos registrados
 
 </p>
+
 
 </div>
 
@@ -1080,11 +1275,15 @@ Votos registrados
 
 <!-- =====================================================
      ELECCIÓN ACTUAL
-===================================================== -->
+========================================================= -->
 
-<?php if (
+<?php
+
+if (
     $eleccionActual !== null
-) { ?>
+) {
+
+?>
 
 
 <div class="eleccion">
@@ -1100,18 +1299,26 @@ Votos registrados
 
 <i class="bi bi-calendar-event-fill"></i>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $eleccionActual['nombre']
-); ?>
+);
+
+?>
 
 </h3>
 
 
 <p class="mb-1">
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $eleccionActual['descripcion']
-); ?>
+);
+
+?>
 
 </p>
 
@@ -1120,9 +1327,13 @@ Votos registrados
 
 Inicio:
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $eleccionActual['fecha_inicio']
-); ?>
+);
+
+?>
 
 
 &nbsp; | &nbsp;
@@ -1130,9 +1341,13 @@ Inicio:
 
 Fin:
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $eleccionActual['fecha_fin']
-); ?>
+);
+
+?>
 
 </small>
 
@@ -1140,33 +1355,50 @@ Fin:
 </div>
 
 
-<div class="col-md-4 text-md-end mt-3 mt-md-0">
+<div
+class="col-md-4 text-md-end mt-3 mt-md-0">
 
 
-<?php if (
+<?php
+
+if (
     $eleccionActual['estado']
     === 'abierta'
-) { ?>
+) {
+
+?>
 
 
 <span class="estado-abierta">
 
-🟢 Elección abierta
+<i class="bi bi-circle-fill"></i>
+
+Elección abierta
 
 </span>
 
 
-<?php } else { ?>
+<?php
+
+} else {
+
+?>
 
 
 <span class="estado-cerrada">
 
-🔴 Elección cerrada
+<i class="bi bi-circle-fill"></i>
+
+Elección cerrada
 
 </span>
 
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 
 </div>
@@ -1178,16 +1410,22 @@ Fin:
 </div>
 
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 
 <!-- =====================================================
      ACCESOS RÁPIDOS
-===================================================== -->
+========================================================= -->
 
 <h2 class="titulo-accesos">
 
-⚡ Accesos rápidos
+<i class="bi bi-grid-3x3-gap-fill"></i>
+
+Accesos rápidos
 
 </h2>
 
@@ -1204,11 +1442,13 @@ class="acceso azul">
 
 <i class="bi bi-people-fill"></i>
 
+
 <span>
 
 Gestionar Estudiantes
 
 </span>
+
 
 </a>
 
@@ -1222,16 +1462,18 @@ class="acceso verde">
 
 <i class="bi bi-person-badge-fill"></i>
 
+
 <span>
 
 Gestionar Jurados
 
 </span>
 
+
 </a>
 
 
-<!-- EXPORTAR EXCEL -->
+<!-- EXPORTAR -->
 
 <a
 href="exportar_estudiantes.php"
@@ -1240,29 +1482,33 @@ class="acceso verde">
 
 <i class="bi bi-file-earmark-excel-fill"></i>
 
+
 <span>
 
 Exportar Excel
 
 </span>
 
+
 </a>
 
 
-<!-- IMPORTAR EXCEL -->
+<!-- IMPORTAR -->
 
 <a
 href="importar_estudiantes.php"
 class="acceso verde">
 
 
-<i class="bi bi-file-earmark-arrow-up-fill"></i>
+<i class="bi bi-cloud-arrow-up-fill"></i>
+
 
 <span>
 
 Importar Excel
 
 </span>
+
 
 </a>
 
@@ -1276,11 +1522,13 @@ class="acceso celeste">
 
 <i class="bi bi-person-vcard-fill"></i>
 
+
 <span>
 
 Gestionar Candidatos
 
 </span>
+
 
 </a>
 
@@ -1294,11 +1542,13 @@ class="acceso amarillo">
 
 <i class="bi bi-trophy-fill"></i>
 
+
 <span>
 
 Ver Resultados
 
 </span>
+
 
 </a>
 
@@ -1312,11 +1562,13 @@ class="acceso celeste">
 
 <i class="bi bi-bar-chart-fill"></i>
 
+
 <span>
 
 Ver Gráficas
 
 </span>
+
 
 </a>
 
@@ -1330,11 +1582,13 @@ class="acceso azul">
 
 <i class="bi bi-calendar-event-fill"></i>
 
+
 <span>
 
 Gestionar Elecciones
 
 </span>
+
 
 </a>
 
@@ -1348,11 +1602,13 @@ class="acceso verde">
 
 <i class="bi bi-unlock-fill"></i>
 
+
 <span>
 
 Abrir Elección
 
 </span>
+
 
 </a>
 
@@ -1366,18 +1622,18 @@ class="acceso rojo">
 
 <i class="bi bi-lock-fill"></i>
 
+
 <span>
 
 Cerrar Elección
 
 </span>
 
+
 </a>
 
 
-<!-- =====================================================
-     DESCARGAR PDF
-===================================================== -->
+<!-- PDF -->
 
 <a
 href="pdf_resultados.php"
@@ -1386,6 +1642,7 @@ target="_blank">
 
 
 <i class="bi bi-file-earmark-pdf-fill"></i>
+
 
 <span>
 
@@ -1406,11 +1663,13 @@ class="acceso negro">
 
 <i class="bi bi-box-arrow-right"></i>
 
+
 <span>
 
 Cerrar Sesión
 
 </span>
+
 
 </a>
 
@@ -1418,15 +1677,25 @@ Cerrar Sesión
 </div>
 
 
+<!-- =====================================================
+     FOOTER
+========================================================= -->
+
+<div class="footer">
+
+Sistema de Votaciones Escolares
+
+<br>
+
+© <?php echo date("Y"); ?>
+
 </div>
 
 
 </div>
 
 
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
+</div>
 
 
 </body>

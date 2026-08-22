@@ -2,10 +2,6 @@
 
 session_start();
 
-/* =========================================
-   VERIFICAR ADMINISTRADOR
-========================================= */
-
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
@@ -21,312 +17,164 @@ $mensaje = "";
 $tipoMensaje = "";
 
 
-/* =========================================
+/* =========================================================
+   REGISTRAR ESTUDIANTE
+========================================================= */
+
+if (isset($_POST['guardar'])) {
+
+    $documento = trim($_POST['documento'] ?? '');
+    $nombre    = trim($_POST['nombre'] ?? '');
+    $apellido  = trim($_POST['apellido'] ?? '');
+    $curso     = trim($_POST['curso'] ?? '');
+
+    if (
+        $documento === "" ||
+        $nombre === "" ||
+        $apellido === "" ||
+        $curso === ""
+    ) {
+
+        $mensaje = "Debe completar todos los campos.";
+        $tipoMensaje = "danger";
+
+    } elseif (!preg_match('/^[0-9]+$/', $documento)) {
+
+        $mensaje = "El documento debe contener únicamente números.";
+        $tipoMensaje = "danger";
+
+    } else {
+
+        /* COMPROBAR DOCUMENTO */
+
+        $stmt = $conn->prepare("
+            SELECT id
+            FROM usuarios
+            WHERE documento = ?
+            LIMIT 1
+        ");
+
+        if (!$stmt) {
+
+            $mensaje = "No se pudo comprobar el documento.";
+            $tipoMensaje = "danger";
+
+        } else {
+
+            $stmt->bind_param("s", $documento);
+            $stmt->execute();
+
+            $resultado = $stmt->get_result();
+
+            if ($resultado->num_rows > 0) {
+
+                $mensaje = "Ya existe un usuario con ese documento.";
+                $tipoMensaje = "danger";
+
+                $stmt->close();
+
+            } else {
+
+                $stmt->close();
+
+                /* CONTRASEÑA = DOCUMENTO */
+
+                $password_hash = password_hash(
+                    $documento,
+                    PASSWORD_DEFAULT
+                );
+
+                $correo = "";
+
+                /* INSERTAR */
+
+                $stmt = $conn->prepare("
+                    INSERT INTO usuarios
+                    (
+                        documento,
+                        nombre,
+                        apellido,
+                        correo,
+                        curso,
+                        password,
+                        rol
+                    )
+                    VALUES
+                    (?, ?, ?, ?, ?, ?, 'estudiante')
+                ");
+
+                if (!$stmt) {
+
+                    $mensaje = "No se pudo preparar el registro.";
+                    $tipoMensaje = "danger";
+
+                } else {
+
+                    $stmt->bind_param(
+                        "ssssss",
+                        $documento,
+                        $nombre,
+                        $apellido,
+                        $correo,
+                        $curso,
+                        $password_hash
+                    );
+
+                    if ($stmt->execute()) {
+
+                        $mensaje =
+                            "Estudiante registrado correctamente.";
+
+                        $tipoMensaje = "success";
+
+                    } else {
+
+                        $mensaje =
+                            "Error al registrar el estudiante.";
+
+                        $tipoMensaje = "danger";
+                    }
+
+                    $stmt->close();
+                }
+            }
+        }
+    }
+}
+
+
+/* =========================================================
    ELIMINAR ESTUDIANTE
-========================================= */
+========================================================= */
 
 if (isset($_GET['eliminar'])) {
 
     $id = (int)$_GET['eliminar'];
 
-    $stmt = $conn->prepare("
-        DELETE FROM usuarios
-        WHERE id = ?
-        AND rol = 'estudiante'
-    ");
-
-    $stmt->bind_param("i", $id);
-
-    if ($stmt->execute()) {
-
-        $mensaje =
-            "Estudiante eliminado correctamente.";
-
-        $tipoMensaje = "success";
-
-    } else {
-
-        $mensaje =
-            "No se pudo eliminar el estudiante.";
-
-        $tipoMensaje = "danger";
-
-    }
-
-    $stmt->close();
-}
-
-
-/* =========================================
-   REGISTRAR ESTUDIANTE
-========================================= */
-
-if (
-    isset($_POST['registrar_estudiante'])
-) {
-
-    $documento =
-        trim($_POST['documento'] ?? '');
-
-    $nombre =
-        trim($_POST['nombre'] ?? '');
-
-    $apellido =
-        trim($_POST['apellido'] ?? '');
-
-    $curso =
-        trim($_POST['curso'] ?? '');
-
-
-    if (
-        $documento === "" ||
-        $nombre === "" ||
-        $apellido === "" ||
-        $curso === ""
-    ) {
-
-        $mensaje =
-            "Todos los campos son obligatorios.";
-
-        $tipoMensaje = "danger";
-
-    } else {
-
-
-        /* =====================================
-           COMPROBAR DOCUMENTO
-        ===================================== */
+    if ($id > 0) {
 
         $stmt = $conn->prepare("
-            SELECT id
-            FROM usuarios
-            WHERE documento = ?
-            LIMIT 1
+            DELETE FROM usuarios
+            WHERE id = ?
+            AND rol = 'estudiante'
         ");
 
-        $stmt->bind_param(
-            "s",
-            $documento
-        );
+        if ($stmt) {
 
-        $stmt->execute();
-
-        $existe =
-            $stmt->get_result();
-
-        $stmt->close();
-
-
-        if ($existe->num_rows > 0) {
-
-            $mensaje =
-                "El documento ya está registrado.";
-
-            $tipoMensaje = "danger";
-
-        } else {
-
-
-            /* =================================
-               CONTRASEÑA = DOCUMENTO
-            ================================= */
-
-            $password =
-                password_hash(
-                    $documento,
-                    PASSWORD_DEFAULT
-                );
-
-
-            $rol = "estudiante";
-
-
-            /* =================================
-               INSERTAR
-            ================================= */
-
-            $stmt = $conn->prepare("
-                INSERT INTO usuarios
-                (
-                    documento,
-                    nombre,
-                    apellido,
-                    curso,
-                    password,
-                    rol,
-                    fecha_registro
-                )
-                VALUES
-                (?, ?, ?, ?, ?, ?, NOW())
-            ");
-
-            $stmt->bind_param(
-                "ssssss",
-                $documento,
-                $nombre,
-                $apellido,
-                $curso,
-                $password,
-                $rol
-            );
-
-
-            if ($stmt->execute()) {
-
-                $mensaje =
-                    "Estudiante registrado correctamente. " .
-                    "La contraseña inicial es el documento.";
-
-                $tipoMensaje = "success";
-
-            } else {
-
-                $mensaje =
-                    "Error al registrar estudiante: " .
-                    $stmt->error;
-
-                $tipoMensaje = "danger";
-
-            }
-
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
             $stmt->close();
-
         }
-
     }
 
+    header("Location: estudiantes.php");
+    exit();
 }
 
 
-/* =========================================
-   EDITAR ESTUDIANTE
-========================================= */
-
-if (
-    isset($_POST['editar_estudiante'])
-) {
-
-    $id =
-        (int)($_POST['id'] ?? 0);
-
-    $documento =
-        trim($_POST['documento'] ?? '');
-
-    $nombre =
-        trim($_POST['nombre'] ?? '');
-
-    $apellido =
-        trim($_POST['apellido'] ?? '');
-
-    $curso =
-        trim($_POST['curso'] ?? '');
-
-
-    if (
-        $id <= 0 ||
-        $documento === "" ||
-        $nombre === "" ||
-        $apellido === "" ||
-        $curso === ""
-    ) {
-
-        $mensaje =
-            "Todos los campos son obligatorios.";
-
-        $tipoMensaje = "danger";
-
-    } else {
-
-
-        /* =====================================
-           COMPROBAR DOCUMENTO DUPLICADO
-        ===================================== */
-
-        $stmt = $conn->prepare("
-            SELECT id
-            FROM usuarios
-            WHERE documento = ?
-            AND id != ?
-            LIMIT 1
-        ");
-
-        $stmt->bind_param(
-            "si",
-            $documento,
-            $id
-        );
-
-        $stmt->execute();
-
-        $duplicado =
-            $stmt->get_result();
-
-        $stmt->close();
-
-
-        if ($duplicado->num_rows > 0) {
-
-            $mensaje =
-                "El documento ya pertenece a otro usuario.";
-
-            $tipoMensaje = "danger";
-
-        } else {
-
-
-            /* =================================
-               ACTUALIZAR DATOS
-            ================================= */
-
-            $stmt = $conn->prepare("
-                UPDATE usuarios
-                SET
-                    documento = ?,
-                    nombre = ?,
-                    apellido = ?,
-                    curso = ?
-                WHERE id = ?
-                AND rol = 'estudiante'
-            ");
-
-            $stmt->bind_param(
-                "ssssi",
-                $documento,
-                $nombre,
-                $apellido,
-                $curso,
-                $id
-            );
-
-
-            if ($stmt->execute()) {
-
-                $mensaje =
-                    "Estudiante actualizado correctamente.";
-
-                $tipoMensaje = "success";
-
-            } else {
-
-                $mensaje =
-                    "No se pudo actualizar el estudiante.";
-
-                $tipoMensaje = "danger";
-
-            }
-
-            $stmt->close();
-
-        }
-
-    }
-
-}
-
-
-/* =========================================
-   OBTENER ESTUDIANTES
-========================================= */
+/* =========================================================
+   CONSULTAR ESTUDIANTES
+========================================================= */
 
 $estudiantes = $conn->query("
     SELECT
@@ -334,12 +182,21 @@ $estudiantes = $conn->query("
         documento,
         nombre,
         apellido,
-        curso,
-        fecha_registro
+        curso
     FROM usuarios
     WHERE rol = 'estudiante'
     ORDER BY nombre ASC, apellido ASC
 ");
+
+if (!$estudiantes) {
+
+    die(
+        "Error al consultar estudiantes: " .
+        htmlspecialchars($conn->error)
+    );
+}
+
+$total = $estudiantes->num_rows;
 
 ?>
 
@@ -359,249 +216,186 @@ content="width=device-width, initial-scale=1">
 Gestión de Estudiantes
 </title>
 
-
-<!-- =========================================
-     BOOTSTRAP
-========================================= -->
-
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
-
-
-<!-- =========================================
-     ICONOS
-========================================= -->
 
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
+<link
+rel="stylesheet"
+href="css/estilos.css">
 
 <style>
 
-/* =========================================
-   GENERAL
-========================================= */
-
 body {
 
-    margin:0;
+    background: #eef3f9;
 
-    background:#eef3f9;
-
-    font-family:
-        Arial,
-        Helvetica,
-        sans-serif;
+    min-height: 100vh;
 
 }
-
-
-/* =========================================
-   CONTENEDOR
-========================================= */
 
 .contenedor {
 
-    max-width:1300px;
-
-    margin:auto;
-
-    padding:35px 25px;
+    max-width: 1400px;
 
 }
 
+.card-principal {
 
-/* =========================================
-   CABECERA
-========================================= */
+    border: none;
 
-.cabecera {
+    border-radius: 18px;
 
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
-    flex-wrap:wrap;
-
-    gap:15px;
-
-    margin-bottom:25px;
+    box-shadow:
+        0 5px 20px
+        rgba(0,0,0,.12);
 
 }
-
 
 .titulo {
 
-    color:#1453a3;
+    color: #0d47a1;
 
-    font-weight:bold;
-
-    margin:0;
+    font-weight: 700;
 
 }
 
+.btn-accion {
 
-/* =========================================
-   TARJETA
-========================================= */
+    border-radius: 10px;
 
-.card {
-
-    border:none;
-
-    border-radius:18px;
-
-    box-shadow:
-        0 6px 20px
-        rgba(0,0,0,.10);
+    font-weight: 600;
 
 }
-
-
-/* =========================================
-   CABECERA DE TARJETA
-========================================= */
-
-.card-header {
-
-    background:#1453a3;
-
-    color:white;
-
-    padding:18px 22px;
-
-    border-radius:
-        18px 18px 0 0 !important;
-
-}
-
-
-/* =========================================
-   TABLA
-========================================= */
-
-.tabla {
-
-    vertical-align:middle;
-
-}
-
-
-.tabla thead {
-
-    background:#cfe0ff;
-
-    color:#084298;
-
-}
-
-
-.tabla th {
-
-    white-space:nowrap;
-
-}
-
-
-.tabla td {
-
-    padding:12px;
-
-}
-
-
-/* =========================================
-   BOTONES
-========================================= */
-
-.btn-editar {
-
-    background:#ffc107;
-
-    border:none;
-
-    color:#111;
-
-}
-
-
-.btn-editar:hover {
-
-    background:#e0a800;
-
-    color:#111;
-
-}
-
-
-.btn-eliminar {
-
-    background:#dc3545;
-
-    border:none;
-
-    color:white;
-
-}
-
-
-.btn-eliminar:hover {
-
-    background:#bb2d3b;
-
-    color:white;
-
-}
-
-
-/* =========================================
-   INFO CONTRASEÑA
-========================================= */
 
 .info-password {
 
-    background:#eef5ff;
+    background: #cff4fc;
 
-    border:
-        1px solid #b6d4fe;
+    color: #055160;
 
-    color:#084298;
+    border: 1px solid #b6effb;
 
-    border-radius:10px;
+    border-radius: 10px;
 
-    padding:12px;
+    padding: 14px;
 
 }
 
+.buscar {
 
-/* =========================================
-   MODAL
-========================================= */
+    max-width: 700px;
+
+}
+
+.table {
+
+    background: white;
+
+}
+
+.table thead th {
+
+    background: #cfe2ff;
+
+    font-weight: 700;
+
+    vertical-align: middle;
+
+}
+
+.total-badge {
+
+    font-size: 15px;
+
+    padding: 9px 14px;
+
+}
+
+.btn-editar {
+
+    background: #ffc107;
+
+    color: #000;
+
+    border: none;
+
+    font-weight: 600;
+
+}
+
+.btn-editar:hover {
+
+    background: #ffca2c;
+
+    color: #000;
+
+}
+
+.btn-eliminar {
+
+    background: #dc3545;
+
+    color: white;
+
+    border: none;
+
+    font-weight: 600;
+
+}
+
+.btn-eliminar:hover {
+
+    background: #bb2d3b;
+
+    color: white;
+
+}
 
 .modal-content {
 
-    border:none;
+    border: none;
 
-    border-radius:18px;
+    border-radius: 18px;
+
+    box-shadow:
+        0 10px 40px
+        rgba(0,0,0,.25);
 
 }
 
-
 .modal-header {
 
-    background:#1453a3;
+    background: #198754;
 
-    color:white;
+    color: white;
 
     border-radius:
         18px 18px 0 0;
 
 }
 
+.modal-title {
+
+    font-weight: bold;
+
+}
+
+.footer {
+
+    text-align: center;
+
+    color: #6c757d;
+
+    margin-top: 30px;
+
+    padding: 20px;
+
+}
 
 </style>
 
@@ -611,52 +405,71 @@ body {
 <body>
 
 
-<div class="contenedor">
+<div class="container-fluid contenedor py-4">
 
 
-<!-- =========================================
-     CABECERA
-========================================= -->
+<!-- =====================================================
+     ENCABEZADO
+===================================================== -->
 
-<div class="cabecera">
+<div class="card card-principal mb-4">
+
+<div class="card-body">
+
+<div
+class="d-flex
+       justify-content-between
+       align-items-center
+       flex-wrap
+       gap-3">
 
 
 <div>
 
-<h1 class="titulo">
+<h2 class="titulo mb-1">
 
 <i class="bi bi-people-fill"></i>
 
-Estudiantes
+Gestión de Estudiantes
 
-</h1>
+</h2>
 
 <p class="text-muted mb-0">
 
-Administración de estudiantes registrados.
+Administre los estudiantes registrados
+en el sistema.
 
 </p>
 
 </div>
 
 
-<div class="d-flex gap-2 flex-wrap">
+<div
+class="d-flex
+       gap-2
+       flex-wrap">
 
 
-<a
-href="admin.php"
-class="btn btn-outline-primary">
+<!-- BOTÓN REGISTRAR -->
 
-<i class="bi bi-arrow-left"></i>
+<button
+type="button"
+class="btn btn-success btn-accion"
+data-bs-toggle="modal"
+data-bs-target="#modalRegistrarEstudiante">
 
-Volver
+<i class="bi bi-person-plus-fill"></i>
 
-</a>
+Registrar estudiante
 
+</button>
+
+
+<!-- IMPORTAR -->
 
 <a
 href="importar_estudiantes.php"
-class="btn btn-success">
+class="btn btn-primary btn-accion">
 
 <i class="bi bi-file-earmark-arrow-up-fill"></i>
 
@@ -665,9 +478,11 @@ Importar Excel
 </a>
 
 
+<!-- EXPORTAR -->
+
 <a
 href="exportar_estudiantes.php"
-class="btn btn-success">
+class="btn btn-success btn-accion">
 
 <i class="bi bi-file-earmark-excel-fill"></i>
 
@@ -676,184 +491,197 @@ Exportar Excel
 </a>
 
 
-<button
-type="button"
-class="btn btn-primary"
-data-bs-toggle="modal"
-data-bs-target="#modalRegistrar">
+<!-- ADMIN -->
 
-<i class="bi bi-person-plus-fill"></i>
+<a
+href="admin.php"
+class="btn btn-secondary btn-accion">
 
-Nuevo estudiante
+<i class="bi bi-arrow-left-circle-fill"></i>
 
-</button>
+Panel Admin
 
+</a>
+
+</div>
 
 </div>
 
 </div>
 
+</div>
 
-<!-- =========================================
+
+<!-- =====================================================
      MENSAJE
-========================================= -->
+===================================================== -->
 
 <?php if ($mensaje !== "") { ?>
 
 <div
-class="alert alert-<?php echo $tipoMensaje; ?>">
+class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?> alert-dismissible fade show">
 
 <i class="bi bi-info-circle-fill"></i>
 
 <?php echo htmlspecialchars($mensaje); ?>
+
+<button
+type="button"
+class="btn-close"
+data-bs-dismiss="alert">
+</button>
 
 </div>
 
 <?php } ?>
 
 
-<!-- =========================================
-     INFORMACIÓN
-========================================= -->
+<!-- =====================================================
+     LISTA DE ESTUDIANTES
+===================================================== -->
 
-<div class="alert alert-info">
+<div class="card card-principal">
 
-<i class="bi bi-key-fill"></i>
-
-<strong>Contraseña inicial:</strong>
-
-El documento del estudiante.
-
-Por ejemplo:
-
-Documento:
-
-<strong>1000000003</strong>
-
-Contraseña:
-
-<strong>1000000003</strong>
-
-</div>
+<div class="card-body p-4">
 
 
-<!-- =========================================
-     TABLA
-========================================= -->
+<div
+class="d-flex
+       justify-content-between
+       align-items-center
+       flex-wrap
+       gap-2
+       mb-3">
 
-<div class="card">
 
+<h4 class="titulo mb-0">
 
-<div class="card-header">
+<i class="bi bi-list-ul"></i>
 
-<div class="d-flex
-            justify-content-between
-            align-items-center">
-
-<h4 class="mb-0">
-
-<i class="bi bi-person-lines-fill"></i>
-
-Listado de estudiantes
+Lista de estudiantes
 
 </h4>
 
-<span>
 
-<?php echo $estudiantes
-    ? $estudiantes->num_rows
-    : 0; ?>
+<span class="badge bg-primary total-badge">
 
-registrados
+Total:
+
+<?php echo $total; ?>
 
 </span>
 
+
+</div>
+
+
+<!-- =====================================================
+     BUSCADOR
+===================================================== -->
+
+<div class="mb-2">
+
+<div class="input-group buscar">
+
+<span class="input-group-text">
+
+<i class="bi bi-search"></i>
+
+</span>
+
+
+<input
+type="text"
+id="buscar"
+class="form-control"
+placeholder="Buscar por documento, nombre, apellido o curso..."
+autocomplete="off">
+
+
+<button
+type="button"
+id="limpiarBusqueda"
+class="btn btn-outline-secondary">
+
+<i class="bi bi-x-circle"></i>
+
+Limpiar
+
+</button>
+
 </div>
 
 </div>
 
 
-<div class="card-body p-0">
+<div
+id="resultadoBusqueda"
+class="text-muted small mb-3">
 
+Mostrando todos los estudiantes.
+
+</div>
+
+
+<!-- =====================================================
+     TABLA
+===================================================== -->
 
 <div class="table-responsive">
 
-
 <table
-class="table table-hover table-bordered mb-0 tabla">
-
+class="table table-bordered table-hover align-middle">
 
 <thead>
 
 <tr>
 
-<th>ID</th>
+<th>
+ID
+</th>
 
-<th>Documento</th>
+<th>
+Documento
+</th>
 
-<th>Nombre</th>
+<th>
+Nombre
+</th>
 
-<th>Apellido</th>
+<th>
+Apellido
+</th>
 
-<th>Curso</th>
+<th>
+Curso
+</th>
 
-<th>Fecha registro</th>
-
-<th>Acciones</th>
+<th>
+Acciones
+</th>
 
 </tr>
 
 </thead>
 
 
-<tbody>
+<tbody id="tablaEstudiantes">
 
+<?php
 
-<?php if (
-    !$estudiantes ||
-    $estudiantes->num_rows === 0
-) { ?>
+if ($estudiantes->num_rows > 0) {
 
+    while (
+        $e = $estudiantes->fetch_assoc()
+    ) {
 
-<tr>
-
-<td
-colspan="7"
-class="text-center p-5">
-
-
-<i
-class="bi bi-person-x fs-1 text-muted">
-</i>
-
-
-<h5 class="mt-3">
-
-No hay estudiantes registrados.
-
-</h5>
-
-
-</td>
-
-</tr>
-
-
-<?php } else { ?>
-
-
-<?php while (
-    $estudiante =
-    $estudiantes->fetch_assoc()
-) { ?>
-
+?>
 
 <tr>
-
 
 <td>
 
-<?php echo (int)$estudiante['id']; ?>
+<?php echo (int)$e['id']; ?>
 
 </td>
 
@@ -863,7 +691,7 @@ No hay estudiantes registrados.
 <strong>
 
 <?php echo htmlspecialchars(
-    $estudiante['documento']
+    $e['documento']
 ); ?>
 
 </strong>
@@ -874,7 +702,7 @@ No hay estudiantes registrados.
 <td>
 
 <?php echo htmlspecialchars(
-    $estudiante['nombre']
+    $e['nombre']
 ); ?>
 
 </td>
@@ -883,7 +711,7 @@ No hay estudiantes registrados.
 <td>
 
 <?php echo htmlspecialchars(
-    $estudiante['apellido']
+    $e['apellido']
 ); ?>
 
 </td>
@@ -891,11 +719,10 @@ No hay estudiantes registrados.
 
 <td>
 
-<span
-class="badge bg-primary">
+<span class="badge bg-secondary">
 
 <?php echo htmlspecialchars(
-    $estudiante['curso']
+    $e['curso']
 ); ?>
 
 </span>
@@ -905,95 +732,72 @@ class="badge bg-primary">
 
 <td>
 
-<?php echo htmlspecialchars(
-    $estudiante['fecha_registro']
-); ?>
-
-</td>
+<div
+class="d-flex gap-1 flex-wrap">
 
 
-<td>
+<a
+href="editar_estudiante.php?id=<?php echo (int)$e['id']; ?>"
+class="btn btn-editar btn-sm">
 
-
-<!-- EDITAR -->
-
-<button
-
-type="button"
-
-class="btn btn-editar btn-sm"
-
-data-bs-toggle="modal"
-
-data-bs-target="#modalEditar"
-
-data-id="<?php echo (int)$estudiante['id']; ?>"
-
-data-documento="<?php echo htmlspecialchars(
-    $estudiante['documento'],
-    ENT_QUOTES
-); ?>"
-
-data-nombre="<?php echo htmlspecialchars(
-    $estudiante['nombre'],
-    ENT_QUOTES
-); ?>"
-
-data-apellido="<?php echo htmlspecialchars(
-    $estudiante['apellido'],
-    ENT_QUOTES
-); ?>"
-
-data-curso="<?php echo htmlspecialchars(
-    $estudiante['curso'],
-    ENT_QUOTES
-); ?>"
-
-onclick="cargarEditar(this)">
-
-<i
-class="bi bi-pencil-square">
-</i>
+<i class="bi bi-pencil-square"></i>
 
 Editar
 
-</button>
+</a>
 
-
-<!-- ELIMINAR -->
 
 <a
-
-href="estudiantes.php?eliminar=<?php echo (int)$estudiante['id']; ?>"
-
+href="estudiantes.php?eliminar=<?php echo (int)$e['id']; ?>"
 class="btn btn-eliminar btn-sm"
+onclick="return confirm('¿Está seguro de eliminar este estudiante?');">
 
-onclick="
-return confirm(
-'¿Está seguro de eliminar este estudiante?'
-);
-">
-
-<i
-class="bi bi-trash-fill">
-</i>
+<i class="bi bi-trash-fill"></i>
 
 Eliminar
 
 </a>
 
 
-</td>
+</div>
 
+</td>
 
 </tr>
 
+<?php
 
-<?php } ?>
+    }
 
+} else {
 
-<?php } ?>
+?>
 
+<tr>
+
+<td
+colspan="6"
+class="text-center text-muted py-5">
+
+<i class="bi bi-person-x fs-1"></i>
+
+<br>
+
+<strong>
+
+No hay estudiantes registrados.
+
+</strong>
+
+</td>
+
+</tr>
+
+<?php
+
+}
+
+?>
 
 </tbody>
 
@@ -1006,21 +810,100 @@ Eliminar
 </div>
 
 
-<!-- =========================================
-     VOLVER
-========================================= -->
+<!-- =====================================================
+     INFORMACIÓN
+===================================================== -->
 
-<div class="text-center mt-4">
+<div class="card card-principal mt-4">
 
-<a
-href="admin.php"
-class="btn btn-outline-primary">
+<div class="card-body">
 
-<i class="bi bi-arrow-left"></i>
+<div class="row text-center">
 
-Volver al panel de administración
+<div class="col-md-4">
 
-</a>
+<i
+class="bi bi-people-fill fs-2 text-primary">
+</i>
+
+<h5 class="mt-2">
+
+Estudiantes
+
+</h5>
+
+<p class="text-muted">
+
+<?php echo $total; ?>
+
+registrados
+
+</p>
+
+</div>
+
+
+<div class="col-md-4">
+
+<i
+class="bi bi-key-fill fs-2 text-success">
+</i>
+
+<h5 class="mt-2">
+
+Contraseña
+
+</h5>
+
+<p class="text-muted">
+
+Documento del estudiante
+
+</p>
+
+</div>
+
+
+<div class="col-md-4">
+
+<i
+class="bi bi-file-earmark-excel-fill fs-2 text-success">
+</i>
+
+<h5 class="mt-2">
+
+Excel
+
+</h5>
+
+<p class="text-muted">
+
+Importar y exportar estudiantes
+
+</p>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<div class="footer">
+
+<strong>
+
+Sistema de Votaciones Escolares v2.0
+
+</strong>
+
+<br>
+
+© <?php echo date("Y"); ?>
+
+Todos los derechos reservados.
 
 </div>
 
@@ -1029,29 +912,31 @@ Volver al panel de administración
 
 
 <!-- =====================================================
-     MODAL REGISTRAR
+     MODAL REGISTRAR ESTUDIANTE
 ===================================================== -->
 
 <div
 class="modal fade"
-id="modalRegistrar"
-tabindex="-1">
+id="modalRegistrarEstudiante"
+tabindex="-1"
+aria-hidden="true">
 
 
 <div
-class="modal-dialog modal-lg modal-dialog-centered">
+class="modal-dialog modal-dialog-centered">
 
 
 <div class="modal-content">
 
 
 <div class="modal-header">
+
 
 <h5 class="modal-title">
 
 <i class="bi bi-person-plus-fill"></i>
 
-Registrar estudiante
+Registrar nuevo estudiante
 
 </h5>
 
@@ -1059,111 +944,131 @@ Registrar estudiante
 <button
 type="button"
 class="btn-close btn-close-white"
-data-bs-dismiss="modal">
+data-bs-dismiss="modal"
+aria-label="Cerrar">
 </button>
+
 
 </div>
 
 
-<form method="POST">
+<div class="modal-body p-4">
 
 
-<div class="modal-body">
+<form
+method="POST"
+autocomplete="off">
 
 
-<div class="row">
+<!-- DOCUMENTO -->
 
+<div class="mb-3">
 
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
+<label class="form-label fw-bold">
 
 Documento
 
 </label>
 
+
 <input
 type="text"
 name="documento"
-class="form-control"
-required
-autocomplete="off">
-
-</div>
-
-
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
-
-Curso
-
-</label>
-
-<input
-type="text"
-name="curso"
-class="form-control"
+class="form-control form-control-lg"
+placeholder="Documento del estudiante"
+inputmode="numeric"
+pattern="[0-9]+"
 required>
 
 </div>
 
 
-<div class="col-md-6 mb-3">
+<!-- NOMBRE -->
 
-<label
-class="form-label fw-bold">
+<div class="mb-3">
+
+<label class="form-label fw-bold">
 
 Nombre
 
 </label>
 
+
 <input
 type="text"
 name="nombre"
 class="form-control"
+placeholder="Nombre"
 required>
 
 </div>
 
 
-<div class="col-md-6 mb-3">
+<!-- APELLIDO -->
 
-<label
-class="form-label fw-bold">
+<div class="mb-3">
+
+<label class="form-label fw-bold">
 
 Apellido
 
 </label>
 
+
 <input
 type="text"
 name="apellido"
 class="form-control"
+placeholder="Apellido"
 required>
 
 </div>
 
 
+<!-- CURSO -->
+
+<div class="mb-3">
+
+<label class="form-label fw-bold">
+
+Curso
+
+</label>
+
+
+<input
+type="text"
+name="curso"
+class="form-control"
+placeholder="Ejemplo: 1101"
+required>
+
 </div>
 
 
-<div class="info-password">
+<!-- INFORMACIÓN CONTRASEÑA -->
+
+<div class="info-password mb-4">
 
 <i class="bi bi-key-fill"></i>
 
-La contraseña se generará automáticamente
-con el documento del estudiante.
+<strong>
+Contraseña automática
+</strong>
+
+<br>
+
+La contraseña inicial será el
+<strong>número de documento</strong>
+del estudiante.
 
 </div>
 
 
-</div>
-
-
-<div class="modal-footer">
+<div
+class="d-flex
+       justify-content-end
+       gap-2">
 
 
 <button
@@ -1178,12 +1083,12 @@ Cancelar
 
 <button
 type="submit"
-name="registrar_estudiante"
-class="btn btn-primary">
+name="guardar"
+class="btn btn-success">
 
-<i class="bi bi-save-fill"></i>
+<i class="bi bi-person-plus-fill"></i>
 
-Registrar estudiante
+Guardar estudiante
 
 </button>
 
@@ -1192,6 +1097,9 @@ Registrar estudiante
 
 
 </form>
+
+
+</div>
 
 </div>
 
@@ -1201,230 +1109,157 @@ Registrar estudiante
 
 
 <!-- =====================================================
-     MODAL EDITAR
+     JAVASCRIPT BUSCADOR
 ===================================================== -->
-
-<div
-class="modal fade"
-id="modalEditar"
-tabindex="-1">
-
-
-<div
-class="modal-dialog modal-lg modal-dialog-centered">
-
-
-<div class="modal-content">
-
-
-<div class="modal-header">
-
-<h5 class="modal-title">
-
-<i class="bi bi-pencil-square"></i>
-
-Editar estudiante
-
-</h5>
-
-
-<button
-type="button"
-class="btn-close btn-close-white"
-data-bs-dismiss="modal">
-</button>
-
-</div>
-
-
-<form method="POST">
-
-
-<div class="modal-body">
-
-
-<input
-type="hidden"
-name="id"
-id="editar_id">
-
-
-<div class="row">
-
-
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
-
-Documento
-
-</label>
-
-<input
-type="text"
-name="documento"
-id="editar_documento"
-class="form-control"
-required>
-
-</div>
-
-
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
-
-Curso
-
-</label>
-
-<input
-type="text"
-name="curso"
-id="editar_curso"
-class="form-control"
-required>
-
-</div>
-
-
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
-
-Nombre
-
-</label>
-
-<input
-type="text"
-name="nombre"
-id="editar_nombre"
-class="form-control"
-required>
-
-</div>
-
-
-<div class="col-md-6 mb-3">
-
-<label
-class="form-label fw-bold">
-
-Apellido
-
-</label>
-
-<input
-type="text"
-name="apellido"
-id="editar_apellido"
-class="form-control"
-required>
-
-</div>
-
-
-</div>
-
-
-<div class="alert alert-warning">
-
-<i class="bi bi-exclamation-triangle-fill"></i>
-
-Si cambia el documento, la contraseña
-<strong>no se cambia automáticamente</strong>.
-
-</div>
-
-
-</div>
-
-
-<div class="modal-footer">
-
-
-<button
-type="button"
-class="btn btn-secondary"
-data-bs-dismiss="modal">
-
-Cancelar
-
-</button>
-
-
-<button
-type="submit"
-name="editar_estudiante"
-class="btn btn-primary">
-
-<i class="bi bi-check-circle-fill"></i>
-
-Guardar cambios
-
-</button>
-
-
-</div>
-
-
-</form>
-
-</div>
-
-</div>
-
-</div>
-
-
-<!-- =========================================
-     JAVASCRIPT
-========================================= -->
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
-
 
 <script>
 
-function cargarEditar(boton) {
+const buscar =
+    document.getElementById("buscar");
 
-    document.getElementById(
-        "editar_id"
-    ).value =
-        boton.dataset.id;
+const limpiarBusqueda =
+    document.getElementById("limpiarBusqueda");
 
+const resultadoBusqueda =
+    document.getElementById("resultadoBusqueda");
 
-    document.getElementById(
-        "editar_documento"
-    ).value =
-        boton.dataset.documento;
-
-
-    document.getElementById(
-        "editar_nombre"
-    ).value =
-        boton.dataset.nombre;
+const filas =
+    document.querySelectorAll(
+        "#tablaEstudiantes tr"
+    );
 
 
-    document.getElementById(
-        "editar_apellido"
-    ).value =
-        boton.dataset.apellido;
+function buscarEstudiante() {
+
+    const texto =
+        buscar.value
+        .toLowerCase()
+        .trim();
+
+    let encontrados = 0;
 
 
-    document.getElementById(
-        "editar_curso"
-    ).value =
-        boton.dataset.curso;
+    filas.forEach(
+        function(fila) {
+
+            const celdas =
+                fila.querySelectorAll("td");
+
+
+            if (
+                celdas.length < 6
+            ) {
+
+                return;
+
+            }
+
+
+            const contenido =
+                fila.textContent
+                .toLowerCase();
+
+
+            if (
+                texto === "" ||
+                contenido.includes(texto)
+            ) {
+
+                fila.style.display = "";
+
+                encontrados++;
+
+            } else {
+
+                fila.style.display = "none";
+
+            }
+
+        }
+    );
+
+
+    if (
+        texto === ""
+    ) {
+
+        resultadoBusqueda.innerHTML =
+            "Mostrando todos los estudiantes.";
+
+    }
+
+    else if (
+        encontrados === 0
+    ) {
+
+        resultadoBusqueda.innerHTML =
+            '<span class="text-danger">' +
+            '<i class="bi bi-search"></i> ' +
+            'No se encontraron estudiantes.' +
+            '</span>';
+
+    }
+
+    else {
+
+        resultadoBusqueda.innerHTML =
+            '<span class="text-success">' +
+            '<i class="bi bi-check-circle"></i> ' +
+            'Estudiantes encontrados: ' +
+            encontrados +
+            '</span>';
+
+    }
 
 }
 
+
+buscar.addEventListener(
+    "input",
+    buscarEstudiante
+);
+
+
+limpiarBusqueda.addEventListener(
+    "click",
+    function() {
+
+        buscar.value = "";
+
+        buscarEstudiante();
+
+        buscar.focus();
+
+    }
+);
+
+
+buscar.addEventListener(
+    "keydown",
+    function(event) {
+
+        if (
+            event.key === "Escape"
+        ) {
+
+            buscar.value = "";
+
+            buscarEstudiante();
+
+        }
+
+    }
+);
+
+</script>
+
+
+<!-- =====================================================
+     BOOTSTRAP JS
+===================================================== -->
+
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
 
 
