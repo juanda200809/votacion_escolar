@@ -2,120 +2,65 @@
 
 session_start();
 
+if (
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol']) ||
+    $_SESSION['rol'] !== 'administrador'
+) {
+    header("Location: login.php");
+    exit();
+}
+
 include("config/conexion.php");
-
-/* =========================================
-   VERIFICAR SESIÓN DEL JURADO
-========================================= */
-
-if (!isset($_SESSION['id'])) {
-
-    header("Location: login.php");
-    exit();
-
-}
-
-if (!isset($_SESSION['rol']) || $_SESSION['rol'] !== 'jurado') {
-
-    session_destroy();
-
-    header("Location: login.php");
-    exit();
-
-}
-
-
-/* =========================================
-   DATOS DEL JURADO
-========================================= */
-
-$idJurado = (int) $_SESSION['id'];
-
-$consultaJurado = $conn->query("
-    SELECT id, documento, nombre, apellido, rol
-    FROM usuarios
-    WHERE id = $idJurado
-    LIMIT 1
-");
-
-if (!$consultaJurado || $consultaJurado->num_rows == 0) {
-
-    session_destroy();
-
-    header("Location: login.php");
-    exit();
-
-}
-
-$jurado = $consultaJurado->fetch_assoc();
-
-
-/* =========================================
-   VARIABLES
-========================================= */
 
 $mensaje = "";
 $tipoMensaje = "";
 
 
 /* =========================================
-   INGRESAR ESTUDIANTE
+   ELIMINAR JURADO
 ========================================= */
 
-if (isset($_POST['ingresar_estudiante'])) {
+if (isset($_GET['eliminar'])) {
 
-    $documento = trim($_POST['documento'] ?? '');
+    $id = (int)$_GET['eliminar'];
 
-    if ($documento == "") {
+    $stmt = $conn->prepare("
+        DELETE FROM usuarios
+        WHERE id = ?
+        AND rol = 'jurado'
+    ");
 
-        $mensaje = "Debe ingresar el documento del estudiante.";
-        $tipoMensaje = "danger";
+    $stmt->bind_param("i", $id);
 
+    if ($stmt->execute()) {
+        $mensaje = "Jurado eliminado correctamente.";
+        $tipoMensaje = "success";
     } else {
-
-        $documentoSeguro = $conn->real_escape_string($documento);
-
-        /* Buscar estudiante */
-
-        $consulta = $conn->query("
-            SELECT id, documento, nombre, apellido, curso, rol
-            FROM usuarios
-            WHERE documento = '$documentoSeguro'
-            AND rol = 'estudiante'
-            LIMIT 1
-        ");
-
-        if (!$consulta) {
-
-            $mensaje = "Ocurrió un error al consultar el estudiante.";
-            $tipoMensaje = "danger";
-
-        } elseif ($consulta->num_rows == 0) {
-
-            $mensaje = "No se encontró un estudiante con ese documento.";
-            $tipoMensaje = "danger";
-
-        } else {
-
-            $estudiante = $consulta->fetch_assoc();
-
-            /* Guardar estudiante */
-
-            $_SESSION['estudiante_jurado'] = $estudiante['id'];
-
-            $_SESSION['nombre_estudiante_jurado'] =
-                $estudiante['nombre'] . " " . $estudiante['apellido'];
-
-            /* Ir a votación */
-
-            header("Location: votar_jurado.php");
-            exit();
-
-        }
-
+        $mensaje = "No se pudo eliminar el jurado.";
+        $tipoMensaje = "danger";
     }
 
+    $stmt->close();
 }
+
+
+/* =========================================
+   LISTAR JURADOS
+========================================= */
+
+$jurados = $conn->query("
+    SELECT
+        id,
+        documento,
+        nombre,
+        apellido,
+        curso,
+        fecha_registro
+    FROM usuarios
+    WHERE rol = 'jurado'
+    ORDER BY id DESC
+");
 
 ?>
 
@@ -128,308 +73,320 @@ if (isset($_POST['ingresar_estudiante'])) {
 <meta charset="UTF-8">
 
 <meta name="viewport"
-content="width=device-width, initial-scale=1">
+      content="width=device-width, initial-scale=1">
 
-<title>Jurado de Votación</title>
-
+<title>Gestión de Jurados</title>
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
-
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-
-<link
-rel="stylesheet"
-href="css/estilos.css">
-
-
 <style>
 
 body {
-
-    background: linear-gradient(
-        135deg,
-        #0d47a1,
-        #1565c0
-    );
-
-    min-height: 100vh;
-
-    display: flex;
-
-    justify-content: center;
-
-    align-items: center;
-
-    padding: 20px;
-
+    background:#eef3f9;
 }
 
-
-.jurado {
-
-    width: 450px;
-
-    max-width: 100%;
-
-    background: white;
-
-    padding: 40px;
-
-    border-radius: 20px;
-
-    box-shadow: 0 10px 30px rgba(0,0,0,.25);
-
+.contenedor {
+    max-width:1200px;
+    margin:auto;
+    padding:35px 20px;
 }
 
-
-.logo {
-
-    font-size: 70px;
-
-    text-align: center;
-
-    margin-bottom: 15px;
-
+.titulo {
+    color:#0d47a1;
+    font-weight:bold;
 }
 
-
-.jurado h2 {
-
-    text-align: center;
-
-    color: #0d47a1;
-
-    margin-bottom: 10px;
-
+.card {
+    border:none;
+    border-radius:18px;
+    box-shadow:0 6px 20px rgba(0,0,0,.10);
 }
 
-
-.subtitulo {
-
-    text-align: center;
-
-    color: #777;
-
-    margin-bottom: 30px;
-
+.encabezado {
+    background:#0d47a1;
+    color:white;
+    border-radius:18px 18px 0 0;
+    padding:20px;
 }
 
-
-.btn-ingresar {
-
-    width: 100%;
-
-    padding: 12px;
-
-    font-size: 18px;
-
+.tabla thead {
+    background:#cfe0ff;
 }
 
+.btn-editar {
+    background:#ffc107;
+    color:#000;
+    border:none;
+}
 
-.info-jurado {
+.btn-editar:hover {
+    background:#e0a800;
+}
 
-    background: #eef5ff;
+.btn-eliminar {
+    background:#dc3545;
+    color:white;
+    border:none;
+}
 
-    border-radius: 10px;
-
-    padding: 15px;
-
-    margin-bottom: 25px;
-
+.btn-eliminar:hover {
+    background:#bb2d3b;
 }
 
 </style>
 
 </head>
 
-
 <body>
 
+<div class="contenedor">
 
-<div class="jurado">
+<!-- =========================================
+     CABECERA
+========================================= -->
 
+<div class="d-flex
+            justify-content-between
+            align-items-center
+            flex-wrap
+            gap-3
+            mb-4">
 
-<!-- LOGO -->
+<div>
 
-<div class="logo">
-
-🗳️
-
-</div>
-
-
-<h2>
-
-Jurado de Votación
-
-</h2>
-
-
-<p class="subtitulo">
-
-Ingreso de estudiantes
-
-</p>
-
-
-<!-- INFORMACIÓN DEL JURADO -->
-
-<div class="info-jurado">
-
-<strong>
+<h2 class="titulo">
 
 <i class="bi bi-person-badge-fill"></i>
 
-Jurado:
+Gestión de Jurados
 
-</strong>
+</h2>
 
-<?php
+<p class="text-muted mb-0">
 
-echo htmlspecialchars(
-    $jurado['nombre'] . " " . $jurado['apellido']
-);
+Administra los jurados encargados de las votaciones.
 
-?>
+</p>
 
-<br>
+</div>
 
-<small class="text-muted">
+<div>
 
-Documento:
+<a
+href="admin.php"
+class="btn btn-outline-primary">
 
-<?php
+<i class="bi bi-arrow-left"></i>
 
-echo htmlspecialchars(
-    $jurado['documento']
-);
+Volver al panel
 
-?>
+</a>
 
-</small>
+<a
+href="crear_jurado.php"
+class="btn btn-primary">
+
+<i class="bi bi-person-plus-fill"></i>
+
+Nuevo jurado
+
+</a>
+
+</div>
 
 </div>
 
 
-<!-- MENSAJE -->
+<!-- =========================================
+     MENSAJE
+========================================= -->
 
-<?php if ($mensaje != "") { ?>
+<?php if ($mensaje !== "") { ?>
 
 <div class="alert alert-<?php echo $tipoMensaje; ?>">
 
-<i class="bi bi-exclamation-triangle-fill"></i>
+<i class="bi bi-info-circle-fill"></i>
 
-<?php
-
-echo htmlspecialchars($mensaje);
-
-?>
+<?php echo htmlspecialchars($mensaje); ?>
 
 </div>
 
 <?php } ?>
 
 
-<!-- FORMULARIO -->
+<!-- =========================================
+     TABLA
+========================================= -->
 
-<form method="POST">
+<div class="card">
 
+<div class="encabezado">
 
-<div class="mb-4">
+<h4 class="mb-0">
 
-<label class="form-label">
+<i class="bi bi-people-fill"></i>
 
-<i class="bi bi-person-vcard-fill"></i>
+Jurados registrados
 
-Documento del estudiante
-
-</label>
-
-
-<div class="input-group">
-
-
-<span class="input-group-text">
-
-<i class="bi bi-person-fill"></i>
-
-</span>
-
-
-<input
-
-type="text"
-
-name="documento"
-
-class="form-control form-control-lg"
-
-placeholder="Ingrese el documento"
-
-autocomplete="off"
-
-required
-
-autofocus>
-
-</div>
+</h4>
 
 </div>
 
 
-<button
+<div class="card-body p-0">
 
-type="submit"
+<div class="table-responsive">
 
-name="ingresar_estudiante"
+<table class="table table-bordered table-hover mb-0 tabla">
 
-class="btn btn-primary btn-ingresar">
+<thead>
 
-<i class="bi bi-box-arrow-in-right"></i>
+<tr>
 
-Ingresar estudiante
+<th>ID</th>
 
-</button>
+<th>Documento</th>
+
+<th>Nombre</th>
+
+<th>Apellido</th>
+
+<th>Curso</th>
+
+<th>Fecha registro</th>
+
+<th>Acciones</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+<?php if ($jurados->num_rows === 0) { ?>
+
+<tr>
+
+<td
+colspan="7"
+class="text-center p-4">
+
+<i class="bi bi-person-x fs-2 text-muted"></i>
+
+<p class="mb-0 mt-2">
+
+No hay jurados registrados.
+
+</p>
+
+</td>
+
+</tr>
+
+<?php } ?>
 
 
-</form>
+<?php while ($jurado = $jurados->fetch_assoc()) { ?>
 
+<tr>
 
-<hr class="my-4">
+<td>
 
+<?php echo (int)$jurado['id']; ?>
 
-<!-- CERRAR SESIÓN -->
+</td>
 
-<div class="text-center">
+<td>
+
+<strong>
+
+<?php echo htmlspecialchars(
+    $jurado['documento']
+); ?>
+
+</strong>
+
+</td>
+
+<td>
+
+<?php echo htmlspecialchars(
+    $jurado['nombre']
+); ?>
+
+</td>
+
+<td>
+
+<?php echo htmlspecialchars(
+    $jurado['apellido']
+); ?>
+
+</td>
+
+<td>
+
+<?php echo htmlspecialchars(
+    $jurado['curso']
+); ?>
+
+</td>
+
+<td>
+
+<?php echo htmlspecialchars(
+    $jurado['fecha_registro']
+); ?>
+
+</td>
+
+<td>
 
 <a
+href="editar_jurado.php?id=<?php echo (int)$jurado['id']; ?>"
+class="btn btn-editar btn-sm">
 
-href="logout.php"
+<i class="bi bi-pencil-square"></i>
 
-class="btn btn-outline-danger">
-
-<i class="bi bi-box-arrow-right"></i>
-
-Cerrar sesión del jurado
+Editar
 
 </a>
 
+
+<a
+href="jurados.php?eliminar=<?php echo (int)$jurado['id']; ?>"
+class="btn btn-eliminar btn-sm"
+onclick="return confirm('¿Está seguro de eliminar este jurado?');">
+
+<i class="bi bi-trash-fill"></i>
+
+Eliminar
+
+</a>
+
+</td>
+
+</tr>
+
+<?php } ?>
+
+</tbody>
+
+</table>
+
 </div>
 
+</div>
 
 </div>
 
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
-
+</div>
 
 </body>
 

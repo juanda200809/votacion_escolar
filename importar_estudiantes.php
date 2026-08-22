@@ -15,17 +15,89 @@ if (
     exit();
 }
 
+
+/* =========================================
+   CONEXIÓN
+========================================= */
+
 include("config/conexion.php");
 
-require_once __DIR__ . '/vendor/autoload.php';
+
+/* =========================================
+   CARGAR PHPSPREADSHEET
+========================================= */
+
+$rutasComposer = [
+
+    __DIR__ . "/vendor/autoload.php",
+
+    dirname(__DIR__) .
+    "/vendor/autoload.php"
+
+];
+
+
+$composerEncontrado = false;
+
+
+foreach ($rutasComposer as $ruta) {
+
+    if (file_exists($ruta)) {
+
+        require_once $ruta;
+
+        $composerEncontrado = true;
+
+        break;
+
+    }
+
+}
+
+
+if (!$composerEncontrado) {
+
+    die("
+        <div style='
+            font-family:Arial;
+            padding:40px;
+            text-align:center;
+        '>
+
+            <h2>
+                No se encontró PhpSpreadsheet
+            </h2>
+
+            <p>
+                Verifica que hayas instalado la librería
+                con Composer.
+            </p>
+
+            <code>
+                composer require phpoffice/phpspreadsheet
+            </code>
+
+        </div>
+    ");
+
+}
+
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
+
+/* =========================================
+   VARIABLES
+========================================= */
+
 $mensaje = "";
+
 $tipoMensaje = "";
 
-$importados = 0;
+$insertados = 0;
+
 $duplicados = 0;
+
 $errores = 0;
 
 
@@ -33,126 +105,210 @@ $errores = 0;
    IMPORTAR EXCEL
 ========================================= */
 
-if (isset($_POST['importar'])) {
+if (
+    isset($_POST['importar']) &&
+    isset($_FILES['archivo_excel'])
+) {
+
+
+    $archivo =
+        $_FILES['archivo_excel'];
+
+
+    /* =====================================
+       COMPROBAR ERROR DE SUBIDA
+    ===================================== */
 
     if (
-        !isset($_FILES['archivo']) ||
-        $_FILES['archivo']['error'] !== UPLOAD_ERR_OK
+        $archivo['error'] !==
+        UPLOAD_ERR_OK
     ) {
 
-        $mensaje = "Debe seleccionar un archivo Excel.";
+        $mensaje =
+            "No se pudo subir el archivo.";
+
         $tipoMensaje = "danger";
 
     } else {
 
-        $archivo = $_FILES['archivo']['tmp_name'];
-        $nombreArchivo = $_FILES['archivo']['name'];
 
-        $extension = strtolower(
-            pathinfo($nombreArchivo, PATHINFO_EXTENSION)
-        );
+        /* =================================
+           EXTENSIÓN
+        ================================= */
 
-        /* =========================================
-           VALIDAR EXTENSIÓN
-        ========================================= */
+        $nombreArchivo =
+            $archivo['name'];
+
+        $extension =
+            strtolower(
+                pathinfo(
+                    $nombreArchivo,
+                    PATHINFO_EXTENSION
+                )
+            );
+
+
+        $extensionesPermitidas = [
+            "xlsx",
+            "xls",
+            "csv"
+        ];
+
 
         if (
-            $extension !== 'xlsx' &&
-            $extension !== 'xls'
+            !in_array(
+                $extension,
+                $extensionesPermitidas,
+                true
+            )
         ) {
 
             $mensaje =
-                "El archivo debe tener formato .xlsx o .xls.";
+                "El archivo debe ser XLSX, XLS o CSV.";
 
             $tipoMensaje = "danger";
 
         } else {
 
+
             try {
 
-                /* =========================================
-                   LEER EXCEL
-                ========================================= */
 
-                $excel = IOFactory::load($archivo);
+                /* =============================
+                   LEER ARCHIVO
+                ============================= */
 
-                $hoja = $excel->getActiveSheet();
-
-                $filas = $hoja->toArray(
-                    null,
-                    true,
-                    true,
-                    true
-                );
+                $documento =
+                    IOFactory::load(
+                        $archivo['tmp_name']
+                    );
 
 
-                /* =========================================
+                $hoja =
+                    $documento->getActiveSheet();
+
+
+                $filas =
+                    $hoja->toArray(
+                        null,
+                        true,
+                        true,
+                        true
+                    );
+
+
+                if (
+                    count($filas) <= 1
+                ) {
+
+                    throw new Exception(
+                        "El archivo no contiene estudiantes."
+                    );
+
+                }
+
+
+                /* =============================
                    RECORRER FILAS
-                ========================================= */
+                ============================= */
 
-                foreach ($filas as $numero => $fila) {
+                $numeroFila = 0;
 
-                    /*
-                        La primera fila se considera
-                        encabezado.
-                    */
 
-                    if ($numero === 1) {
+                foreach ($filas as $fila) {
+
+                    $numeroFila++;
+
+
+                    /* =========================
+                       OMITIR ENCABEZADO
+                    ========================= */
+
+                    if ($numeroFila === 1) {
+
                         continue;
+
                     }
 
 
-                    $documento = trim(
-                        (string)($fila['A'] ?? '')
-                    );
+                    /* =========================
+                       COLUMNAS ESPERADAS
+                       
+                       A = Documento
+                       B = Nombre
+                       C = Apellido
+                       D = Curso
+                    ========================= */
 
-                    $nombre = trim(
-                        (string)($fila['B'] ?? '')
-                    );
-
-                    $apellido = trim(
-                        (string)($fila['C'] ?? '')
-                    );
-
-                    $curso = trim(
-                        (string)($fila['D'] ?? '')
-                    );
+                    $documento =
+                        trim(
+                            (string)(
+                                $fila['A'] ?? ''
+                            )
+                        );
 
 
-                    /* =====================================
-                       IGNORAR FILAS COMPLETAMENTE VACÍAS
-                    ===================================== */
+                    $nombre =
+                        trim(
+                            (string)(
+                                $fila['B'] ?? ''
+                            )
+                        );
+
+
+                    $apellido =
+                        trim(
+                            (string)(
+                                $fila['C'] ?? ''
+                            )
+                        );
+
+
+                    $curso =
+                        trim(
+                            (string)(
+                                $fila['D'] ?? ''
+                            )
+                        );
+
+
+                    /* =========================
+                       FILA VACÍA
+                    ========================= */
 
                     if (
-                        $documento === '' &&
-                        $nombre === '' &&
-                        $apellido === '' &&
-                        $curso === ''
+                        $documento === "" &&
+                        $nombre === "" &&
+                        $apellido === "" &&
+                        $curso === ""
                     ) {
+
                         continue;
+
                     }
 
 
-                    /* =====================================
-                       VALIDAR DATOS
-                    ===================================== */
+                    /* =========================
+                       VALIDAR CAMPOS
+                    ========================= */
 
                     if (
-                        $documento === '' ||
-                        $nombre === '' ||
-                        $apellido === '' ||
-                        $curso === ''
+                        $documento === "" ||
+                        $nombre === "" ||
+                        $apellido === "" ||
+                        $curso === ""
                     ) {
 
                         $errores++;
 
                         continue;
+
                     }
 
 
-                    /* =====================================
-                       VERIFICAR DOCUMENTO EXISTENTE
-                    ===================================== */
+                    /* =========================
+                       COMPROBAR DOCUMENTO
+                    ========================= */
 
                     $stmt = $conn->prepare("
                         SELECT id
@@ -161,42 +317,65 @@ if (isset($_POST['importar'])) {
                         LIMIT 1
                     ");
 
+
+                    if (!$stmt) {
+
+                        $errores++;
+
+                        continue;
+
+                    }
+
+
                     $stmt->bind_param(
                         "s",
                         $documento
                     );
 
+
                     $stmt->execute();
 
-                    $resultado = $stmt->get_result();
 
-                    if ($resultado->num_rows > 0) {
+                    $resultado =
+                        $stmt->get_result();
+
+
+                    if (
+                        $resultado->num_rows > 0
+                    ) {
 
                         $duplicados++;
 
                         $stmt->close();
 
                         continue;
+
                     }
+
 
                     $stmt->close();
 
 
-                    /* =====================================
-                       CONTRASEÑA AUTOMÁTICA
-                    ===================================== */
+                    /* =========================
+                       CONTRASEÑA
+                       
+                       DOCUMENTO
+                    ========================= */
 
-                    $password_hash = password_hash(
-                        $documento,
-                        PASSWORD_DEFAULT
-                    );
+                    $password =
+                        password_hash(
+                            $documento,
+                            PASSWORD_DEFAULT
+                        );
 
-                    $correo = "";
+
+                    $rol =
+                        "estudiante";
 
 
-                    /* =====================================
+                    /* =========================
                        INSERTAR ESTUDIANTE
-                    ===================================== */
+                    ========================= */
 
                     $stmt = $conn->prepare("
                         INSERT INTO usuarios
@@ -204,67 +383,78 @@ if (isset($_POST['importar'])) {
                             documento,
                             nombre,
                             apellido,
-                            correo,
                             curso,
                             password,
-                            rol
+                            rol,
+                            fecha_registro
                         )
                         VALUES
-                        (?, ?, ?, ?, ?, ?, 'estudiante')
+                        (?, ?, ?, ?, ?, ?, NOW())
                     ");
+
+
+                    if (!$stmt) {
+
+                        $errores++;
+
+                        continue;
+
+                    }
+
 
                     $stmt->bind_param(
                         "ssssss",
                         $documento,
                         $nombre,
                         $apellido,
-                        $correo,
                         $curso,
-                        $password_hash
+                        $password,
+                        $rol
                     );
 
 
                     if ($stmt->execute()) {
 
-                        $importados++;
+                        $insertados++;
 
                     } else {
 
                         $errores++;
+
                     }
 
+
                     $stmt->close();
+
                 }
 
 
-                /* =========================================
+                /* =============================
                    MENSAJE FINAL
-                ========================================= */
+                ============================= */
 
                 $mensaje =
-                    "Importación completada. " .
-                    "Importados: " . $importados .
-                    " | Duplicados: " . $duplicados .
-                    " | Errores: " . $errores;
+                    "Importación terminada.";
 
-                if ($errores > 0) {
+                $tipoMensaje =
+                    "success";
 
-                    $tipoMensaje = "warning";
 
-                } else {
-
-                    $tipoMensaje = "success";
-                }
-
-            } catch (Throwable $e) {
+            } catch (Exception $e) {
 
                 $mensaje =
-                    "No fue posible procesar el archivo Excel.";
+                    "Error al procesar el archivo: " .
+                    $e->getMessage();
 
-                $tipoMensaje = "danger";
+                $tipoMensaje =
+                    "danger";
+
             }
+
         }
+
     }
+
 }
 
 ?>
@@ -277,20 +467,27 @@ if (isset($_POST['importar'])) {
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
 
-<title>Importar Estudiantes</title>
+<title>
+Importar Estudiantes
+</title>
 
 
-<!-- BOOTSTRAP -->
+<!-- =========================================
+     BOOTSTRAP
+========================================= -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
-<!-- ICONOS -->
+<!-- =========================================
+     ICONOS
+========================================= -->
 
 <link
 rel="stylesheet"
@@ -301,130 +498,119 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 body {
 
+    margin:0;
+
     background:#eef3f9;
 
-    min-height:100vh;
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
 
 }
 
-
-/* =========================================
-   CONTENEDOR
-========================================= */
 
 .contenedor {
 
-    max-width:900px;
+    max-width:850px;
 
-    margin:40px auto;
+    margin:auto;
+
+    padding:45px 20px;
 
 }
 
 
-/* =========================================
-   TARJETA
-========================================= */
-
-.card-importar {
+.card {
 
     border:none;
 
     border-radius:20px;
 
     box-shadow:
-        0 8px 25px rgba(0,0,0,.12);
+        0 8px 25px
+        rgba(0,0,0,.12);
 
 }
 
 
-/* =========================================
-   CABECERA
-========================================= */
+.cabecera {
 
-.encabezado {
-
-    background:#0d47a1;
+    background:#1453a3;
 
     color:white;
+
+    padding:25px;
 
     border-radius:
         20px 20px 0 0;
 
-    padding:25px;
+}
+
+
+.zona-subida {
+
+    border:
+        2px dashed #0d6efd;
+
+    border-radius:15px;
+
+    padding:40px 25px;
+
+    text-align:center;
+
+    background:#f8fbff;
 
 }
 
 
 .icono-excel {
 
-    font-size:55px;
+    font-size:70px;
+
+    color:#198754;
 
 }
 
 
-/* =========================================
-   FORMATO
-========================================= */
+.btn-importar {
 
-.formato {
+    padding:13px 30px;
+
+    font-size:17px;
+
+}
+
+
+.info {
 
     background:#eef5ff;
 
-    border-left:5px solid #0d6efd;
+    border:
+        1px solid #b6d4fe;
 
-    border-radius:10px;
+    border-radius:12px;
 
-    padding:20px;
-
-}
-
-
-/* =========================================
-   BOTONES
-========================================= */
-
-.btn-accion {
-
-    border-radius:10px;
-
-    font-weight:600;
-
-    padding:11px 18px;
+    padding:18px;
 
 }
 
 
-/* =========================================
-   PASOS
-========================================= */
+.tabla-ejemplo {
 
-.paso {
-
-    text-align:center;
-
-    padding:20px 10px;
+    font-size:14px;
 
 }
 
 
-.paso-icono {
+.tabla-ejemplo th {
 
-    font-size:38px;
+    background:#cfe0ff;
 
-    color:#0d6efd;
-
-}
-
-
-/* =========================================
-   ALERTA
-========================================= */
-
-.alert {
-
-    border-radius:10px;
+    color:#084298;
 
 }
+
 
 </style>
 
@@ -434,46 +620,57 @@ body {
 <body>
 
 
-<div class="container contenedor">
+<div class="contenedor">
 
 
-<div class="card card-importar">
+<div class="card">
 
 
 <!-- =========================================
-     ENCABEZADO
+     CABECERA
 ========================================= -->
 
-<div class="encabezado">
+<div class="cabecera">
 
-
-<div class="d-flex
-            align-items-center
-            gap-3">
-
-
-<div class="icono-excel">
-
-<i class="bi bi-file-earmark-excel-fill"></i>
-
-</div>
+<div
+class="d-flex
+       justify-content-between
+       align-items-center
+       flex-wrap
+       gap-3">
 
 
 <div>
 
-<h2 class="mb-1">
+<h3 class="mb-1">
 
-Importar estudiantes
+<i
+class="bi bi-file-earmark-arrow-up-fill">
+</i>
 
-</h2>
+Importar Estudiantes
+
+</h3>
+
 
 <p class="mb-0">
 
-Cargar varios estudiantes desde un archivo Excel.
+Carga estudiantes mediante Excel.
 
 </p>
 
 </div>
+
+
+<a
+href="admin.php"
+class="btn btn-light">
+
+<i class="bi bi-arrow-left"></i>
+
+Volver
+
+</a>
 
 
 </div>
@@ -490,7 +687,8 @@ Cargar varios estudiantes desde un archivo Excel.
 
 <?php if ($mensaje !== "") { ?>
 
-<div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
+<div
+class="alert alert-<?php echo $tipoMensaje; ?>">
 
 <i class="bi bi-info-circle-fill"></i>
 
@@ -502,24 +700,118 @@ Cargar varios estudiantes desde un archivo Excel.
 
 
 <!-- =========================================
-     FORMATO EXCEL
+     RESULTADOS
 ========================================= -->
 
-<div class="formato mb-4">
+<?php if (
+    $insertados > 0 ||
+    $duplicados > 0 ||
+    $errores > 0
+) { ?>
 
+
+<div class="row g-3 mb-4">
+
+
+<div class="col-md-4">
+
+<div class="alert alert-success text-center mb-0">
+
+<i
+class="bi bi-check-circle-fill fs-3">
+</i>
+
+<br>
+
+<strong>
+
+<?php echo $insertados; ?>
+
+</strong>
+
+<br>
+
+Estudiantes importados
+
+</div>
+
+</div>
+
+
+<div class="col-md-4">
+
+<div class="alert alert-warning text-center mb-0">
+
+<i
+class="bi bi-exclamation-triangle-fill fs-3">
+</i>
+
+<br>
+
+<strong>
+
+<?php echo $duplicados; ?>
+
+</strong>
+
+<br>
+
+Documentos duplicados
+
+</div>
+
+</div>
+
+
+<div class="col-md-4">
+
+<div class="alert alert-danger text-center mb-0">
+
+<i
+class="bi bi-x-circle-fill fs-3">
+</i>
+
+<br>
+
+<strong>
+
+<?php echo $errores; ?>
+
+</strong>
+
+<br>
+
+Filas con errores
+
+</div>
+
+</div>
+
+
+</div>
+
+
+<?php } ?>
+
+
+<!-- =========================================
+     INFORMACIÓN
+========================================= -->
+
+<div class="info mb-4">
 
 <h5>
 
-<i class="bi bi-info-circle-fill text-primary"></i>
+<i class="bi bi-info-circle-fill"></i>
 
 Formato del archivo
 
 </h5>
 
 
-<p>
+<p class="mb-2">
 
-El Excel debe tener estas columnas,
+El Excel debe tener estas columnas
 en este orden:
 
 </p>
@@ -527,11 +819,10 @@ en este orden:
 
 <div class="table-responsive">
 
+<table
+class="table table-bordered tabla-ejemplo mb-2">
 
-<table class="table table-bordered bg-white">
-
-
-<thead class="table-primary">
+<thead>
 
 <tr>
 
@@ -552,101 +843,57 @@ en este orden:
 
 <tr>
 
-<td><strong>Documento</strong></td>
+<td>Documento</td>
 
-<td><strong>Nombre</strong></td>
+<td>Nombre</td>
 
-<td><strong>Apellido</strong></td>
+<td>Apellido</td>
 
-<td><strong>Curso</strong></td>
+<td>Curso</td>
+
+</tr>
+
+
+<tr>
+
+<td>1000000003</td>
+
+<td>Juan</td>
+
+<td>Gómez</td>
+
+<td>1101</td>
+
+</tr>
+
+
+<tr>
+
+<td>1000000004</td>
+
+<td>María</td>
+
+<td>Rodríguez</td>
+
+<td>1102</td>
 
 </tr>
 
 </tbody>
 
-
 </table>
 
-
 </div>
 
 
-<div class="alert alert-info mb-0">
+<p class="mb-0">
 
-<i class="bi bi-key-fill"></i>
+<strong>Contraseña:</strong>
 
-La contraseña se creará automáticamente
-y será igual al documento del estudiante.
-
-</div>
-
-
-</div>
-
-
-<!-- =========================================
-     PASOS
-========================================= -->
-
-<div class="row mb-4">
-
-
-<div class="col-md-4 paso">
-
-<div class="paso-icono">
-
-<i class="bi bi-file-earmark-excel"></i>
-
-</div>
-
-<strong>1. Preparar Excel</strong>
-
-<p class="text-muted small">
-
-Documento, nombre, apellido y curso.
+se genera automáticamente usando
+el documento del estudiante.
 
 </p>
-
-</div>
-
-
-<div class="col-md-4 paso">
-
-<div class="paso-icono">
-
-<i class="bi bi-upload"></i>
-
-</div>
-
-<strong>2. Seleccionar</strong>
-
-<p class="text-muted small">
-
-Seleccione el archivo desde su computador.
-
-</p>
-
-</div>
-
-
-<div class="col-md-4 paso">
-
-<div class="paso-icono">
-
-<i class="bi bi-person-check"></i>
-
-</div>
-
-<strong>3. Importar</strong>
-
-<p class="text-muted small">
-
-Los estudiantes serán registrados.
-
-</p>
-
-</div>
-
 
 </div>
 
@@ -660,56 +907,66 @@ method="POST"
 enctype="multipart/form-data">
 
 
-<div class="mb-4">
+<div class="zona-subida">
 
 
-<label class="form-label">
+<div class="icono-excel">
 
-<strong>
+<i class="bi bi-file-earmark-excel-fill"></i>
 
-<i class="bi bi-file-earmark-arrow-up"></i>
+</div>
+
+
+<h4 class="mt-3">
 
 Seleccionar archivo Excel
 
+</h4>
+
+
+<p class="text-muted">
+
+Formatos permitidos:
+
+<strong>
+.xlsx
+</strong>,
+<strong>
+.xls
+</strong>
+o
+<strong>
+.csv
 </strong>
 
-</label>
+</p>
 
 
 <input
+
 type="file"
-name="archivo"
-class="form-control form-control-lg"
-accept=".xlsx,.xls"
+
+name="archivo_excel"
+
+id="archivo_excel"
+
+class="form-control
+       form-control-lg
+       mt-4"
+
+accept=".xlsx,.xls,.csv"
+
 required>
 
 
-<div class="form-text">
-
-Formatos permitidos: Excel .xlsx y .xls
-
-</div>
-
+<div
+id="nombreArchivo"
+class="mt-3 text-primary fw-bold">
 
 </div>
 
 
-<button
-type="submit"
-name="importar"
-class="btn btn-success btn-lg w-100 btn-accion">
-
-<i class="bi bi-upload"></i>
-
-Importar estudiantes
-
-</button>
-
-
-</form>
-
-
-<hr class="my-4">
+</div>
 
 
 <!-- =========================================
@@ -719,38 +976,78 @@ Importar estudiantes
 <div class="d-flex
             justify-content-center
             gap-2
-            flex-wrap">
+            flex-wrap
+            mt-4">
 
 
 <a
 href="estudiantes.php"
-class="btn btn-outline-primary btn-accion">
+class="btn btn-outline-secondary">
 
 <i class="bi bi-people-fill"></i>
 
-Estudiantes
+Ver estudiantes
 
 </a>
+
+
+<button
+
+type="submit"
+
+name="importar"
+
+class="btn btn-success btn-importar">
+
+<i
+class="bi bi-cloud-arrow-up-fill">
+</i>
+
+Importar estudiantes
+
+</button>
+
+
+</div>
+
+
+</form>
+
+
+<hr class="my-4">
+
+
+<!-- =========================================
+     EXPORTAR
+========================================= -->
+
+<div class="text-center">
+
+
+<h5>
+
+¿Necesitas una plantilla?
+
+</h5>
+
+
+<p class="text-muted">
+
+Puedes exportar los estudiantes actuales
+para utilizarlos como referencia.
+
+</p>
 
 
 <a
 href="exportar_estudiantes.php"
-class="btn btn-outline-success btn-accion">
+class="btn btn-outline-success">
 
-<i class="bi bi-file-earmark-excel-fill"></i>
+<i
+class="bi bi-file-earmark-excel-fill">
+</i>
 
-Exportar Excel
-
-</a>
-
-
-<a
-href="admin.php"
-class="btn btn-outline-dark btn-accion">
-
-<i class="bi bi-house-fill"></i>
-
-Panel Admin
+Exportar estudiantes
 
 </a>
 
@@ -764,16 +1061,14 @@ Panel Admin
 
 
 <!-- =========================================
-     INFORMACIÓN
+     FOOTER
 ========================================= -->
 
-<div class="text-center text-muted mt-4">
+<div class="text-center
+            text-muted
+            mt-4">
 
-<small>
-
-Sistema de Votaciones Escolares v2.0
-
-</small>
+Sistema de Votaciones Escolares
 
 </div>
 
@@ -781,8 +1076,46 @@ Sistema de Votaciones Escolares v2.0
 </div>
 
 
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+<!-- =========================================
+     JAVASCRIPT
+========================================= -->
+
+<script>
+
+const archivo =
+    document.getElementById(
+        "archivo_excel"
+    );
+
+
+const nombreArchivo =
+    document.getElementById(
+        "nombreArchivo"
+    );
+
+
+archivo.addEventListener(
+    "change",
+    function() {
+
+        if (
+            this.files.length > 0
+        ) {
+
+            nombreArchivo.innerHTML =
+                "<i class='bi bi-file-earmark-check-fill'></i> " +
+                this.files[0].name;
+
+        } else {
+
+            nombreArchivo.innerHTML =
+                "";
+
+        }
+
+    }
+);
+
 </script>
 
 

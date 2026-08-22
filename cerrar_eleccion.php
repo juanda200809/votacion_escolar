@@ -2,6 +2,10 @@
 
 session_start();
 
+/* =========================================
+   VERIFICAR ADMINISTRADOR
+========================================= */
+
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
@@ -11,10 +15,19 @@ if (
     exit();
 }
 
+
+/* =========================================
+   CONEXIÓN
+========================================= */
+
 include("config/conexion.php");
 
 
-$consulta = $conn->query("
+/* =========================================
+   BUSCAR ÚLTIMA ELECCIÓN
+========================================= */
+
+$resultado = $conn->query("
     SELECT id
     FROM elecciones
     ORDER BY id DESC
@@ -22,32 +35,77 @@ $consulta = $conn->query("
 ");
 
 
-if (!$consulta || $consulta->num_rows == 0) {
+if (
+    !$resultado ||
+    $resultado->num_rows === 0
+) {
 
-    header("Location: admin.php?error=no_eleccion");
+    header(
+        "Location: admin.php?error=no_eleccion"
+    );
+
     exit();
+
 }
 
 
-$eleccion = $consulta->fetch_assoc();
+$eleccion =
+    $resultado->fetch_assoc();
 
-$id = (int)$eleccion['id'];
+$idEleccion =
+    (int)$eleccion['id'];
 
+
+/* =========================================
+   CERRAR ELECCIÓN
+========================================= */
 
 $stmt = $conn->prepare("
     UPDATE elecciones
-    SET estado='cerrada'
-    WHERE id=?
+    SET estado = 'cerrada'
+    WHERE id = ?
 ");
 
-$stmt->bind_param("i", $id);
 
-$stmt->execute();
+if (!$stmt) {
+
+    header(
+        "Location: admin.php?error=cerrar"
+    );
+
+    exit();
+
+}
+
+
+$stmt->bind_param(
+    "i",
+    $idEleccion
+);
+
+
+if ($stmt->execute()) {
+
+    $stmt->close();
+
+    header(
+        "Location: admin.php?cerrada=1"
+    );
+
+    exit();
+
+}
+
+
+/* =========================================
+   ERROR
+========================================= */
 
 $stmt->close();
 
-
-header("Location: admin.php?cerrada=1");
+header(
+    "Location: admin.php?error=cerrar"
+);
 
 exit();
 

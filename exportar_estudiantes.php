@@ -3,7 +3,7 @@
 session_start();
 
 /* =========================================
-   VERIFICAR SESIÓN DEL ADMINISTRADOR
+   VERIFICAR ADMINISTRADOR
 ========================================= */
 
 if (
@@ -27,125 +27,209 @@ include("config/conexion.php");
    CARGAR PHPSPREADSHEET
 ========================================= */
 
-require_once __DIR__ . '/vendor/autoload.php';
+$rutasComposer = [
+
+    __DIR__ . "/vendor/autoload.php",
+
+    dirname(__DIR__) . "/vendor/autoload.php"
+
+];
+
+$composerEncontrado = false;
+
+foreach ($rutasComposer as $ruta) {
+
+    if (file_exists($ruta)) {
+
+        require_once $ruta;
+
+        $composerEncontrado = true;
+
+        break;
+
+    }
+
+}
+
+
+if (!$composerEncontrado) {
+
+    die("
+        <div style='
+            font-family:Arial;
+            padding:40px;
+            text-align:center;
+        '>
+
+            <h2>
+                No se encontró PhpSpreadsheet
+            </h2>
+
+            <p>
+                Verifica que hayas instalado la librería
+                correctamente con Composer.
+            </p>
+
+            <code>
+                composer require phpoffice/phpspreadsheet
+            </code>
+
+        </div>
+    ");
+
+}
+
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\Alignment;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Style\Border;
 
 
 /* =========================================
-   CREAR LIBRO DE EXCEL
+   OBTENER ESTUDIANTES
 ========================================= */
 
-$spreadsheet = new Spreadsheet();
-
-$hoja = $spreadsheet->getActiveSheet();
-
-$hoja->setTitle("Estudiantes");
-
-
-/* =========================================
-   ENCABEZADOS
-========================================= */
-
-$hoja->setCellValue("A1", "Documento");
-$hoja->setCellValue("B1", "Nombre");
-$hoja->setCellValue("C1", "Apellido");
-$hoja->setCellValue("D1", "Curso");
-
-
-/* =========================================
-   ESTILO DE ENCABEZADOS
-========================================= */
-
-$estiloEncabezado = [
-    'font' => [
-        'bold' => true,
-        'color' => [
-            'rgb' => 'FFFFFF'
-        ]
-    ],
-
-    'fill' => [
-        'fillType' => Fill::FILL_SOLID,
-        'startColor' => [
-            'rgb' => '0D47A1'
-        ]
-    ],
-
-    'alignment' => [
-        'horizontal' =>
-            Alignment::HORIZONTAL_CENTER,
-
-        'vertical' =>
-            Alignment::VERTICAL_CENTER
-    ],
-
-    'borders' => [
-        'allBorders' => [
-            'borderStyle' =>
-                Border::BORDER_THIN
-        ]
-    ]
-];
-
-
-$hoja
-    ->getStyle("A1:D1")
-    ->applyFromArray($estiloEncabezado);
-
-
-/* =========================================
-   ALTURA DEL ENCABEZADO
-========================================= */
-
-$hoja
-    ->getRowDimension(1)
-    ->setRowHeight(25);
-
-
-/* =========================================
-   CONSULTAR ESTUDIANTES
-========================================= */
-
-$consulta = $conn->query("
+$sql = "
     SELECT
         documento,
         nombre,
         apellido,
-        curso
+        curso,
+        fecha_registro
     FROM usuarios
     WHERE rol = 'estudiante'
     ORDER BY nombre ASC, apellido ASC
-");
+";
 
 
-if (!$consulta) {
+$resultado = $conn->query($sql);
+
+
+if (!$resultado) {
 
     die(
-        "Error al consultar estudiantes: " .
-        $conn->error
+        "Error al consultar los estudiantes: "
+        . $conn->error
     );
 
 }
 
 
 /* =========================================
+   CREAR ARCHIVO EXCEL
+========================================= */
+
+$spreadsheet = new Spreadsheet();
+
+$hoja = $spreadsheet->getActiveSheet();
+
+
+/* =========================================
+   NOMBRE DE LA HOJA
+========================================= */
+
+$hoja->setTitle(
+    "Estudiantes"
+);
+
+
+/* =========================================
+   TÍTULO
+========================================= */
+
+$hoja->mergeCells(
+    "A1:E1"
+);
+
+$hoja->setCellValue(
+    "A1",
+    "LISTADO DE ESTUDIANTES"
+);
+
+
+/* =========================================
+   ENCABEZADOS
+========================================= */
+
+$hoja->setCellValue(
+    "A3",
+    "Documento"
+);
+
+$hoja->setCellValue(
+    "B3",
+    "Nombre"
+);
+
+$hoja->setCellValue(
+    "C3",
+    "Apellido"
+);
+
+$hoja->setCellValue(
+    "D3",
+    "Curso"
+);
+
+$hoja->setCellValue(
+    "E3",
+    "Fecha de registro"
+);
+
+
+/* =========================================
+   ESTILO DEL TÍTULO
+========================================= */
+
+$hoja->getStyle("A1:E1")
+    ->getFont()
+    ->setBold(true);
+
+$hoja->getStyle("A1:E1")
+    ->getFont()
+    ->setSize(16);
+
+$hoja->getStyle("A1:E1")
+    ->getAlignment()
+    ->setHorizontal("center");
+
+$hoja->getStyle("A1:E1")
+    ->getAlignment()
+    ->setVertical("center");
+
+
+/* =========================================
+   ESTILO ENCABEZADOS
+========================================= */
+
+$hoja->getStyle("A3:E3")
+    ->getFont()
+    ->setBold(true);
+
+$hoja->getStyle("A3:E3")
+    ->getAlignment()
+    ->setHorizontal("center");
+
+
+/* =========================================
    AGREGAR ESTUDIANTES
 ========================================= */
 
-$fila = 2;
+$fila = 4;
 
+while ($estudiante = $resultado->fetch_assoc()) {
 
-while ($estudiante = $consulta->fetch_assoc()) {
+    /*
+     * Documento como texto.
+     *
+     * Esto evita que Excel convierta
+     * documentos largos en números
+     * científicos.
+     */
 
-
-    $hoja->setCellValue(
+    $hoja->setCellValueExplicit(
         "A" . $fila,
-        $estudiante['documento']
+        $estudiante['documento'],
+        \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
     );
 
 
@@ -167,23 +251,31 @@ while ($estudiante = $consulta->fetch_assoc()) {
     );
 
 
+    $hoja->setCellValue(
+        "E" . $fila,
+        $estudiante['fecha_registro']
+    );
+
+
     $fila++;
+
 }
 
 
 /* =========================================
-   BORDES DE LA TABLA
+   BORDES
 ========================================= */
 
-if ($fila > 2) {
+if ($fila > 4) {
 
-    $hoja
-        ->getStyle("A1:D" . ($fila - 1))
-        ->getBorders()
-        ->getAllBorders()
-        ->setBorderStyle(
-            Border::BORDER_THIN
-        );
+    $hoja->getStyle(
+        "A3:E" . ($fila - 1)
+    )
+    ->getBorders()
+    ->getAllBorders()
+    ->setBorderStyle(
+        \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
+    );
 
 }
 
@@ -192,7 +284,10 @@ if ($fila > 2) {
    AJUSTAR COLUMNAS
 ========================================= */
 
-foreach (range('A', 'D') as $columna) {
+foreach (
+    range("A", "E")
+    as $columna
+) {
 
     $hoja
         ->getColumnDimension($columna)
@@ -202,39 +297,22 @@ foreach (range('A', 'D') as $columna) {
 
 
 /* =========================================
-   FORMATO DOCUMENTO
-========================================= */
-
-/*
-   Tratamos el documento como texto para
-   evitar que Excel cambie su formato.
-*/
-
-if ($fila > 2) {
-
-    $hoja
-        ->getStyle("A2:A" . ($fila - 1))
-        ->getNumberFormat()
-        ->setFormatCode('@');
-
-}
-
-
-/* =========================================
    CONGELAR ENCABEZADO
 ========================================= */
 
-$hoja->freezePane("A2");
+$hoja->freezePane("A4");
 
 
 /* =========================================
-   CREAR NOMBRE DEL ARCHIVO
+   CONFIGURAR DESCARGA
 ========================================= */
 
+$fecha =
+    date("Y-m-d_H-i-s");
+
+
 $nombreArchivo =
-    "estudiantes_" .
-    date("Y-m-d_H-i-s") .
-    ".xlsx";
+    "estudiantes_" . $fecha . ".xlsx";
 
 
 /* =========================================
@@ -253,25 +331,25 @@ if (ob_get_length()) {
 ========================================= */
 
 header(
-    'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 );
 
 header(
-    'Content-Disposition: attachment; filename="' .
+    "Content-Disposition: attachment; filename=\"" .
     $nombreArchivo .
-    '"'
+    "\""
 );
 
 header(
-    'Cache-Control: max-age=0'
+    "Cache-Control: max-age=0"
 );
 
 header(
-    'Cache-Control: max-age=1'
+    "Expires: 0"
 );
 
 header(
-    'Expires: Mon, 26 Jul 1997 05:00:00 GMT'
+    "Pragma: public"
 );
 
 
@@ -279,9 +357,12 @@ header(
    GENERAR EXCEL
 ========================================= */
 
-$writer = new Xlsx($spreadsheet);
+$writer =
+    new Xlsx($spreadsheet);
+
 
 $writer->save("php://output");
+
 
 exit();
 
