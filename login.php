@@ -5,25 +5,21 @@ session_start();
 include("config/conexion.php");
 
 
-/* =====================================================
-   VARIABLES
-===================================================== */
+/* =========================================================
+   SI YA EXISTE UNA SESIÓN
+========================================================= */
 
-$error = "";
-$documentoIngresado = "";
+if (
+    isset($_SESSION['id']) &&
+    isset($_SESSION['rol'])
+) {
 
+    $rolSesion = strtolower(
+        trim(
+            (string)$_SESSION['rol']
+        )
+    );
 
-/* =====================================================
-   SI EXISTE UNA SESIÓN, COMPROBARLA
-===================================================== */
-
-if (isset($_SESSION['id'], $_SESSION['rol'])) {
-
-    $rolSesion = strtolower(trim($_SESSION['rol']));
-
-    /*
-     * Solo redirigimos si el rol realmente es válido.
-     */
 
     if ($rolSesion === "administrador") {
 
@@ -32,12 +28,14 @@ if (isset($_SESSION['id'], $_SESSION['rol'])) {
 
     }
 
+
     if ($rolSesion === "jurado") {
 
         header("Location: jurado.php");
         exit();
 
     }
+
 
     if ($rolSesion === "estudiante") {
 
@@ -46,39 +44,48 @@ if (isset($_SESSION['id'], $_SESSION['rol'])) {
 
     }
 
-
-    /*
-     * Si existe una sesión pero el rol no es válido,
-     * destruimos la sesión para evitar ciclos.
-     */
-
-    session_unset();
-    session_destroy();
-
-    session_start();
-
 }
 
 
-/* =====================================================
+/* =========================================================
+   VARIABLES
+========================================================= */
+
+$error = "";
+
+$documento = "";
+
+
+/* =========================================================
    PROCESAR LOGIN
-===================================================== */
+========================================================= */
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
-    $documentoIngresado =
-        trim($_POST['documento'] ?? '');
-
-    $password =
-        $_POST['password'] ?? '';
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['ingresar'])
+) {
 
 
-    /* =================================================
+    /* =====================================================
+       RECIBIR DATOS
+    ===================================================== */
+
+    $documento = trim(
+        $_POST['documento'] ?? ""
+    );
+
+
+    $password = trim(
+        $_POST['password'] ?? ""
+    );
+
+
+    /* =====================================================
        VALIDAR CAMPOS
-    ================================================= */
+    ===================================================== */
 
     if (
-        $documentoIngresado === "" ||
+        $documento === "" ||
         $password === ""
     ) {
 
@@ -88,11 +95,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
 
 
-        /* =============================================
+        /* =================================================
            BUSCAR USUARIO
-        ============================================= */
+        ================================================= */
 
         $stmt = $conn->prepare("
+
             SELECT
                 id,
                 documento,
@@ -101,54 +109,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 curso,
                 password,
                 rol
+
             FROM usuarios
+
             WHERE documento = ?
+
             LIMIT 1
+
         ");
 
 
         if (!$stmt) {
 
             $error =
-                "Error al consultar el usuario.";
+                "No fue posible realizar el inicio de sesión.";
 
         } else {
 
+
             $stmt->bind_param(
                 "s",
-                $documentoIngresado
+                $documento
             );
 
+
             $stmt->execute();
+
 
             $resultado =
                 $stmt->get_result();
 
 
-            /* =========================================
-               USUARIO ENCONTRADO
-            ========================================= */
+            /* =============================================
+               DOCUMENTO NO ENCONTRADO
+            ============================================= */
 
-            if ($resultado->num_rows === 0) {
+            if (
+                $resultado->num_rows === 0
+            ) {
 
                 $error =
                     "Documento no registrado.";
 
             } else {
 
+
                 $usuario =
                     $resultado->fetch_assoc();
 
 
+                /* =========================================
+                   CONTRASEÑA
+                ========================================= */
+
                 $loginCorrecto = false;
 
 
-                /* =====================================
+                /* =========================================
                    CONTRASEÑA CIFRADA
-                ===================================== */
+                ========================================= */
 
                 if (
-                    !empty($usuario['password']) &&
+                    !empty(
+                        $usuario['password']
+                    ) &&
                     password_verify(
                         $password,
                         $usuario['password']
@@ -160,24 +184,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
 
-                /* =====================================
-                   CONTRASEÑA EN TEXTO PLANO
-                   
-                   Para usuarios antiguos.
-                ===================================== */
+                /* =========================================
+                   CONTRASEÑA ANTIGUA EN TEXTO PLANO
+                ========================================= */
 
                 elseif (
-                    (string)$password ===
-                    (string)$usuario['password']
+                    $password ===
+                    $usuario['password']
                 ) {
 
                     $loginCorrecto = true;
 
 
-                    /*
-                     * Convertir automáticamente
-                     * a contraseña cifrada.
-                     */
+                    /* =====================================
+                       CONVERTIR A PASSWORD HASH
+                    ===================================== */
 
                     $nuevaPassword =
                         password_hash(
@@ -186,73 +207,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         );
 
 
-                    $actualizar =
+                    $stmtActualizar =
                         $conn->prepare("
+
                             UPDATE usuarios
+
                             SET password = ?
+
                             WHERE id = ?
+
                         ");
 
 
-                    if ($actualizar) {
+                    if ($stmtActualizar) {
 
-                        $actualizar->bind_param(
+                        $stmtActualizar->bind_param(
                             "si",
                             $nuevaPassword,
                             $usuario['id']
                         );
 
-                        $actualizar->execute();
 
-                        $actualizar->close();
+                        $stmtActualizar->execute();
+
+
+                        $stmtActualizar->close();
 
                     }
 
                 }
 
 
-                /* =====================================
-                   CONTRASEÑA INCORRECTA
-                ===================================== */
+                /* =========================================
+                   LOGIN CORRECTO
+                ========================================= */
 
-                if (!$loginCorrecto) {
-
-                    $error =
-                        "Contraseña incorrecta.";
-
-                } else {
+                if (
+                    $loginCorrecto
+                ) {
 
 
-                    /* =================================
+                    /* =====================================
                        NORMALIZAR ROL
-                    ================================= */
+                    ===================================== */
 
                     $rol =
                         strtolower(
                             trim(
+                                (string)
                                 $usuario['rol']
                             )
                         );
 
 
-                    /*
-                     * Aceptamos únicamente estos
-                     * tres roles.
-                     */
-
-                    $rolesPermitidos = [
-                        "administrador",
-                        "jurado",
-                        "estudiante"
-                    ];
-
+                    /* =====================================
+                       VERIFICAR ROL
+                    ===================================== */
 
                     if (
-                        !in_array(
-                            $rol,
-                            $rolesPermitidos,
-                            true
-                        )
+                        $rol !== "administrador" &&
+                        $rol !== "jurado" &&
+                        $rol !== "estudiante"
                     ) {
 
                         $error =
@@ -262,79 +277,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
                         /* =================================
-                           LIMPIAR SESIÓN ANTERIOR
+                           REGENERAR ID DE SESIÓN
                         ================================= */
 
-                        session_unset();
-
-
-                        /*
-                         * Generar una nueva ID de sesión.
-                         */
-
-                        session_regenerate_id(true);
+                        session_regenerate_id(
+                            true
+                        );
 
 
                         /* =================================
-                           GUARDAR SESIÓN
+                           GUARDAR DATOS
                         ================================= */
 
                         $_SESSION['id'] =
-                            $usuario['id'];
+                            (int)$usuario['id'];
+
 
                         $_SESSION['nombre'] =
                             $usuario['nombre'];
+
 
                         $_SESSION['rol'] =
                             $rol;
 
 
-                        /*
-                         * Datos adicionales.
-                         */
+                        /* =================================
+                           LIMPIAR DATOS DE VOTACIÓN
+                           DE UNA SESIÓN ANTERIOR
+                        ================================= */
 
-                        $_SESSION['documento'] =
-                            $usuario['documento'];
+                        unset(
 
-                        $_SESSION['apellido'] =
-                            $usuario['apellido'];
+                            $_SESSION[
+                                'estudiante_votando_id'
+                            ],
+
+                            $_SESSION[
+                                'estudiante_votando_documento'
+                            ],
+
+                            $_SESSION[
+                                'estudiante_votando_nombre'
+                            ],
+
+                            $_SESSION[
+                                'estudiante_votando_curso'
+                            ],
+
+                            $_SESSION[
+                                'eleccion_votante_id'
+                            ]
+
+                        );
 
 
                         /* =================================
-                           REDIRECCIÓN
+                           REDIRECCIONES
                         ================================= */
 
-                        switch ($rol) {
+                        if (
+                            $rol ===
+                            "administrador"
+                        ) {
 
-                            case "administrador":
+                            header(
+                                "Location: admin.php"
+                            );
 
-                                header(
-                                    "Location: admin.php"
-                                );
+                            exit();
 
-                                exit();
-
-
-                            case "jurado":
-
-                                header(
-                                    "Location: jurado.php"
-                                );
-
-                                exit();
+                        }
 
 
-                            case "estudiante":
+                        if (
+                            $rol ===
+                            "jurado"
+                        ) {
 
-                                header(
-                                    "Location: votar.php"
-                                );
+                            header(
+                                "Location: jurado.php"
+                            );
 
-                                exit();
+                            exit();
+
+                        }
+
+
+                        if (
+                            $rol ===
+                            "estudiante"
+                        ) {
+
+                            header(
+                                "Location: votar.php"
+                            );
+
+                            exit();
 
                         }
 
                     }
+
+
+                } else {
+
+                    $error =
+                        "Contraseña incorrecta.";
 
                 }
 
@@ -364,34 +412,43 @@ name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>
+
 Sistema de Votaciones
+
 </title>
 
 
-<!-- BOOTSTRAP -->
+<!-- =====================================================
+     BOOTSTRAP
+===================================================== -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
-<!-- ICONOS -->
+<!-- =====================================================
+     ICONOS
+===================================================== -->
 
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
 
-<!-- CSS DEL PROYECTO -->
-
-<link
-rel="stylesheet"
-href="css/estilos.css">
-
-
 <style>
 
 body {
+
+    min-height:100vh;
+
+    margin:0;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
 
     background:
         linear-gradient(
@@ -400,33 +457,28 @@ body {
             #1565c0
         );
 
-    min-height:100vh;
-
-    display:flex;
-
-    justify-content:center;
-
-    align-items:center;
-
-    padding:20px;
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
 
 }
 
 
 .login {
 
-    width:430px;
+    width:100%;
 
-    max-width:100%;
+    max-width:440px;
 
     background:white;
 
     padding:40px;
 
-    border-radius:20px;
+    border-radius:22px;
 
     box-shadow:
-        0 10px 30px
+        0 12px 35px
         rgba(0,0,0,.25);
 
 }
@@ -434,11 +486,11 @@ body {
 
 .logo {
 
-    font-size:70px;
-
     text-align:center;
 
-    margin-bottom:15px;
+    font-size:70px;
+
+    margin-bottom:10px;
 
 }
 
@@ -447,9 +499,16 @@ body {
 
     text-align:center;
 
+    color:#0d47a1;
+
+    font-weight:bold;
+
     margin-bottom:30px;
 
-    color:#0d47a1;
+}
+
+
+.form-label {
 
     font-weight:bold;
 
@@ -462,7 +521,12 @@ body {
 
     color:white;
 
-    border-color:#0d6efd;
+}
+
+
+.form-control {
+
+    height:48px;
 
 }
 
@@ -471,7 +535,7 @@ body {
 
     width:100%;
 
-    padding:12px;
+    height:52px;
 
     font-size:18px;
 
@@ -486,11 +550,21 @@ body {
 
     text-align:center;
 
+    color:#777;
+
     font-size:13px;
 
-    color:gray;
+}
+
+
+.info {
+
+    text-align:center;
+
+    margin-top:20px;
 
 }
+
 
 </style>
 
@@ -503,7 +577,9 @@ body {
 <div class="login">
 
 
-<!-- LOGO -->
+<!-- =====================================================
+     LOGO
+===================================================== -->
 
 <div class="logo">
 
@@ -512,8 +588,6 @@ body {
 </div>
 
 
-<!-- TÍTULO -->
-
 <h2>
 
 Sistema de Votaciones
@@ -521,31 +595,45 @@ Sistema de Votaciones
 </h2>
 
 
-<!-- ERROR -->
+<!-- =====================================================
+     ERROR
+===================================================== -->
 
-<?php if ($error !== "") { ?>
+<?php if (
+    $error !== ""
+) { ?>
 
 <div class="alert alert-danger">
 
 <i class="bi bi-exclamation-triangle-fill"></i>
 
-<?php echo htmlspecialchars($error); ?>
+<?php echo htmlspecialchars(
+    $error
+); ?>
 
 </div>
 
 <?php } ?>
 
 
-<!-- FORMULARIO -->
+<!-- =====================================================
+     FORMULARIO
+===================================================== -->
 
-<form method="POST">
+<form
+method="POST"
+autocomplete="off">
 
 
-<!-- DOCUMENTO -->
+<!-- =====================================================
+     DOCUMENTO
+===================================================== -->
 
 <div class="mb-3">
 
-<label class="form-label fw-bold">
+<label
+for="documento"
+class="form-label">
 
 <i class="bi bi-person-vcard-fill"></i>
 
@@ -558,7 +646,7 @@ Documento
 
 <span class="input-group-text">
 
-<i class="bi bi-person-fill"></i>
+<i class="bi bi-person"></i>
 
 </span>
 
@@ -569,28 +657,34 @@ type="text"
 
 name="documento"
 
+id="documento"
+
 class="form-control"
 
 placeholder="Ingrese su documento"
 
 value="<?php echo htmlspecialchars(
-    $documentoIngresado
+    $documento
 ); ?>"
 
-required
+autocomplete="off"
 
-autocomplete="username">
-
-</div>
+required>
 
 </div>
 
+</div>
 
-<!-- CONTRASEÑA -->
+
+<!-- =====================================================
+     CONTRASEÑA
+===================================================== -->
 
 <div class="mb-4">
 
-<label class="form-label fw-bold">
+<label
+for="password"
+class="form-label">
 
 <i class="bi bi-lock-fill"></i>
 
@@ -600,6 +694,7 @@ Contraseña
 
 
 <div class="input-group">
+
 
 <span class="input-group-text">
 
@@ -620,61 +715,34 @@ class="form-control"
 
 placeholder="Ingrese su contraseña"
 
-required
-
-autocomplete="current-password">
+required>
 
 
 <button
 
-class="btn btn-outline-secondary"
-
 type="button"
+
+class="btn btn-outline-secondary"
 
 onclick="mostrarPassword()">
 
 <i
-
 class="bi bi-eye"
-
 id="iconoPassword">
 
 </i>
 
 </button>
 
-</div>
 
 </div>
-
-
-<!-- RECORDAR -->
-
-<div class="form-check mb-4">
-
-<input
-
-class="form-check-input"
-
-type="checkbox"
-
-id="recordar">
-
-
-<label
-
-class="form-check-label"
-
-for="recordar">
-
-Recordar documento
-
-</label>
 
 </div>
 
 
-<!-- INGRESAR -->
+<!-- =====================================================
+     INGRESAR
+===================================================== -->
 
 <button
 
@@ -697,7 +765,7 @@ Ingresar
 <hr>
 
 
-<div class="text-center">
+<div class="info">
 
 <h6>
 
@@ -705,9 +773,10 @@ Sistema de Votaciones Escolares
 
 </h6>
 
+
 <small>
 
-Versión 2.0
+Administrador · Jurado · Estudiante
 
 </small>
 
@@ -718,7 +787,7 @@ Versión 2.0
 
 © <?php echo date("Y"); ?>
 
-Todos los derechos reservados
+Todos los derechos reservados.
 
 </div>
 
@@ -728,25 +797,45 @@ Todos los derechos reservados
 
 <script>
 
+/* =========================================================
+   MOSTRAR / OCULTAR CONTRASEÑA
+========================================================= */
+
 function mostrarPassword() {
 
-    const pass =
-        document.getElementById("password");
+
+    const password =
+        document.getElementById(
+            "password"
+        );
+
 
     const icono =
-        document.getElementById("iconoPassword");
+        document.getElementById(
+            "iconoPassword"
+        );
 
 
-    if (pass.type === "password") {
+    if (
+        password.type ===
+        "password"
+    ) {
 
-        pass.type = "text";
+
+        password.type =
+            "text";
+
 
         icono.className =
             "bi bi-eye-slash";
 
+
     } else {
 
-        pass.type = "password";
+
+        password.type =
+            "password";
+
 
         icono.className =
             "bi bi-eye";
@@ -755,81 +844,6 @@ function mostrarPassword() {
 
 }
 
-
-/* =========================================
-   RECORDAR DOCUMENTO
-========================================= */
-
-const documento =
-    document.querySelector(
-        'input[name="documento"]'
-    );
-
-const recordar =
-    document.getElementById("recordar");
-
-
-const documentoGuardado =
-    localStorage.getItem(
-        "documentoVotaciones"
-    );
-
-
-if (documentoGuardado) {
-
-    documento.value =
-        documentoGuardado;
-
-    recordar.checked =
-        true;
-
-}
-
-
-recordar.addEventListener(
-    "change",
-    function() {
-
-        if (this.checked) {
-
-            localStorage.setItem(
-                "documentoVotaciones",
-                documento.value
-            );
-
-        } else {
-
-            localStorage.removeItem(
-                "documentoVotaciones"
-            );
-
-        }
-
-    }
-);
-
-
-documento.addEventListener(
-    "input",
-    function() {
-
-        if (recordar.checked) {
-
-            localStorage.setItem(
-                "documentoVotaciones",
-                documento.value
-            );
-
-        }
-
-    }
-);
-
-</script>
-
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
 </script>
 
 

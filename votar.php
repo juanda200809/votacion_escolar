@@ -2,287 +2,704 @@
 
 session_start();
 
-/* =========================================
-   VERIFICAR SESIÓN DEL ESTUDIANTE
-========================================= */
-
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'estudiante'
-) {
-    header("Location: login.php");
-    exit();
-}
-
 include("config/conexion.php");
 
 
-/* =========================================
-   OBTENER ESTUDIANTE
-========================================= */
+/* =========================================================
+   VERIFICAR SESIÓN
+========================================================= */
 
-$idUsuario = (int)$_SESSION['id'];
+if (
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol'])
+) {
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+$rol = strtolower(
+    trim(
+        (string)$_SESSION['rol']
+    )
+);
+
+
+/* =========================================================
+   SOLO ESTUDIANTE
+========================================================= */
+
+if ($rol !== "estudiante") {
+
+    if ($rol === "administrador") {
+
+        header("Location: admin.php");
+        exit();
+
+    }
+
+    if ($rol === "jurado") {
+
+        header("Location: jurado.php");
+        exit();
+
+    }
+
+    session_unset();
+    session_destroy();
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+/* =========================================================
+   OBTENER ESTUDIANTE
+========================================================= */
+
+$idUsuario =
+    (int)$_SESSION['id'];
+
 
 $stmt = $conn->prepare("
+
     SELECT
         id,
         documento,
         nombre,
         apellido,
         curso
+
     FROM usuarios
+
     WHERE id = ?
-    AND rol = 'estudiante'
+
+    AND LOWER(TRIM(rol))
+        = 'estudiante'
+
     LIMIT 1
+
 ");
 
-$stmt->bind_param("i", $idUsuario);
+
+if (!$stmt) {
+
+    die("Error en la consulta del estudiante.");
+
+}
+
+
+$stmt->bind_param(
+    "i",
+    $idUsuario
+);
+
+
 $stmt->execute();
 
-$resultadoUsuario = $stmt->get_result();
 
-if ($resultadoUsuario->num_rows === 0) {
+$resultadoUsuario =
+    $stmt->get_result();
 
+
+if (
+    $resultadoUsuario->num_rows === 0
+) {
+
+    $stmt->close();
+
+    session_unset();
     session_destroy();
 
     header("Location: login.php");
+
     exit();
+
 }
 
-$estudiante = $resultadoUsuario->fetch_assoc();
+
+$estudiante =
+    $resultadoUsuario->fetch_assoc();
+
 
 $stmt->close();
 
 
-/* =========================================
-   BUSCAR ELECCIÓN ACTUAL
-========================================= */
+/* =========================================================
+   BUSCAR ELECCIÓN ABIERTA
+========================================================= */
 
-$resultadoEleccion = $conn->query("
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
-    FROM elecciones
-    ORDER BY id DESC
-    LIMIT 1
-");
+$stmtEleccion =
+    $conn->prepare("
+
+        SELECT
+            id,
+            nombre,
+            descripcion,
+            fecha_inicio,
+            fecha_fin,
+            estado
+
+        FROM elecciones
+
+        WHERE LOWER(TRIM(estado))
+            = 'abierta'
+
+        ORDER BY id DESC
+
+        LIMIT 1
+
+    ");
+
+
+$stmtEleccion->execute();
+
+
+$resultadoEleccion =
+    $stmtEleccion->get_result();
 
 
 if (
-    !$resultadoEleccion ||
     $resultadoEleccion->num_rows === 0
 ) {
-
-    $eleccionExiste = false;
 
     $eleccion = null;
 
 } else {
 
-    $eleccionExiste = true;
-
     $eleccion =
         $resultadoEleccion->fetch_assoc();
-}
-
-
-/* =========================================
-   COMPROBAR ESTADO
-========================================= */
-
-$eleccionAbierta = false;
-
-if (
-    $eleccionExiste &&
-    $eleccion['estado'] === 'abierta'
-) {
-
-    $eleccionAbierta = true;
 
 }
 
 
-/* =========================================
+$stmtEleccion->close();
+
+
+/* =========================================================
    VARIABLES
-========================================= */
+========================================================= */
 
 $mensaje = "";
 
 $tipoMensaje = "";
 
+$yaVoto = false;
 
-/* =========================================
-   PROCESAR VOTO
-========================================= */
+$votacionRealizada = false;
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['votar'])
-) {
+$cargos = [];
 
 
-    /* =====================================
-       SEGURIDAD:
-       COMPROBAR ELECCIÓN ABIERTA
-    ===================================== */
+/* =========================================================
+   SI EXISTE ELECCIÓN
+========================================================= */
 
-    if (!$eleccionAbierta) {
-
-        $mensaje =
-            "La elección está cerrada. " .
-            "No se pueden registrar votos.";
-
-        $tipoMensaje = "danger";
-
-    } else {
+if ($eleccion) {
 
 
-        $idCandidato =
-            (int)($_POST['id_candidato'] ?? 0);
+    $idEleccion =
+        (int)$eleccion['id'];
 
 
-        if ($idCandidato <= 0) {
+    /* =====================================================
+       COMPROBAR SI YA VOTÓ EN ESTA ELECCIÓN
+    ===================================================== */
+
+    $stmt =
+        $conn->prepare("
+
+            SELECT
+                COUNT(*) AS total
+
+            FROM votos v
+
+            INNER JOIN candidatos c
+
+                ON c.id = v.id_candidato
+
+            WHERE v.id_usuario = ?
+
+            AND c.id_eleccion = ?
+
+        ");
+
+
+    $stmt->bind_param(
+        "ii",
+        $idUsuario,
+        $idEleccion
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    $datos =
+        $resultado->fetch_assoc();
+
+
+    if (
+        (int)$datos['total'] > 0
+    ) {
+
+        $yaVoto = true;
+
+    }
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       OBTENER CARGOS
+    ===================================================== */
+
+    $stmt =
+        $conn->prepare("
+
+            SELECT
+
+                c.id,
+                c.nombre_cargo
+
+            FROM cargos c
+
+            INNER JOIN eleccion_cargos ec
+
+                ON ec.id_cargo = c.id
+
+            WHERE ec.id_eleccion = ?
+
+            ORDER BY c.id ASC
+
+        ");
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    $stmt->execute();
+
+
+    $resultadoCargos =
+        $stmt->get_result();
+
+
+    while (
+        $cargo =
+        $resultadoCargos->fetch_assoc()
+    ) {
+
+        $cargo['id'] =
+            (int)$cargo['id'];
+
+        $cargo['candidatos'] =
+            [];
+
+        $cargos[] =
+            $cargo;
+
+    }
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       OBTENER CANDIDATOS POR CARGO
+    ===================================================== */
+
+    foreach (
+        $cargos as &$cargo
+    ) {
+
+
+        $idCargo =
+            (int)$cargo['id'];
+
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT
+
+                    id,
+                    nombre,
+                    apellido,
+                    curso,
+                    foto,
+                    propuestas
+
+                FROM candidatos
+
+                WHERE id_eleccion = ?
+
+                AND id_cargo = ?
+
+                ORDER BY
+                    nombre ASC,
+                    apellido ASC
+
+            ");
+
+
+        $stmt->bind_param(
+            "ii",
+            $idEleccion,
+            $idCargo
+        );
+
+
+        $stmt->execute();
+
+
+        $resultadoCandidatos =
+            $stmt->get_result();
+
+
+        while (
+            $candidato =
+            $resultadoCandidatos->fetch_assoc()
+        ) {
+
+            $cargo['candidatos'][] =
+                $candidato;
+
+        }
+
+
+        $stmt->close();
+
+    }
+
+
+    unset($cargo);
+
+
+    /* =====================================================
+       PROCESAR VOTACIÓN
+    ===================================================== */
+
+    if (
+        $_SERVER['REQUEST_METHOD'] === 'POST' &&
+        isset($_POST['votar'])
+    ) {
+
+
+        /* =============================================
+           ELECCIÓN ABIERTA
+        ============================================= */
+
+        if ($yaVoto) {
 
             $mensaje =
-                "Debe seleccionar un candidato.";
+                "Usted ya realizó su votación en esta elección.";
 
-            $tipoMensaje = "danger";
+            $tipoMensaje =
+                "warning";
 
         } else {
 
 
-            /* ==============================
-               COMPROBAR CANDIDATO
-            ============================== */
-
-            $stmt = $conn->prepare("
-                SELECT id
-                FROM candidatos
-                WHERE id = ?
-                LIMIT 1
-            ");
-
-            $stmt->bind_param(
-                "i",
-                $idCandidato
-            );
-
-            $stmt->execute();
-
-            $resultadoCandidato =
-                $stmt->get_result();
-
-            $stmt->close();
+            $selecciones =
+                $_POST['candidato'] ?? [];
 
 
             if (
-                $resultadoCandidato->num_rows === 0
+                !is_array($selecciones)
+            ) {
+
+                $selecciones =
+                    [];
+
+            }
+
+
+            /* =========================================
+               VERIFICAR TODOS LOS CARGOS
+            ========================================= */
+
+            $faltanCargos = [];
+
+
+            foreach (
+                $cargos as $cargo
+            ) {
+
+                $idCargo =
+                    (int)$cargo['id'];
+
+
+                if (
+                    !isset(
+                        $selecciones[$idCargo]
+                    ) ||
+                    (int)$selecciones[$idCargo] <= 0
+                ) {
+
+                    $faltanCargos[] =
+                        $cargo['nombre_cargo'];
+
+                }
+
+            }
+
+
+            if (
+                count($faltanCargos) > 0
             ) {
 
                 $mensaje =
-                    "El candidato seleccionado no existe.";
+                    "Debe seleccionar un candidato para cada cargo.";
 
-                $tipoMensaje = "danger";
+                $tipoMensaje =
+                    "danger";
 
             } else {
 
 
-                /* ==============================
-                   COMPROBAR SI YA VOTÓ
-                ============================== */
+                /* =====================================
+                   INICIAR TRANSACCIÓN
+                ===================================== */
 
-                $stmt = $conn->prepare("
-                    SELECT id
-                    FROM votos
-                    WHERE id_usuario = ?
-                    LIMIT 1
-                ");
-
-                $stmt->bind_param(
-                    "i",
-                    $idUsuario
-                );
-
-                $stmt->execute();
-
-                $resultadoVoto =
-                    $stmt->get_result();
-
-                $stmt->close();
+                $conn->begin_transaction();
 
 
-                if (
-                    $resultadoVoto->num_rows > 0
-                ) {
-
-                    $mensaje =
-                        "Usted ya realizó su voto.";
-
-                    $tipoMensaje = "warning";
-
-                } else {
+                try {
 
 
-                    /* ==============================
-                       REGISTRAR VOTO
-                    ============================== */
+                    /* =================================
+                       SEGUNDA PROTECCIÓN
+                    ================================= */
 
-                    $stmt = $conn->prepare("
-                        INSERT INTO votos
-                        (
-                            id_usuario,
-                            id_candidato,
-                            fecha_voto
-                        )
-                        VALUES
-                        (?, ?, NOW())
-                    ");
+                    $stmtBloqueo =
+                        $conn->prepare("
+
+                            SELECT
+                                v.id
+
+                            FROM votos v
+
+                            INNER JOIN candidatos c
+
+                                ON c.id = v.id_candidato
+
+                            WHERE v.id_usuario = ?
+
+                            AND c.id_eleccion = ?
+
+                            LIMIT 1
+
+                        ");
 
 
-                    if (!$stmt) {
-
-                        $mensaje =
-                            "No se pudo preparar el registro del voto.";
-
-                        $tipoMensaje = "danger";
-
-                    } else {
+                    $stmtBloqueo->bind_param(
+                        "ii",
+                        $idUsuario,
+                        $idEleccion
+                    );
 
 
-                        $stmt->bind_param(
-                            "ii",
-                            $idUsuario,
-                            $idCandidato
+                    $stmtBloqueo->execute();
+
+
+                    $resultadoBloqueo =
+                        $stmtBloqueo->get_result();
+
+
+                    if (
+                        $resultadoBloqueo->num_rows > 0
+                    ) {
+
+                        throw new Exception(
+                            "Usted ya realizó su votación en esta elección."
+                        );
+
+                    }
+
+
+                    /* =================================
+                       PREPARAR VALIDACIÓN
+                    ================================= */
+
+                    $stmtValidar =
+                        $conn->prepare("
+
+                            SELECT
+                                id
+
+                            FROM candidatos
+
+                            WHERE id = ?
+
+                            AND id_eleccion = ?
+
+                            AND id_cargo = ?
+
+                            LIMIT 1
+
+                        ");
+
+
+                    /* =================================
+                       PREPARAR INSERT
+                    ================================= */
+
+                    $stmtInsertar =
+                        $conn->prepare("
+
+                            INSERT INTO votos
+                            (
+                                id_usuario,
+                                id_candidato,
+                                fecha_voto,
+                                id_cargo
+                            )
+
+                            VALUES
+                            (
+                                ?,
+                                ?,
+                                NOW(),
+                                ?
+                            )
+
+                        ");
+
+
+                    if (
+                        !$stmtValidar ||
+                        !$stmtInsertar
+                    ) {
+
+                        throw new Exception(
+                            "No se pudo preparar el registro de votos."
+                        );
+
+                    }
+
+
+                    /* =================================
+                       GUARDAR VOTOS
+                    ================================= */
+
+                    foreach (
+                        $cargos as $cargo
+                    ) {
+
+                        $idCargo =
+                            (int)$cargo['id'];
+
+
+                        $idCandidato =
+                            (int)$selecciones[$idCargo];
+
+
+                        /* =============================
+                           VALIDAR CANDIDATO
+                        ============================= */
+
+                        $stmtValidar->bind_param(
+                            "iii",
+                            $idCandidato,
+                            $idEleccion,
+                            $idCargo
                         );
 
 
-                        if ($stmt->execute()) {
+                        $stmtValidar->execute();
 
-                            $mensaje =
-                                "¡Su voto fue registrado correctamente!";
 
-                            $tipoMensaje =
-                                "success";
+                        $resultadoValidar =
+                            $stmtValidar->get_result();
 
-                        } else {
 
-                            $mensaje =
-                                "No se pudo registrar el voto.";
+                        if (
+                            $resultadoValidar->num_rows === 0
+                        ) {
 
-                            $tipoMensaje =
-                                "danger";
+                            throw new Exception(
+                                "Uno de los candidatos seleccionados no pertenece a esta elección."
+                            );
 
                         }
 
 
-                        $stmt->close();
+                        /* =============================
+                           INSERTAR
+                        ============================= */
+
+                        $stmtInsertar->bind_param(
+                            "iii",
+                            $idUsuario,
+                            $idCandidato,
+                            $idCargo
+                        );
+
+
+                        if (
+                            !$stmtInsertar->execute()
+                        ) {
+
+                            throw new Exception(
+                                "No se pudo registrar la votación."
+                            );
+
+                        }
 
                     }
+
+
+                    /* =================================
+                       CERRAR CONSULTAS
+                    ================================= */
+
+                    $stmtBloqueo->close();
+
+                    $stmtValidar->close();
+
+                    $stmtInsertar->close();
+
+
+                    /* =================================
+                       CONFIRMAR
+                    ================================= */
+
+                    $conn->commit();
+
+
+                    $votacionRealizada =
+                        true;
+
+
+                    $yaVoto =
+                        true;
+
+
+                } catch (
+                    Exception $e
+                ) {
+
+
+                    $conn->rollback();
+
+
+                    $mensaje =
+                        $e->getMessage();
+
+                    $tipoMensaje =
+                        "danger";
 
                 }
 
@@ -294,57 +711,8 @@ if (
 
 }
 
-
-/* =========================================
-   COMPROBAR SI YA VOTÓ
-========================================= */
-
-$yaVoto = false;
-
-
-$stmt = $conn->prepare("
-    SELECT id
-    FROM votos
-    WHERE id_usuario = ?
-    LIMIT 1
-");
-
-$stmt->bind_param(
-    "i",
-    $idUsuario
-);
-
-$stmt->execute();
-
-$resultadoVoto =
-    $stmt->get_result();
-
-if ($resultadoVoto->num_rows > 0) {
-
-    $yaVoto = true;
-
-}
-
-$stmt->close();
-
-
-/* =========================================
-   OBTENER CANDIDATOS
-========================================= */
-
-$candidatos = $conn->query("
-    SELECT
-        id,
-        nombre,
-        apellido,
-        curso,
-        foto,
-        propuestas
-    FROM candidatos
-    ORDER BY nombre ASC, apellido ASC
-");
-
 ?>
+
 
 <!DOCTYPE html>
 
@@ -359,7 +727,9 @@ name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>
+
 Votación Escolar
+
 </title>
 
 
@@ -412,7 +782,7 @@ body {
 
 .contenedor {
 
-    max-width:1100px;
+    max-width:1150px;
 
     margin:auto;
 
@@ -477,21 +847,63 @@ body {
 }
 
 
+.cargo {
+
+    background:white;
+
+    border-radius:18px;
+
+    margin-bottom:25px;
+
+    overflow:hidden;
+
+    box-shadow:
+        0 6px 20px
+        rgba(0,0,0,.10);
+
+}
+
+
+.cargo-header {
+
+    background:#1453a3;
+
+    color:white;
+
+    padding:20px 25px;
+
+}
+
+
+.cargo-header h3 {
+
+    margin:0;
+
+    font-weight:bold;
+
+}
+
+
+.cargo-body {
+
+    padding:25px;
+
+}
+
+
 .candidato {
 
     background:white;
 
-    border:none;
+    border:2px solid #e0e6ed;
 
-    border-radius:18px;
+    border-radius:15px;
 
-    padding:25px;
+    padding:20px;
 
     height:100%;
 
-    box-shadow:
-        0 6px 18px
-        rgba(0,0,0,.10);
+    cursor:pointer;
 
     transition:.2s;
 
@@ -500,17 +912,34 @@ body {
 
 .candidato:hover {
 
-    transform:
-        translateY(-3px);
+    border-color:#1473ed;
+
+    background:#f5f9ff;
+
+}
+
+
+.candidato.seleccionado {
+
+    border-color:#1473ed;
+
+    background:#eaf3ff;
+
+}
+
+
+.candidato input {
+
+    display:none;
 
 }
 
 
 .foto-candidato {
 
-    width:130px;
+    width:120px;
 
-    height:130px;
+    height:120px;
 
     object-fit:cover;
 
@@ -523,9 +952,9 @@ body {
 
 .foto-vacia {
 
-    width:130px;
+    width:120px;
 
-    height:130px;
+    height:120px;
 
     border-radius:50%;
 
@@ -539,9 +968,20 @@ body {
 
     margin:auto;
 
-    font-size:55px;
+    font-size:50px;
 
     color:#1453a3;
+
+}
+
+
+.nombre-candidato {
+
+    color:#1453a3;
+
+    font-size:19px;
+
+    font-weight:bold;
 
 }
 
@@ -550,18 +990,37 @@ body {
 
     width:100%;
 
-    padding:12px;
+    padding:14px;
 
-    font-size:17px;
+    font-size:19px;
 
     font-weight:bold;
 
 }
 
 
-.bloqueado {
+.exito {
 
-    opacity:.75;
+    background:white;
+
+    border-radius:20px;
+
+    padding:50px;
+
+    text-align:center;
+
+    box-shadow:
+        0 8px 25px
+        rgba(0,0,0,.12);
+
+}
+
+
+.exito i {
+
+    font-size:80px;
+
+    color:#198754;
 
 }
 
@@ -574,18 +1033,21 @@ body {
 <body>
 
 
-<!-- =========================================
+<!-- =====================================================
      BARRA SUPERIOR
-========================================= -->
+===================================================== -->
 
 <div class="topbar">
+
 
 <div>
 
 <i class="bi bi-mortarboard-fill"></i>
 
 <strong>
+
 Sistema de Votaciones Escolares
+
 </strong>
 
 </div>
@@ -601,17 +1063,81 @@ Sistema de Votaciones Escolares
 
 </div>
 
+
 </div>
 
 
 <div class="contenedor">
 
 
-<!-- =========================================
-     INFORMACIÓN ESTUDIANTE
-========================================= -->
+<?php if (
+    $votacionRealizada
+) { ?>
+
+
+<!-- =====================================================
+     VOTACIÓN REGISTRADA
+===================================================== -->
+
+<div class="exito">
+
+
+<i class="bi bi-check-circle-fill"></i>
+
+
+<h1 class="text-success mt-3">
+
+¡Votación registrada!
+
+</h1>
+
+
+<p class="fs-5">
+
+Su votación fue registrada
+correctamente.
+
+</p>
+
+
+<div class="alert alert-success">
+
+<i class="bi bi-shield-check"></i>
+
+<strong>
+
+Gracias por participar.
+
+</strong>
+
+No podrá volver a votar en esta elección.
+
+</div>
+
+
+<a
+href="logout.php"
+class="btn btn-outline-danger btn-lg mt-3">
+
+<i class="bi bi-box-arrow-right"></i>
+
+Cerrar sesión
+
+</a>
+
+
+</div>
+
+
+<?php } else { ?>
+
+
+<!-- =====================================================
+     INFORMACIÓN DEL ESTUDIANTE
+===================================================== -->
 
 <div class="bienvenida">
+
 
 <h2 class="titulo">
 
@@ -620,14 +1146,15 @@ Sistema de Votaciones Escolares
 </h2>
 
 
-<p class="mb-1">
+<p>
 
 Bienvenido:
 
 <strong>
 
 <?php echo htmlspecialchars(
-    $estudiante['nombre'] . " " .
+    $estudiante['nombre'] .
+    " " .
     $estudiante['apellido']
 ); ?>
 
@@ -636,7 +1163,7 @@ Bienvenido:
 </p>
 
 
-<p class="mb-3">
+<p>
 
 Curso:
 
@@ -654,19 +1181,22 @@ Curso:
 <hr>
 
 
-<?php if ($eleccionExiste) { ?>
+<?php if (
+    $eleccion
+) { ?>
 
-<div
-class="d-flex
-       justify-content-between
-       align-items-center
-       flex-wrap
-       gap-3">
+
+<div class="d-flex
+            justify-content-between
+            align-items-center
+            flex-wrap
+            gap-3">
 
 
 <div>
 
-<h4 class="mb-1">
+
+<h4>
 
 <?php echo htmlspecialchars(
     $eleccion['nombre']
@@ -675,20 +1205,27 @@ class="d-flex
 </h4>
 
 
+<?php if (
+    !empty(
+        $eleccion['descripcion']
+    )
+) { ?>
+
 <p class="text-muted mb-0">
 
 <?php echo htmlspecialchars(
-    $eleccion['descripcion'] ?? ''
+    $eleccion['descripcion']
 ); ?>
 
 </p>
+
+<?php } ?>
+
 
 </div>
 
 
 <div>
-
-<?php if ($eleccionAbierta) { ?>
 
 <span class="estado-abierta">
 
@@ -696,140 +1233,161 @@ class="d-flex
 
 </span>
 
+</div>
+
+
+</div>
+
+
 <?php } else { ?>
 
-<span class="estado-cerrada">
 
-🔴 Elección cerrada
+<div class="alert alert-danger mb-0">
 
-</span>
+<i class="bi bi-lock-fill"></i>
+
+No existe una elección abierta actualmente.
+
+</div>
+
 
 <?php } ?>
 
-</div>
-
 
 </div>
 
-<?php } else { ?>
 
-<div class="alert alert-warning mb-0">
+<!-- =====================================================
+     MENSAJE
+===================================================== -->
+
+<?php if (
+    $mensaje !== ""
+) { ?>
+
+<div class="alert alert-<?php echo htmlspecialchars(
+    $tipoMensaje
+); ?>">
 
 <i class="bi bi-exclamation-triangle-fill"></i>
 
-No hay una elección registrada.
-
-</div>
-
-<?php } ?>
-
-</div>
-
-
-<!-- =========================================
-     MENSAJE
-========================================= -->
-
-<?php if ($mensaje !== "") { ?>
-
-<div
-class="alert alert-<?php echo $tipoMensaje; ?>">
-
-<i class="bi bi-info-circle-fill"></i>
-
-<?php echo htmlspecialchars($mensaje); ?>
+<?php echo htmlspecialchars(
+    $mensaje
+); ?>
 
 </div>
 
 <?php } ?>
 
 
-<!-- =========================================
-     ELECCIÓN CERRADA
-========================================= -->
-
-<?php if (!$eleccionAbierta) { ?>
+<?php if (
+    $yaVoto
+) { ?>
 
 
-<div
-class="alert alert-danger text-center p-4">
-
-<i
-class="bi bi-lock-fill fs-1">
-</i>
-
-
-<h3 class="mt-2">
-
-La votación está cerrada
-
-</h3>
-
-
-<p class="mb-0">
-
-El administrador todavía no ha abierto
-la elección o la votación ya terminó.
-
-</p>
-
-</div>
-
-
-<?php } elseif ($yaVoto) { ?>
-
-
-<!-- =========================================
+<!-- =====================================================
      YA VOTÓ
-========================================= -->
+===================================================== -->
 
-<div
-class="alert alert-success text-center p-4">
+<div class="alert alert-success text-center p-5">
 
 <i
-class="bi bi-check-circle-fill fs-1">
+class="bi bi-check-circle-fill fs-1 text-success">
 </i>
 
 
-<h3 class="mt-2">
+<h2 class="mt-3">
 
-¡Voto registrado!
+Ya realizó su votación
 
-</h3>
+</h2>
+
+
+<p class="fs-5">
+
+Usted ya tiene una votación registrada
+en esta elección.
+
+</p>
 
 
 <p class="mb-0">
 
-Usted ya realizó su voto.
-Gracias por participar.
+No es posible volver a votar.
 
 </p>
+
 
 </div>
 
 
-<?php } else { ?>
+<?php } elseif (
+    $eleccion &&
+    count($cargos) === 0
+) { ?>
 
 
-<!-- =========================================
-     CANDIDATOS
-========================================= -->
+<div class="alert alert-warning">
 
-<h3 class="titulo mb-4">
+<i class="bi bi-exclamation-triangle-fill"></i>
 
-<i class="bi bi-person-vcard-fill"></i>
+La elección no tiene cargos configurados.
 
-Seleccione su candidato
+</div>
+
+
+<?php } elseif (
+    $eleccion
+) { ?>
+
+
+<!-- =====================================================
+     FORMULARIO
+===================================================== -->
+
+<form
+method="POST"
+id="formVotacion">
+
+
+<?php foreach (
+    $cargos as $cargo
+) { ?>
+
+
+<div class="cargo">
+
+
+<div class="cargo-header">
+
+<h3>
+
+<i class="bi bi-award-fill"></i>
+
+<?php echo htmlspecialchars(
+    $cargo['nombre_cargo']
+); ?>
 
 </h3>
+
+</div>
+
+
+<div class="cargo-body">
+
+
+<p class="text-muted">
+
+Seleccione un candidato:
+
+</p>
 
 
 <div class="row g-4">
 
 
 <?php if (
-    !$candidatos ||
-    $candidatos->num_rows === 0
+    count($cargo['candidatos']) === 0
 ) { ?>
 
 
@@ -837,9 +1395,7 @@ Seleccione su candidato
 
 <div class="alert alert-warning">
 
-<i class="bi bi-exclamation-triangle-fill"></i>
-
-No hay candidatos registrados.
+No hay candidatos para este cargo.
 
 </div>
 
@@ -849,16 +1405,31 @@ No hay candidatos registrados.
 <?php } else { ?>
 
 
-<?php while (
-    $candidato =
-    $candidatos->fetch_assoc()
+<?php foreach (
+    $cargo['candidatos']
+    as $candidato
 ) { ?>
 
 
 <div class="col-md-6 col-lg-4">
 
 
-<div class="candidato">
+<label
+class="candidato"
+onclick="seleccionar(this)">
+
+
+<input
+
+type="radio"
+
+name="candidato[
+<?php echo (int)$cargo['id']; ?>
+]"
+
+value="<?php echo (int)$candidato['id']; ?>"
+
+required>
 
 
 <!-- FOTO -->
@@ -870,27 +1441,37 @@ No hay candidatos registrados.
 
 $foto =
     trim(
-        $candidato['foto'] ?? ''
+        (string)$candidato['foto']
     );
+
+
+$rutaFoto =
+    "uploads/candidatos/" .
+    $foto;
+
 
 if (
     $foto !== "" &&
     file_exists(
-        __DIR__ . "/" . $foto
+        __DIR__ .
+        "/" .
+        $rutaFoto
     )
 ) {
 
 ?>
 
+
 <img
 
 src="<?php echo htmlspecialchars(
-    $foto
+    $rutaFoto
 ); ?>"
 
 class="foto-candidato"
 
 alt="Foto del candidato">
+
 
 <?php
 
@@ -898,11 +1479,13 @@ alt="Foto del candidato">
 
 ?>
 
+
 <div class="foto-vacia">
 
 <i class="bi bi-person-fill"></i>
 
 </div>
+
 
 <?php
 
@@ -916,36 +1499,35 @@ alt="Foto del candidato">
 
 <!-- NOMBRE -->
 
-<h4 class="text-center">
+<div
+class="nombre-candidato text-center">
 
 <?php echo htmlspecialchars(
-    $candidato['nombre'] . " " .
+    $candidato['nombre'] .
+    " " .
     $candidato['apellido']
 ); ?>
 
-</h4>
+</div>
 
 
 <p class="text-center text-muted">
 
 Curso:
 
-<strong>
-
 <?php echo htmlspecialchars(
     $candidato['curso']
 ); ?>
 
-</strong>
-
 </p>
 
 
-<!-- PROPUESTAS -->
-
 <?php if (
-    !empty($candidato['propuestas'])
+    !empty(
+        $candidato['propuestas']
+    )
 ) { ?>
+
 
 <div class="alert alert-light">
 
@@ -955,7 +1537,9 @@ Propuestas:
 
 </strong>
 
+
 <br>
+
 
 <?php echo nl2br(
     htmlspecialchars(
@@ -963,27 +1547,40 @@ Propuestas:
     )
 ); ?>
 
+
 </div>
+
 
 <?php } ?>
 
 
-<!-- VOTAR -->
-
-<form
-method="POST"
-onsubmit="
-return confirm(
-'¿Está seguro de votar por este candidato?'
-);
-">
+</label>
 
 
-<input
-type="hidden"
-name="id_candidato"
-value="<?php echo (int)$candidato['id']; ?>">
+</div>
 
+
+<?php } ?>
+
+
+<?php } ?>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+<?php } ?>
+
+
+<!-- =====================================================
+     BOTÓN
+===================================================== -->
 
 <button
 
@@ -991,11 +1588,15 @@ type="submit"
 
 name="votar"
 
-class="btn btn-primary btn-votar">
+class="btn btn-primary btn-votar"
+
+onclick="
+return confirmarVotacion();
+">
 
 <i class="bi bi-check-circle-fill"></i>
 
-Votar por este candidato
+Registrar mi votación
 
 </button>
 
@@ -1003,28 +1604,14 @@ Votar por este candidato
 </form>
 
 
-</div>
-
-</div>
-
-
 <?php } ?>
 
 
-<?php } ?>
-
-
-</div>
-
-
-<?php } ?>
-
-
-<!-- =========================================
+<!-- =====================================================
      CERRAR SESIÓN
-========================================= -->
+===================================================== -->
 
-<div class="text-center mt-5">
+<div class="text-center mt-4">
 
 <a
 href="logout.php"
@@ -1039,7 +1626,125 @@ Cerrar sesión
 </div>
 
 
+<?php } ?>
+
+
 </div>
+
+
+<script>
+
+/* =========================================================
+   SELECCIONAR CANDIDATO
+========================================================= */
+
+function seleccionar(elemento) {
+
+
+    const contenedor =
+        elemento.parentElement;
+
+
+    const candidatos =
+        contenedor.querySelectorAll(
+            ".candidato"
+        );
+
+
+    candidatos.forEach(
+        function(candidato) {
+
+            candidato.classList.remove(
+                "seleccionado"
+            );
+
+        }
+    );
+
+
+    elemento.classList.add(
+        "seleccionado"
+    );
+
+}
+
+
+/* =========================================================
+   CONFIRMAR VOTACIÓN
+========================================================= */
+
+function confirmarVotacion() {
+
+
+    const formulario =
+        document.getElementById(
+            "formVotacion"
+        );
+
+
+    if (!formulario) {
+
+        return false;
+
+    }
+
+
+    const cargos =
+        formulario.querySelectorAll(
+            ".cargo"
+        );
+
+
+    for (
+        let i = 0;
+        i < cargos.length;
+        i++
+    ) {
+
+
+        const seleccionado =
+            cargos[i].querySelector(
+                "input[type='radio']:checked"
+            );
+
+
+        if (!seleccionado) {
+
+
+            alert(
+                "Debe seleccionar un candidato para cada cargo."
+            );
+
+
+            cargos[i].scrollIntoView({
+
+                behavior:
+                    "smooth",
+
+                block:
+                    "center"
+
+            });
+
+
+            return false;
+
+        }
+
+    }
+
+
+    return confirm(
+
+        "¿Está seguro de registrar su votación?\n\n" +
+
+        "Después de registrarla no podrá volver a votar en esta elección."
+
+    );
+
+}
+
+</script>
 
 
 </body>

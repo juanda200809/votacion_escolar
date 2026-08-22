@@ -2,42 +2,65 @@
 
 session_start();
 
-/* =========================================
-   VERIFICAR ADMINISTRADOR
-========================================= */
+include("config/conexion.php");
+
+
+/* =========================================================
+   SOLO ADMINISTRADOR
+========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
+    !isset($_SESSION['rol'])
 ) {
     header("Location: login.php");
     exit();
 }
 
 
-/* =========================================
-   CONEXIÓN
-========================================= */
+$rol = strtolower(
+    trim(
+        (string)$_SESSION['rol']
+    )
+);
 
-include("config/conexion.php");
+
+if ($rol !== "administrador") {
+
+    if ($rol === "jurado") {
+        header("Location: jurado.php");
+        exit();
+    }
+
+    header("Location: login.php");
+    exit();
+
+}
 
 
-/* =========================================
-   BUSCAR ÚLTIMA ELECCIÓN
-========================================= */
+/* =========================================================
+   BUSCAR ELECCIÓN
+========================================================= */
 
-$resultado = $conn->query("
-    SELECT id
+$consulta = $conn->query("
+
+    SELECT
+        id,
+        nombre,
+        estado
+
     FROM elecciones
+
     ORDER BY id DESC
+
     LIMIT 1
+
 ");
 
 
 if (
-    !$resultado ||
-    $resultado->num_rows === 0
+    !$consulta ||
+    $consulta->num_rows === 0
 ) {
 
     header(
@@ -50,20 +73,46 @@ if (
 
 
 $eleccion =
-    $resultado->fetch_assoc();
+    $consulta->fetch_assoc();
+
 
 $idEleccion =
     (int)$eleccion['id'];
 
 
-/* =========================================
+/* =========================================================
+   SI YA ESTÁ CERRADA
+========================================================= */
+
+if (
+    strtolower(
+        trim(
+            (string)$eleccion['estado']
+        )
+    ) === "cerrada"
+) {
+
+    header(
+        "Location: admin.php?cerrada=1"
+    );
+
+    exit();
+
+}
+
+
+/* =========================================================
    CERRAR ELECCIÓN
-========================================= */
+========================================================= */
 
 $stmt = $conn->prepare("
+
     UPDATE elecciones
+
     SET estado = 'cerrada'
+
     WHERE id = ?
+
 ");
 
 
@@ -84,9 +133,9 @@ $stmt->bind_param(
 );
 
 
-if ($stmt->execute()) {
-
-    $stmt->close();
+if (
+    $stmt->execute()
+) {
 
     header(
         "Location: admin.php?cerrada=1"
@@ -97,11 +146,8 @@ if ($stmt->execute()) {
 }
 
 
-/* =========================================
-   ERROR
-========================================= */
-
 $stmt->close();
+
 
 header(
     "Location: admin.php?error=cerrar"

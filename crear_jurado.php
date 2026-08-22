@@ -2,35 +2,167 @@
 
 session_start();
 
-/* =========================================
+include("config/conexion.php");
+
+
+/* =========================================================
    VERIFICAR ADMINISTRADOR
-========================================= */
+========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
+    strtolower(trim($_SESSION['rol'])) !== 'administrador'
 ) {
+
     header("Location: login.php");
     exit();
+
 }
 
-include("config/conexion.php");
 
 $mensaje = "";
 $tipoMensaje = "";
 
 
-/* =========================================
+/* =========================================================
+   ELIMINAR JURADO
+========================================================= */
+
+if (isset($_GET['eliminar'])) {
+
+    $id = (int)$_GET['eliminar'];
+
+
+    if ($id <= 0) {
+
+        header(
+            "Location: crear_jurado.php?error=eliminar"
+        );
+
+        exit();
+
+    }
+
+
+    $stmt = $conn->prepare("
+
+        DELETE FROM usuarios
+
+        WHERE id = ?
+
+        AND rol = 'jurado'
+
+    ");
+
+
+    if (!$stmt) {
+
+        header(
+            "Location: crear_jurado.php?error=eliminar"
+        );
+
+        exit();
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $id
+    );
+
+
+    if (
+        $stmt->execute()
+    ) {
+
+        $stmt->close();
+
+        header(
+            "Location: crear_jurado.php?eliminado=1"
+        );
+
+        exit();
+
+    }
+
+
+    $stmt->close();
+
+
+    header(
+        "Location: crear_jurado.php?error=eliminar"
+    );
+
+    exit();
+
+}
+
+
+/* =========================================================
+   MENSAJES DESDE REDIRECCIONES
+========================================================= */
+
+if (isset($_GET['eliminado'])) {
+
+    $mensaje =
+        "El jurado fue eliminado correctamente.";
+
+    $tipoMensaje =
+        "success";
+
+}
+
+
+if (isset($_GET['error'])) {
+
+    $mensaje =
+        "No fue posible realizar la operación.";
+
+    $tipoMensaje =
+        "danger";
+
+}
+
+
+/* =========================================================
    REGISTRAR JURADO
-========================================= */
+========================================================= */
 
-if (isset($_POST['guardar'])) {
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['guardar'])
+) {
 
-    $documento = trim($_POST['documento'] ?? '');
-    $nombre    = trim($_POST['nombre'] ?? '');
-    $apellido  = trim($_POST['apellido'] ?? '');
-    $curso     = trim($_POST['curso'] ?? '');
+
+    $documento =
+        trim(
+            $_POST['documento'] ?? ""
+        );
+
+
+    $nombre =
+        trim(
+            $_POST['nombre'] ?? ""
+        );
+
+
+    $apellido =
+        trim(
+            $_POST['apellido'] ?? ""
+        );
+
+
+    $curso =
+        trim(
+            $_POST['curso'] ?? ""
+        );
+
+
+    /* =====================================================
+       VALIDAR CAMPOS
+    ===================================================== */
 
     if (
         $documento === "" ||
@@ -39,166 +171,307 @@ if (isset($_POST['guardar'])) {
         $curso === ""
     ) {
 
-        $mensaje = "Debe completar todos los campos.";
-        $tipoMensaje = "danger";
+        $mensaje =
+            "Debe completar todos los campos.";
 
-    } else {
+        $tipoMensaje =
+            "danger";
 
-        /* =========================================
-           VERIFICAR DOCUMENTO
-        ========================================= */
+    }
 
-        $stmt = $conn->prepare("
-            SELECT id
-            FROM usuarios
-            WHERE documento = ?
-            LIMIT 1
-        ");
 
-        $stmt->bind_param("s", $documento);
-        $stmt->execute();
+    /* =====================================================
+       VALIDAR DOCUMENTO
+    ===================================================== */
 
-        $resultado = $stmt->get_result();
+    elseif (
+        !preg_match(
+            '/^[0-9]+$/',
+            $documento
+        )
+    ) {
 
-        if ($resultado->num_rows > 0) {
+        $mensaje =
+            "El documento debe contener únicamente números.";
+
+        $tipoMensaje =
+            "danger";
+
+    }
+
+
+    else {
+
+
+        /* =================================================
+           COMPROBAR DOCUMENTO EXISTENTE
+        ================================================= */
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT
+                    id,
+                    rol
+
+                FROM usuarios
+
+                WHERE documento = ?
+
+                LIMIT 1
+
+            ");
+
+
+        if (!$stmt) {
 
             $mensaje =
-                "Ya existe un usuario con ese documento.";
+                "No se pudo comprobar el documento.";
 
-            $tipoMensaje = "danger";
-
-            $stmt->close();
+            $tipoMensaje =
+                "danger";
 
         } else {
 
-            $stmt->close();
-
-
-            /* =========================================
-               CONTRASEÑA AUTOMÁTICA
-               = DOCUMENTO
-            ========================================= */
-
-            $password_hash = password_hash(
-                $documento,
-                PASSWORD_DEFAULT
-            );
-
-
-            /* =========================================
-               CORREO VACÍO
-            ========================================= */
-
-            $correo = "";
-
-
-            /* =========================================
-               INSERTAR JURADO
-            ========================================= */
-
-            $stmt = $conn->prepare("
-                INSERT INTO usuarios
-                (
-                    documento,
-                    nombre,
-                    apellido,
-                    correo,
-                    curso,
-                    password,
-                    rol
-                )
-                VALUES (?, ?, ?, ?, ?, ?, 'jurado')
-            ");
 
             $stmt->bind_param(
-                "ssssss",
-                $documento,
-                $nombre,
-                $apellido,
-                $correo,
-                $curso,
-                $password_hash
+                "s",
+                $documento
             );
 
 
-            if ($stmt->execute()) {
+            $stmt->execute();
 
-                $mensaje =
-                    "Jurado registrado correctamente.";
 
-                $tipoMensaje = "success";
+            $resultado =
+                $stmt->get_result();
+
+
+            if (
+                $resultado->num_rows > 0
+            ) {
+
+
+                $usuarioExistente =
+                    $resultado->fetch_assoc();
+
+
+                $stmt->close();
+
+
+                $rolExistente =
+                    $usuarioExistente['rol'];
+
+
+                if (
+                    $rolExistente === "jurado"
+                ) {
+
+                    $mensaje =
+                        "Ya existe un jurado con ese documento.";
+
+                } else {
+
+                    $mensaje =
+                        "Ese documento ya pertenece a otro usuario del sistema.";
+
+                }
+
+
+                $tipoMensaje =
+                    "danger";
+
 
             } else {
 
-                $mensaje =
-                    "Error al registrar el jurado.";
 
-                $tipoMensaje = "danger";
+                $stmt->close();
+
+
+                /* =========================================
+                   CONTRASEÑA
+                ========================================= */
+
+                $password_hash =
+                    password_hash(
+                        $documento,
+                        PASSWORD_DEFAULT
+                    );
+
+
+                if (
+                    $password_hash === false
+                ) {
+
+                    $mensaje =
+                        "No se pudo generar la contraseña.";
+
+                    $tipoMensaje =
+                        "danger";
+
+                } else {
+
+
+                    /* =====================================
+                       CORREO
+                    ===================================== */
+
+                    $correo = "";
+
+
+                    /* =====================================
+                       INSERTAR JURADO
+                    ===================================== */
+
+                    $stmt =
+                        $conn->prepare("
+
+                            INSERT INTO usuarios
+                            (
+                                documento,
+                                nombre,
+                                apellido,
+                                correo,
+                                curso,
+                                password,
+                                rol
+                            )
+
+                            VALUES
+                            (
+                                ?,
+                                ?,
+                                ?,
+                                ?,
+                                ?,
+                                ?,
+                                'jurado'
+                            )
+
+                        ");
+
+
+                    if (!$stmt) {
+
+                        $mensaje =
+                            "No se pudo preparar el registro del jurado.";
+
+                        $tipoMensaje =
+                            "danger";
+
+                    } else {
+
+
+                        $stmt->bind_param(
+
+                            "ssssss",
+
+                            $documento,
+
+                            $nombre,
+
+                            $apellido,
+
+                            $correo,
+
+                            $curso,
+
+                            $password_hash
+
+                        );
+
+
+                        if (
+                            $stmt->execute()
+                        ) {
+
+                            $mensaje =
+                                "Jurado registrado correctamente.";
+
+                            $tipoMensaje =
+                                "success";
+
+
+                            /*
+                             * Limpiar los campos del formulario
+                             * después de guardar.
+                             */
+
+                            $documento = "";
+                            $nombre = "";
+                            $apellido = "";
+                            $curso = "";
+
+
+                        } else {
+
+                            $mensaje =
+                                "No se pudo registrar el jurado.";
+
+                            $tipoMensaje =
+                                "danger";
+
+                        }
+
+
+                        $stmt->close();
+
+                    }
+
+                }
+
             }
 
-            $stmt->close();
         }
+
     }
+
 }
 
 
-/* =========================================
-   ELIMINAR JURADO
-========================================= */
+/* =========================================================
+   LISTAR JURADOS
+========================================================= */
 
-if (isset($_GET['eliminar'])) {
+$jurados =
+    $conn->query("
 
-    $id = intval($_GET['eliminar']);
+        SELECT
+            id,
+            documento,
+            nombre,
+            apellido,
+            curso,
+            fecha_registro
 
-    if ($id > 0) {
+        FROM usuarios
 
-        $stmt = $conn->prepare("
-            DELETE FROM usuarios
-            WHERE id = ?
-            AND rol = 'jurado'
-        ");
+        WHERE rol = 'jurado'
 
-        $stmt->bind_param("i", $id);
-        $stmt->execute();
+        ORDER BY
+            nombre ASC,
+            apellido ASC
 
-        $stmt->close();
-    }
-
-    header("Location: crear_jurado.php");
-    exit();
-}
-
-
-/* =========================================
-   CONSULTAR JURADOS
-========================================= */
-
-$jurados = $conn->query("
-    SELECT
-        id,
-        documento,
-        nombre,
-        apellido,
-        curso
-    FROM usuarios
-    WHERE rol = 'jurado'
-    ORDER BY nombre ASC, apellido ASC
-");
+    ");
 
 
 if (!$jurados) {
 
     die(
-        "Error al consultar jurados: " .
-        $conn->error
+        "Error al consultar jurados: "
+        . htmlspecialchars(
+            $conn->error
+        )
     );
 
 }
 
 
-$totalJurados = $jurados->num_rows;
+$totalJurados =
+    $jurados->num_rows;
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -208,20 +481,21 @@ $totalJurados = $jurados->num_rows;
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
 
-<title>Gestión de Jurados</title>
+<title>
 
+Gestión de Jurados
 
-<!-- BOOTSTRAP -->
+</title>
+
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
-
-<!-- ICONOS -->
 
 <link
 rel="stylesheet"
@@ -229,10 +503,6 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 
 <style>
-
-/* =========================================
-   GENERAL
-========================================= */
 
 body {
 
@@ -243,20 +513,12 @@ body {
 }
 
 
-/* =========================================
-   CONTENEDOR
-========================================= */
-
 .contenedor {
 
     max-width:1400px;
 
 }
 
-
-/* =========================================
-   TARJETAS
-========================================= */
 
 .card-jurado {
 
@@ -265,14 +527,11 @@ body {
     border-radius:18px;
 
     box-shadow:
-        0 5px 20px rgba(0,0,0,.12);
+        0 5px 20px
+        rgba(0,0,0,.12);
 
 }
 
-
-/* =========================================
-   TITULOS
-========================================= */
 
 .titulo {
 
@@ -282,10 +541,6 @@ body {
 
 }
 
-
-/* =========================================
-   CABECERA
-========================================= */
 
 .encabezado {
 
@@ -301,20 +556,12 @@ body {
 }
 
 
-/* =========================================
-   ICONO
-========================================= */
-
 .icono-jurado {
 
     font-size:55px;
 
 }
 
-
-/* =========================================
-   INFORMACIÓN
-========================================= */
 
 .info-password {
 
@@ -330,10 +577,6 @@ body {
 
 }
 
-
-/* =========================================
-   TABLA
-========================================= */
 
 .table {
 
@@ -352,10 +595,6 @@ body {
 
 }
 
-
-/* =========================================
-   BOTONES
-========================================= */
 
 .btn-accion {
 
@@ -388,20 +627,12 @@ body {
 }
 
 
-/* =========================================
-   BUSCADOR
-========================================= */
-
 .buscar {
 
     max-width:400px;
 
 }
 
-
-/* =========================================
-   FOOTER
-========================================= */
 
 .footer {
 
@@ -426,9 +657,9 @@ body {
 <div class="container-fluid contenedor py-4">
 
 
-<!-- =========================================
+<!-- =====================================================
      ENCABEZADO
-========================================= -->
+===================================================== -->
 
 <div class="card card-jurado mb-4">
 
@@ -463,6 +694,7 @@ Gestión de Jurados
 
 </h2>
 
+
 <p class="mb-0">
 
 Administre los jurados encargados
@@ -470,7 +702,9 @@ de las votaciones.
 
 </p>
 
+
 </div>
+
 
 </div>
 
@@ -479,14 +713,17 @@ de las votaciones.
 href="admin.php"
 class="btn btn-light btn-accion">
 
+
 <i class="bi bi-arrow-left-circle-fill"></i>
 
 Panel Administrador
+
 
 </a>
 
 
 </div>
+
 
 </div>
 
@@ -494,19 +731,29 @@ Panel Administrador
 <div class="card-body p-4">
 
 
-<!-- =========================================
+<!-- =====================================================
      MENSAJE
-========================================= -->
+===================================================== -->
 
-<?php if ($mensaje !== "") { ?>
+<?php if (
+    $mensaje !== ""
+) { ?>
 
-<div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
+
+<div class="alert alert-<?php echo htmlspecialchars(
+    $tipoMensaje
+); ?>">
+
 
 <i class="bi bi-info-circle-fill"></i>
 
-<?php echo htmlspecialchars($mensaje); ?>
+<?php echo htmlspecialchars(
+    $mensaje
+); ?>
+
 
 </div>
+
 
 <?php } ?>
 
@@ -514,9 +761,9 @@ Panel Administrador
 <div class="row g-4">
 
 
-<!-- =========================================
+<!-- =====================================================
      FORMULARIO
-========================================= -->
+===================================================== -->
 
 <div class="col-lg-4">
 
@@ -529,33 +776,59 @@ Panel Administrador
 
 <h4 class="titulo mb-4">
 
+
 <i class="bi bi-person-badge-fill"></i>
 
 Registrar nuevo jurado
 
+
 </h4>
 
 
-<form method="POST">
+<form
+method="POST"
+autocomplete="off">
 
 
 <!-- DOCUMENTO -->
 
 <div class="mb-3">
 
-<label class="form-label">
 
-<strong>Documento</strong>
+<label
+class="form-label">
+
+
+<strong>
+
+Documento
+
+</strong>
+
 
 </label>
 
+
 <input
+
 type="text"
+
 name="documento"
+
 class="form-control"
+
 placeholder="Documento del jurado"
+
 required
-autocomplete="off">
+
+inputmode="numeric"
+
+pattern="[0-9]+"
+
+value="<?php echo htmlspecialchars(
+    $documento ?? ''
+); ?>">
+
 
 </div>
 
@@ -564,18 +837,37 @@ autocomplete="off">
 
 <div class="mb-3">
 
-<label class="form-label">
 
-<strong>Nombre</strong>
+<label
+class="form-label">
+
+
+<strong>
+
+Nombre
+
+</strong>
+
 
 </label>
 
+
 <input
+
 type="text"
+
 name="nombre"
+
 class="form-control"
+
 placeholder="Nombre"
-required>
+
+required
+
+value="<?php echo htmlspecialchars(
+    $nombre ?? ''
+); ?>">
+
 
 </div>
 
@@ -584,18 +876,37 @@ required>
 
 <div class="mb-3">
 
-<label class="form-label">
 
-<strong>Apellido</strong>
+<label
+class="form-label">
+
+
+<strong>
+
+Apellido
+
+</strong>
+
 
 </label>
 
+
 <input
+
 type="text"
+
 name="apellido"
+
 class="form-control"
+
 placeholder="Apellido"
-required>
+
+required
+
+value="<?php echo htmlspecialchars(
+    $apellido ?? ''
+); ?>">
+
 
 </div>
 
@@ -604,36 +915,62 @@ required>
 
 <div class="mb-3">
 
-<label class="form-label">
 
-<strong>Curso</strong>
+<label
+class="form-label">
+
+
+<strong>
+
+Curso
+
+</strong>
+
 
 </label>
 
+
 <input
+
 type="text"
+
 name="curso"
+
 class="form-control"
+
 placeholder="Ejemplo: 1101"
-required>
+
+required
+
+value="<?php echo htmlspecialchars(
+    $curso ?? ''
+); ?>">
+
 
 </div>
 
 
-<!-- =========================================
-     CONTRASEÑA
-========================================= -->
+<!-- CONTRASEÑA -->
 
 <div class="info-password mb-4">
 
+
 <i class="bi bi-key-fill"></i>
 
-<strong>Contraseña automática</strong>
+
+<strong>
+
+Contraseña automática
+
+</strong>
+
 
 <br>
 
+
 La contraseña del jurado será
 su <strong>número de documento</strong>.
+
 
 </div>
 
@@ -641,13 +978,18 @@ su <strong>número de documento</strong>.
 <!-- GUARDAR -->
 
 <button
+
 type="submit"
+
 name="guardar"
+
 class="btn btn-success btn-lg w-100 btn-accion">
+
 
 <i class="bi bi-person-plus-fill"></i>
 
 Guardar Jurado
+
 
 </button>
 
@@ -657,14 +999,16 @@ Guardar Jurado
 
 </div>
 
-</div>
 
 </div>
 
 
-<!-- =========================================
+</div>
+
+
+<!-- =====================================================
      LISTA
-========================================= -->
+===================================================== -->
 
 <div class="col-lg-8">
 
@@ -685,16 +1029,22 @@ Guardar Jurado
 
 <h4 class="titulo mb-0">
 
+
 <i class="bi bi-list-ul"></i>
 
 Jurados registrados
+
 
 </h4>
 
 
 <span class="badge bg-primary fs-6">
 
-Total: <?php echo $totalJurados; ?>
+
+Total:
+
+<?php echo $totalJurados; ?>
+
 
 </span>
 
@@ -709,16 +1059,23 @@ Total: <?php echo $totalJurados; ?>
 
 <span class="input-group-text">
 
+
 <i class="bi bi-search"></i>
+
 
 </span>
 
 
 <input
+
 type="text"
+
 id="buscar"
+
 class="form-control"
+
 placeholder="Buscar jurado...">
+
 
 </div>
 
@@ -758,11 +1115,15 @@ class="table table-bordered table-hover align-middle">
 <tbody id="tablaJurados">
 
 
-<?php
+<?php if (
+    $jurados->num_rows > 0
+) {
 
-if ($jurados->num_rows > 0) {
 
-    while ($j = $jurados->fetch_assoc()) {
+    while (
+        $j =
+        $jurados->fetch_assoc()
+    ) {
 
 ?>
 
@@ -779,6 +1140,7 @@ if ($jurados->num_rows > 0) {
 
 <td>
 
+
 <strong>
 
 <?php echo htmlspecialchars(
@@ -786,6 +1148,7 @@ if ($jurados->num_rows > 0) {
 ); ?>
 
 </strong>
+
 
 </td>
 
@@ -810,13 +1173,17 @@ if ($jurados->num_rows > 0) {
 
 <td>
 
+
 <span class="badge bg-secondary">
+
 
 <?php echo htmlspecialchars(
     $j['curso']
 ); ?>
 
+
 </span>
+
 
 </td>
 
@@ -828,24 +1195,37 @@ if ($jurados->num_rows > 0) {
 
 
 <a
+
 href="editar_jurado.php?id=<?php echo (int)$j['id']; ?>"
+
 class="btn btn-editar btn-sm btn-accion">
+
 
 <i class="bi bi-pencil-square"></i>
 
 Editar
 
+
 </a>
 
 
 <a
+
 href="crear_jurado.php?eliminar=<?php echo (int)$j['id']; ?>"
+
 class="btn btn-eliminar btn-sm btn-accion"
-onclick="return confirm('¿Está seguro de eliminar este jurado?');">
+
+onclick="
+return confirm(
+'¿Está seguro de eliminar este jurado?'
+);
+">
+
 
 <i class="bi bi-trash-fill"></i>
 
 Eliminar
+
 
 </a>
 
@@ -870,13 +1250,19 @@ Eliminar
 
 <tr>
 
+
 <td
+
 colspan="6"
+
 class="text-center text-muted py-5">
+
 
 <i class="bi bi-person-x fs-1"></i>
 
+
 <br>
+
 
 <strong>
 
@@ -884,7 +1270,9 @@ No hay jurados registrados.
 
 </strong>
 
+
 </td>
+
 
 </tr>
 
@@ -898,6 +1286,7 @@ No hay jurados registrados.
 
 </tbody>
 
+
 </table>
 
 
@@ -906,7 +1295,6 @@ No hay jurados registrados.
 
 </div>
 
-</div>
 
 </div>
 
@@ -916,12 +1304,16 @@ No hay jurados registrados.
 
 </div>
 
+
 </div>
 
 
-<!-- =========================================
+</div>
+
+
+<!-- =====================================================
      INFORMACIÓN
-========================================= -->
+===================================================== -->
 
 <div class="card card-jurado mt-4">
 
@@ -934,7 +1326,11 @@ No hay jurados registrados.
 
 <div class="col-md-4">
 
-<i class="bi bi-person-badge-fill fs-2 text-primary"></i>
+
+<i
+class="bi bi-person-badge-fill fs-2 text-primary">
+</i>
+
 
 <h5 class="mt-2">
 
@@ -942,18 +1338,25 @@ Jurados
 
 </h5>
 
+
 <p class="text-muted">
 
-<?php echo $totalJurados; ?> registrados
+<?php echo $totalJurados; ?>
+registrados
 
 </p>
+
 
 </div>
 
 
 <div class="col-md-4">
 
-<i class="bi bi-key-fill fs-2 text-success"></i>
+
+<i
+class="bi bi-key-fill fs-2 text-success">
+</i>
+
 
 <h5 class="mt-2">
 
@@ -961,18 +1364,24 @@ Contraseña
 
 </h5>
 
+
 <p class="text-muted">
 
 Documento del jurado
 
 </p>
 
+
 </div>
 
 
 <div class="col-md-4">
 
-<i class="bi bi-shield-check fs-2 text-primary"></i>
+
+<i
+class="bi bi-shield-check fs-2 text-primary">
+</i>
+
 
 <h5 class="mt-2">
 
@@ -980,25 +1389,28 @@ Rol
 
 </h5>
 
+
 <p class="text-muted">
 
 Jurado de votación
 
 </p>
 
+
+</div>
+
+
 </div>
 
 
 </div>
 
-</div>
 
 </div>
 
-
-<!-- FOOTER -->
 
 <div class="footer">
+
 
 <strong>
 
@@ -1006,26 +1418,28 @@ Sistema de Votaciones Escolares v2.0
 
 </strong>
 
+
 <br>
+
 
 © <?php echo date("Y"); ?>
 
 Todos los derechos reservados.
 
-</div>
-
 
 </div>
 
 
-<!-- =========================================
-     BUSCADOR
-========================================= -->
+</div>
+
 
 <script>
 
 const buscar =
-document.getElementById("buscar");
+document.getElementById(
+    "buscar"
+);
+
 
 const filas =
 document.querySelectorAll(
@@ -1033,41 +1447,40 @@ document.querySelectorAll(
 );
 
 
-buscar.addEventListener(
-    "input",
-    function () {
+if (buscar) {
 
-        const texto =
-        this.value
-        .toLowerCase()
-        .trim();
+    buscar.addEventListener(
+        "input",
+        function () {
 
-
-        filas.forEach(
-            function (fila) {
-
-                const contenido =
-                fila.textContent
-                .toLowerCase();
+            const texto =
+                this.value
+                .toLowerCase()
+                .trim();
 
 
-                if (
-                    contenido.includes(texto)
-                ) {
+            filas.forEach(
+                function (fila) {
 
-                    fila.style.display = "";
+                    const contenido =
+                        fila.textContent
+                        .toLowerCase();
 
-                } else {
 
-                    fila.style.display = "none";
+                    fila.style.display =
+                        contenido.includes(
+                            texto
+                        )
+                        ? ""
+                        : "none";
 
                 }
+            );
 
-            }
-        );
+        }
+    );
 
-    }
-);
+}
 
 </script>
 

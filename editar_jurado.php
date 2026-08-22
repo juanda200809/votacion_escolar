@@ -2,124 +2,214 @@
 
 session_start();
 
-/* =========================================
+include("config/conexion.php");
+
+
+/* =========================================================
    VERIFICAR ADMINISTRADOR
-========================================= */
+========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
+    strtolower(trim($_SESSION['rol'])) !== 'administrador'
 ) {
+
     header("Location: login.php");
     exit();
+
 }
 
 
-/* =========================================
-   CONEXIÓN
-========================================= */
-
-include("config/conexion.php");
-
-
-/* =========================================
+/* =========================================================
    VERIFICAR ID
-========================================= */
+========================================================= */
 
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+if (
+    !isset($_GET['id']) ||
+    !is_numeric($_GET['id'])
+) {
 
-    header("Location: jurados.php?error=id");
+    header("Location: crear_jurado.php");
     exit();
 
 }
+
 
 $id = (int)$_GET['id'];
 
 
-/* =========================================
+if ($id <= 0) {
+
+    header("Location: crear_jurado.php");
+    exit();
+
+}
+
+
+/* =========================================================
    BUSCAR JURADO
-========================================= */
+========================================================= */
 
 $stmt = $conn->prepare("
+
     SELECT
         id,
         documento,
         nombre,
         apellido,
+        curso,
         password,
         rol
+
     FROM usuarios
+
     WHERE id = ?
+
     AND rol = 'jurado'
+
     LIMIT 1
+
 ");
 
-$stmt->bind_param("i", $id);
+
+$stmt->bind_param(
+    "i",
+    $id
+);
+
 
 $stmt->execute();
 
-$resultado = $stmt->get_result();
+
+$resultado =
+    $stmt->get_result();
 
 
-if ($resultado->num_rows === 0) {
+if (
+    $resultado->num_rows === 0
+) {
 
     $stmt->close();
 
-    header("Location: jurados.php?error=no_encontrado");
+    header(
+        "Location: crear_jurado.php?error=no_encontrado"
+    );
+
     exit();
 
 }
 
 
-$jurado = $resultado->fetch_assoc();
+$jurado =
+    $resultado->fetch_assoc();
+
 
 $stmt->close();
 
 
-/* =========================================
-   PROCESAR FORMULARIO
-========================================= */
+/* =========================================================
+   VARIABLES
+========================================================= */
 
 $error = "";
+
 $exito = "";
 
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+/* =========================================================
+   PROCESAR FORMULARIO
+========================================================= */
 
-    $documento = trim($_POST['documento'] ?? '');
-    $nombre = trim($_POST['nombre'] ?? '');
-    $apellido = trim($_POST['apellido'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+) {
 
 
-    /* =====================================
+    $documento =
+        trim(
+            $_POST['documento'] ?? ""
+        );
+
+
+    $nombre =
+        trim(
+            $_POST['nombre'] ?? ""
+        );
+
+
+    $apellido =
+        trim(
+            $_POST['apellido'] ?? ""
+        );
+
+
+    $curso =
+        trim(
+            $_POST['curso'] ?? ""
+        );
+
+
+    $password =
+        trim(
+            $_POST['password'] ?? ""
+        );
+
+
+    /* =====================================================
        VALIDAR
-    ===================================== */
+    ===================================================== */
 
     if (
-        $documento === '' ||
-        $nombre === '' ||
-        $apellido === ''
+        $documento === "" ||
+        $nombre === "" ||
+        $apellido === "" ||
+        $curso === ""
     ) {
 
         $error =
-            "Debe completar documento, nombre y apellido.";
+            "Debe completar todos los campos.";
 
-    } else {
+    }
 
 
-        /* =====================================
-           COMPROBAR DOCUMENTO REPETIDO
-        ===================================== */
+    elseif (
+        !preg_match(
+            '/^[0-9]+$/',
+            $documento
+        )
+    ) {
 
-        $stmt = $conn->prepare("
-            SELECT id
-            FROM usuarios
-            WHERE documento = ?
-            AND id != ?
-            LIMIT 1
-        ");
+        $error =
+            "El documento debe contener únicamente números.";
+
+    }
+
+
+    else {
+
+
+        /* ================================================
+           COMPROBAR DOCUMENTO DUPLICADO
+        ================================================ */
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT
+                    id,
+                    rol
+
+                FROM usuarios
+
+                WHERE documento = ?
+
+                AND id != ?
+
+                LIMIT 1
+
+            ");
+
 
         $stmt->bind_param(
             "si",
@@ -127,55 +217,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id
         );
 
+
         $stmt->execute();
+
 
         $resultadoDocumento =
             $stmt->get_result();
 
 
-        if ($resultadoDocumento->num_rows > 0) {
+        if (
+            $resultadoDocumento->num_rows > 0
+        ) {
 
-            $error =
-                "Ese documento ya pertenece a otro usuario.";
+            $usuario =
+                $resultadoDocumento->fetch_assoc();
+
 
             $stmt->close();
 
-        } else {
 
-            $stmt->close();
+            if (
+                $usuario['rol'] === 'jurado'
+            ) {
 
-
-            /* =================================
-               ACTUALIZAR SIN CAMBIAR PASSWORD
-            ================================= */
-
-            if ($password === '') {
-
-                $stmt = $conn->prepare("
-                    UPDATE usuarios
-                    SET
-                        documento = ?,
-                        nombre = ?,
-                        apellido = ?
-                    WHERE id = ?
-                    AND rol = 'jurado'
-                ");
-
-                $stmt->bind_param(
-                    "sssi",
-                    $documento,
-                    $nombre,
-                    $apellido,
-                    $id
-                );
-
+                $error =
+                    "Ya existe otro jurado con ese documento.";
 
             } else {
 
+                $error =
+                    "Ese documento ya pertenece a otro usuario.";
 
-                /* ==============================
-                   ACTUALIZAR CON PASSWORD
-                ============================== */
+            }
+
+        } else {
+
+
+            $stmt->close();
+
+
+            /* ============================================
+               DETERMINAR CONTRASEÑA
+            ============================================ */
+
+            /*
+             * Si el administrador escribe una contraseña,
+             * utilizamos esa contraseña.
+             *
+             * Si la deja vacía:
+             *
+             * - Si cambió el documento, la contraseña será
+             *   automáticamente el nuevo documento.
+             *
+             * - Si no cambió el documento, conservamos
+             *   la contraseña actual.
+             */
+
+            $documentoAnterior =
+                (string)$jurado['documento'];
+
+
+            $documentoCambio =
+                (
+                    $documento !==
+                    $documentoAnterior
+                );
+
+
+            if (
+                $password !== ""
+            ) {
+
 
                 $passwordHash =
                     password_hash(
@@ -184,60 +296,148 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
 
 
-                $stmt = $conn->prepare("
-                    UPDATE usuarios
-                    SET
-                        documento = ?,
-                        nombre = ?,
-                        apellido = ?,
-                        password = ?
-                    WHERE id = ?
-                    AND rol = 'jurado'
-                ");
-
-                $stmt->bind_param(
-                    "ssssi",
-                    $documento,
-                    $nombre,
-                    $apellido,
-                    $passwordHash,
-                    $id
-                );
-
-            }
+            } elseif (
+                $documentoCambio
+            ) {
 
 
-            /* =================================
-               EJECUTAR
-            ================================= */
+                /*
+                 * Al cambiar el documento,
+                 * la nueva contraseña será el nuevo documento.
+                 */
 
-            if ($stmt->execute()) {
-
-                $exito =
-                    "Los datos del jurado fueron actualizados correctamente.";
-
-
-                /* Actualizar datos mostrados */
-
-                $jurado['documento'] =
-                    $documento;
-
-                $jurado['nombre'] =
-                    $nombre;
-
-                $jurado['apellido'] =
-                    $apellido;
+                $passwordHash =
+                    password_hash(
+                        $documento,
+                        PASSWORD_DEFAULT
+                    );
 
 
             } else {
 
-                $error =
-                    "No se pudieron actualizar los datos.";
+
+                /*
+                 * Conservar contraseña actual.
+                 */
+
+                $passwordHash =
+                    $jurado['password'];
 
             }
 
 
-            $stmt->close();
+            /* ============================================
+               ACTUALIZAR JURADO
+            ============================================ */
+
+            $stmt =
+                $conn->prepare("
+
+                    UPDATE usuarios
+
+                    SET
+
+                        documento = ?,
+
+                        nombre = ?,
+
+                        apellido = ?,
+
+                        curso = ?,
+
+                        password = ?
+
+                    WHERE id = ?
+
+                    AND rol = 'jurado'
+
+                ");
+
+
+            if (!$stmt) {
+
+                $error =
+                    "No se pudo preparar la actualización.";
+
+            } else {
+
+
+                $stmt->bind_param(
+
+                    "sssssi",
+
+                    $documento,
+
+                    $nombre,
+
+                    $apellido,
+
+                    $curso,
+
+                    $passwordHash,
+
+                    $id
+
+                );
+
+
+                if (
+                    $stmt->execute()
+                ) {
+
+
+                    $exito =
+                        "Los datos del jurado fueron actualizados correctamente.";
+
+
+                    /*
+                     * Actualizar datos mostrados
+                     */
+
+                    $jurado['documento'] =
+                        $documento;
+
+
+                    $jurado['nombre'] =
+                        $nombre;
+
+
+                    $jurado['apellido'] =
+                        $apellido;
+
+
+                    $jurado['curso'] =
+                        $curso;
+
+
+                    /*
+                     * Mostrar aviso si se cambió
+                     * el documento.
+                     */
+
+                    if (
+                        $documentoCambio &&
+                        $password === ""
+                    ) {
+
+                        $exito .=
+                            " Como cambiaste el documento, la nueva contraseña del jurado es su nuevo documento.";
+
+                    }
+
+
+                } else {
+
+
+                    $error =
+                        "No se pudieron actualizar los datos del jurado.";
+
+                }
+
+
+                $stmt->close();
+
+            }
 
         }
 
@@ -246,6 +446,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -260,22 +461,16 @@ name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>
+
 Editar Jurado
+
 </title>
 
-
-<!-- =========================================
-     BOOTSTRAP
-========================================= -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
-
-<!-- =========================================
-     ICONOS
-========================================= -->
 
 <link
 rel="stylesheet"
@@ -283,10 +478,6 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 
 <style>
-
-/* =========================================
-   GENERAL
-========================================= */
 
 body {
 
@@ -301,10 +492,6 @@ body {
 
 }
 
-
-/* =========================================
-   BARRA SUPERIOR
-========================================= */
 
 .topbar {
 
@@ -323,10 +510,6 @@ body {
 }
 
 
-/* =========================================
-   CONTENEDOR
-========================================= */
-
 .contenedor {
 
     max-width:850px;
@@ -337,10 +520,6 @@ body {
 
 }
 
-
-/* =========================================
-   TARJETA
-========================================= */
 
 .card-editar {
 
@@ -357,10 +536,6 @@ body {
 }
 
 
-/* =========================================
-   TÍTULO
-========================================= */
-
 .titulo {
 
     color:#1453a3;
@@ -369,10 +544,6 @@ body {
 
 }
 
-
-/* =========================================
-   ICONO
-========================================= */
 
 .icono-jurado {
 
@@ -399,10 +570,6 @@ body {
 }
 
 
-/* =========================================
-   LABEL
-========================================= */
-
 .form-label {
 
     font-weight:bold;
@@ -411,30 +578,6 @@ body {
 
 }
 
-
-/* =========================================
-   BOTONES
-========================================= */
-
-.btn-guardar {
-
-    padding:12px 25px;
-
-    font-weight:bold;
-
-}
-
-
-.btn-volver {
-
-    padding:12px 25px;
-
-}
-
-
-/* =========================================
-   INFORMACIÓN PASSWORD
-========================================= */
 
 .info-password {
 
@@ -451,6 +594,22 @@ body {
 
 }
 
+
+.btn-guardar {
+
+    padding:12px 25px;
+
+    font-weight:bold;
+
+}
+
+
+.btn-volver {
+
+    padding:12px 25px;
+
+}
+
 </style>
 
 </head>
@@ -459,9 +618,9 @@ body {
 <body>
 
 
-<!-- =========================================
+<!-- =====================================================
      BARRA SUPERIOR
-========================================= -->
+===================================================== -->
 
 <div class="topbar">
 
@@ -471,7 +630,9 @@ body {
 <i class="bi bi-mortarboard-fill"></i>
 
 <strong>
+
 Sistema de Votaciones Escolares
+
 </strong>
 
 </div>
@@ -489,19 +650,11 @@ Administrador
 </div>
 
 
-<!-- =========================================
-     CONTENEDOR
-========================================= -->
-
 <div class="contenedor">
 
 
 <div class="card-editar">
 
-
-<!-- =========================================
-     ICONO
-========================================= -->
 
 <div class="icono-jurado">
 
@@ -509,10 +662,6 @@ Administrador
 
 </div>
 
-
-<!-- =========================================
-     TÍTULO
-========================================= -->
 
 <h2 class="text-center titulo">
 
@@ -525,58 +674,68 @@ Editar Jurado
 
 <p class="text-center text-muted mb-4">
 
-Actualiza los datos y la contraseña
-del jurado.
+Actualiza los datos del jurado.
 
 </p>
 
 
-<!-- =========================================
-     MENSAJE ERROR
-========================================= -->
+<!-- =====================================================
+     ERROR
+===================================================== -->
 
-<?php if ($error !== '') { ?>
+<?php if (
+    $error !== ""
+) { ?>
+
 
 <div class="alert alert-danger">
 
 <i class="bi bi-exclamation-triangle-fill"></i>
 
-<?php echo htmlspecialchars($error); ?>
+<?php echo htmlspecialchars(
+    $error
+); ?>
 
 </div>
+
 
 <?php } ?>
 
 
-<!-- =========================================
-     MENSAJE ÉXITO
-========================================= -->
+<!-- =====================================================
+     ÉXITO
+===================================================== -->
 
-<?php if ($exito !== '') { ?>
+<?php if (
+    $exito !== ""
+) { ?>
+
 
 <div class="alert alert-success">
 
 <i class="bi bi-check-circle-fill"></i>
 
-<?php echo htmlspecialchars($exito); ?>
+<?php echo htmlspecialchars(
+    $exito
+); ?>
 
 </div>
 
+
 <?php } ?>
 
-
-<!-- =========================================
-     FORMULARIO
-========================================= -->
 
 <form
 method="POST"
 autocomplete="off">
 
 
-<!-- DOCUMENTO -->
+<!-- =====================================================
+     DOCUMENTO
+===================================================== -->
 
 <div class="mb-3">
+
 
 <label
 class="form-label">
@@ -600,14 +759,22 @@ value="<?php echo htmlspecialchars(
     $jurado['documento']
 ); ?>"
 
+inputmode="numeric"
+
+pattern="[0-9]+"
+
 required>
+
 
 </div>
 
 
-<!-- NOMBRE -->
+<!-- =====================================================
+     NOMBRE
+===================================================== -->
 
 <div class="mb-3">
+
 
 <label
 class="form-label">
@@ -633,12 +800,16 @@ value="<?php echo htmlspecialchars(
 
 required>
 
+
 </div>
 
 
-<!-- APELLIDO -->
+<!-- =====================================================
+     APELLIDO
+===================================================== -->
 
 <div class="mb-3">
+
 
 <label
 class="form-label">
@@ -664,14 +835,51 @@ value="<?php echo htmlspecialchars(
 
 required>
 
+
 </div>
 
 
-<!-- =========================================
-     CONTRASEÑA
-========================================= -->
+<!-- =====================================================
+     CURSO
+===================================================== -->
 
 <div class="mb-3">
+
+
+<label
+class="form-label">
+
+<i class="bi bi-mortarboard-fill"></i>
+
+Curso
+
+</label>
+
+
+<input
+
+type="text"
+
+name="curso"
+
+class="form-control form-control-lg"
+
+value="<?php echo htmlspecialchars(
+    $jurado['curso']
+); ?>"
+
+required>
+
+
+</div>
+
+
+<!-- =====================================================
+     CONTRASEÑA
+===================================================== -->
+
+<div class="mb-3">
+
 
 <label
 class="form-label">
@@ -689,8 +897,6 @@ type="password"
 
 name="password"
 
-id="password"
-
 class="form-control form-control-lg"
 
 placeholder="Dejar vacío para conservar la actual">
@@ -699,28 +905,47 @@ placeholder="Dejar vacío para conservar la actual">
 </div>
 
 
-<!-- INFORMACIÓN -->
-
 <div class="info-password mb-4">
+
 
 <i class="bi bi-info-circle-fill"></i>
 
+
 <strong>
-Importante:
+
+¿Cómo funciona la contraseña?
+
 </strong>
 
-Si no escribes una nueva contraseña,
-se conservará la contraseña actual.
 
-Si deseas cambiarla, escribe la nueva
-contraseña en este campo.
+<br><br>
+
+
+Si dejas el campo vacío:
+
+<ul class="mb-0">
+
+<li>
+Si no cambias el documento, se conserva la contraseña actual.
+</li>
+
+<li>
+Si cambias el documento, la contraseña pasa a ser el nuevo documento.
+</li>
+
+</ul>
+
+
+Si escribes una contraseña,
+se utilizará esa contraseña.
+
 
 </div>
 
 
-<!-- =========================================
+<!-- =====================================================
      BOTONES
-========================================= -->
+===================================================== -->
 
 <div
 class="d-flex
@@ -731,13 +956,15 @@ class="d-flex
 
 <a
 
-href="jurados.php"
+href="crear_jurado.php"
 
 class="btn btn-secondary btn-volver">
+
 
 <i class="bi bi-arrow-left"></i>
 
 Volver
+
 
 </a>
 
@@ -748,9 +975,11 @@ type="submit"
 
 class="btn btn-primary btn-guardar">
 
+
 <i class="bi bi-save-fill"></i>
 
 Guardar cambios
+
 
 </button>
 

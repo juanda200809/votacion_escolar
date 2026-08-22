@@ -6,10 +6,13 @@ include("config/conexion.php");
 
 
 /* =====================================================
-   VERIFICAR SESIÓN DE ADMINISTRADOR
+   VERIFICAR SESIÓN
 ===================================================== */
 
-if (!isset($_SESSION['id']) || !isset($_SESSION['rol'])) {
+if (
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol'])
+) {
 
     header("Location: login.php");
     exit();
@@ -29,15 +32,24 @@ $rolSesion = strtolower(
 
 
 /* =====================================================
-   COMPROBAR ROL
+   SOLO ADMINISTRADOR
 ===================================================== */
 
 if ($rolSesion !== "administrador") {
 
-    /*
-     * Si la sesión no corresponde a un administrador,
-     * no permitimos entrar al panel.
-     */
+    if ($rolSesion === "jurado") {
+
+        header("Location: jurado.php");
+        exit();
+
+    }
+
+    if ($rolSesion === "estudiante") {
+
+        header("Location: votar.php");
+        exit();
+
+    }
 
     session_unset();
     session_destroy();
@@ -49,7 +61,7 @@ if ($rolSesion !== "administrador") {
 
 
 /* =====================================================
-   INFORMACIÓN DEL ADMINISTRADOR
+   INFORMACIÓN ADMINISTRADOR
 ===================================================== */
 
 $nombreAdministrador =
@@ -69,7 +81,8 @@ if (isset($_GET['cerrada'])) {
     $mensaje =
         "La elección fue cerrada correctamente.";
 
-    $tipoMensaje = "success";
+    $tipoMensaje =
+        "success";
 
 }
 
@@ -79,41 +92,58 @@ if (isset($_GET['abierta'])) {
     $mensaje =
         "La elección fue abierta correctamente.";
 
-    $tipoMensaje = "success";
+    $tipoMensaje =
+        "success";
 
 }
 
 
 if (isset($_GET['error'])) {
 
-    $tipoMensaje = "danger";
+    $tipoMensaje =
+        "danger";
 
 
-    if ($_GET['error'] === "no_eleccion") {
+    switch ($_GET['error']) {
 
-        $mensaje =
-            "No existe ninguna elección registrada.";
+        case "no_eleccion":
 
-    }
+            $mensaje =
+                "No existe ninguna elección registrada.";
 
-    elseif ($_GET['error'] === "cerrar") {
+            break;
 
-        $mensaje =
-            "No se pudo cerrar la elección.";
 
-    }
+        case "cerrar":
 
-    elseif ($_GET['error'] === "abrir") {
+            $mensaje =
+                "No se pudo cerrar la elección.";
 
-        $mensaje =
-            "No se pudo abrir la elección.";
+            break;
 
-    }
 
-    elseif ($_GET['error'] === "acceso") {
+        case "abrir":
 
-        $mensaje =
-            "No tiene permisos para realizar esta acción.";
+            $mensaje =
+                "No se pudo abrir la elección.";
+
+            break;
+
+
+        case "acceso":
+
+            $mensaje =
+                "No tiene permisos para realizar esta acción.";
+
+            break;
+
+
+        default:
+
+            $mensaje =
+                "Ocurrió un error.";
+
+            break;
 
     }
 
@@ -121,17 +151,23 @@ if (isset($_GET['error'])) {
 
 
 /* =====================================================
-   CONTAR ESTUDIANTES
+   ESTUDIANTES
 ===================================================== */
 
 $totalEstudiantes = 0;
 
 
-$resultado = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM usuarios
-    WHERE LOWER(TRIM(rol)) = 'estudiante'
-");
+$resultado =
+    $conn->query("
+
+        SELECT COUNT(*) AS total
+
+        FROM usuarios
+
+        WHERE LOWER(TRIM(rol)) =
+        'estudiante'
+
+    ");
 
 
 if ($resultado) {
@@ -146,17 +182,23 @@ if ($resultado) {
 
 
 /* =====================================================
-   CONTAR JURADOS
+   JURADOS
 ===================================================== */
 
 $totalJurados = 0;
 
 
-$resultado = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM usuarios
-    WHERE LOWER(TRIM(rol)) = 'jurado'
-");
+$resultado =
+    $conn->query("
+
+        SELECT COUNT(*) AS total
+
+        FROM usuarios
+
+        WHERE LOWER(TRIM(rol)) =
+        'jurado'
+
+    ");
 
 
 if ($resultado) {
@@ -171,16 +213,20 @@ if ($resultado) {
 
 
 /* =====================================================
-   CONTAR CANDIDATOS
+   CANDIDATOS
 ===================================================== */
 
 $totalCandidatos = 0;
 
 
-$resultado = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM candidatos
-");
+$resultado =
+    $conn->query("
+
+        SELECT COUNT(*) AS total
+
+        FROM candidatos
+
+    ");
 
 
 if ($resultado) {
@@ -195,16 +241,20 @@ if ($resultado) {
 
 
 /* =====================================================
-   CONTAR VOTOS
+   VOTOS
 ===================================================== */
 
 $totalVotos = 0;
 
 
-$resultado = $conn->query("
-    SELECT COUNT(*) AS total
-    FROM votos
-");
+$resultado =
+    $conn->query("
+
+        SELECT COUNT(*) AS total
+
+        FROM votos
+
+    ");
 
 
 if ($resultado) {
@@ -219,7 +269,7 @@ if ($resultado) {
 
 
 /* =====================================================
-   OBTENER ÚLTIMA ELECCIÓN
+   ÚLTIMA ELECCIÓN
 ===================================================== */
 
 $idEleccion = 0;
@@ -237,18 +287,25 @@ $estadoEleccion =
     "cerrada";
 
 
-$resultado = $conn->query("
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
-    FROM elecciones
-    ORDER BY id DESC
-    LIMIT 1
-");
+$resultado =
+    $conn->query("
+
+        SELECT
+
+            id,
+            nombre,
+            descripcion,
+            fecha_inicio,
+            fecha_fin,
+            estado
+
+        FROM elecciones
+
+        ORDER BY id DESC
+
+        LIMIT 1
+
+    ");
 
 
 if (
@@ -283,7 +340,7 @@ if (
     $estadoEleccion =
         strtolower(
             trim(
-                $eleccion['estado']
+                (string)$eleccion['estado']
             )
         );
 
@@ -291,10 +348,12 @@ if (
 
 
 /* =====================================================
-   NORMALIZAR ESTADO
+   ESTADO
 ===================================================== */
 
-if ($estadoEleccion === "abierta") {
+if (
+    $estadoEleccion === "abierta"
+) {
 
     $textoEstado =
         "Abierta";
@@ -338,18 +397,16 @@ name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>
+
 Panel de Administración
+
 </title>
 
-
-<!-- BOOTSTRAP -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
-
-<!-- ICONOS -->
 
 <link
 rel="stylesheet"
@@ -357,10 +414,6 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 
 <style>
-
-/* =====================================================
-   GENERAL
-===================================================== */
 
 * {
     box-sizing:border-box;
@@ -496,7 +549,7 @@ body {
 
 
 /* =====================================================
-   CONTENIDO PRINCIPAL
+   PRINCIPAL
 ===================================================== */
 
 .main {
@@ -507,10 +560,6 @@ body {
 
 }
 
-
-/* =====================================================
-   TOPBAR
-===================================================== */
 
 .topbar {
 
@@ -553,10 +602,6 @@ body {
 }
 
 
-/* =====================================================
-   TÍTULO
-===================================================== */
-
 .titulo {
 
     color:#1453a3;
@@ -579,7 +624,7 @@ body {
     border:
         1px solid #9ec5fe;
 
-    border-radius:8px;
+    border-radius:12px;
 
     padding:22px;
 
@@ -599,7 +644,7 @@ body {
 
 .bienvenida h2 {
 
-    font-size:27px;
+    font-size:25px;
 
     font-weight:bold;
 
@@ -655,7 +700,7 @@ body {
 
 .stat-icon {
 
-    font-size:65px;
+    font-size:55px;
 
     margin-bottom:10px;
 
@@ -666,7 +711,7 @@ body {
 
     color:#1473ed;
 
-    font-size:45px;
+    font-size:42px;
 
     font-weight:bold;
 
@@ -677,7 +722,7 @@ body {
 
     color:#555;
 
-    font-size:17px;
+    font-size:16px;
 
 }
 
@@ -745,7 +790,7 @@ body {
 
 
 /* =====================================================
-   ACCESOS RÁPIDOS
+   ACCESOS
 ===================================================== */
 
 .accesos {
@@ -790,7 +835,7 @@ body {
 
     min-height:125px;
 
-    border-radius:10px;
+    border-radius:12px;
 
     display:flex;
 
@@ -1037,7 +1082,7 @@ body {
 
 
 <!-- =====================================================
-     MENÚ LATERAL
+     SIDEBAR
 ===================================================== -->
 
 <div class="sidebar">
@@ -1046,11 +1091,16 @@ body {
 <div class="logo">
 
 <div class="logo-icon">
-📦
+
+🗳️
+
 </div>
 
+
 <h1>
+
 VOTACIONES
+
 </h1>
 
 </div>
@@ -1077,7 +1127,13 @@ Estudiantes
 </a>
 
 
-<a href="jurados.php">
+<!-- =====================================================
+     IMPORTANTE:
+     TU ARCHIVO DE GESTIÓN DE JURADOS
+     SE LLAMA jurado.php
+===================================================== -->
+
+<a href="jurado.php">
 
 <i class="bi bi-person-badge-fill"></i>
 
@@ -1202,7 +1258,9 @@ Cerrar Sesión
 
 <i class="bi bi-person-fill"></i>
 
-Administrador
+<?php echo htmlspecialchars(
+    $nombreAdministrador
+); ?>
 
 </span>
 
@@ -1212,22 +1270,32 @@ Administrador
 <div class="contenido">
 
 
-<!-- MENSAJE -->
+<!-- =====================================================
+     MENSAJE
+===================================================== -->
 
-<?php if ($mensaje !== "") { ?>
+<?php if (
+    $mensaje !== ""
+) { ?>
 
-<div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
+<div class="alert alert-<?php echo htmlspecialchars(
+    $tipoMensaje
+); ?>">
 
 <i class="bi bi-info-circle-fill"></i>
 
-<?php echo htmlspecialchars($mensaje); ?>
+<?php echo htmlspecialchars(
+    $mensaje
+); ?>
 
 </div>
 
 <?php } ?>
 
 
-<!-- BIENVENIDA -->
+<!-- =====================================================
+     BIENVENIDA
+===================================================== -->
 
 <h1 class="titulo">
 
@@ -1254,7 +1322,7 @@ Bienvenido,
 <h2>
 
 Administre estudiantes, jurados, candidatos,
-votaciones y resultados desde un solo lugar.
+elecciones y resultados desde un solo lugar.
 
 </h2>
 
@@ -1274,7 +1342,9 @@ Panel de Administración del Sistema de Votaciones Escolares
 
 <?php echo $fechaActual; ?>
 
+
 &nbsp;&nbsp;&nbsp;
+
 
 🕐 <strong>Hora:</strong>
 
@@ -1283,7 +1353,9 @@ Panel de Administración del Sistema de Votaciones Escolares
 </div>
 
 
-<!-- ESTADÍSTICAS -->
+<!-- =====================================================
+     ESTADÍSTICAS
+===================================================== -->
 
 <div class="estadisticas">
 
@@ -1291,14 +1363,18 @@ Panel de Administración del Sistema de Votaciones Escolares
 <div class="stat">
 
 <div class="stat-icon">
+
 👨‍🎓
+
 </div>
+
 
 <div class="stat-numero">
 
 <?php echo $totalEstudiantes; ?>
 
 </div>
+
 
 <div class="stat-texto">
 
@@ -1312,14 +1388,18 @@ Estudiantes Registrados
 <div class="stat">
 
 <div class="stat-icon">
+
 ⚖️
+
 </div>
+
 
 <div class="stat-numero">
 
 <?php echo $totalJurados; ?>
 
 </div>
+
 
 <div class="stat-texto">
 
@@ -1333,14 +1413,18 @@ Jurados Registrados
 <div class="stat">
 
 <div class="stat-icon">
-📦
+
+🧑‍💼
+
 </div>
+
 
 <div class="stat-numero">
 
 <?php echo $totalCandidatos; ?>
 
 </div>
+
 
 <div class="stat-texto">
 
@@ -1354,14 +1438,18 @@ Candidatos Inscritos
 <div class="stat">
 
 <div class="stat-icon">
-☑️
+
+🗳️
+
 </div>
+
 
 <div class="stat-numero">
 
 <?php echo $totalVotos; ?>
 
 </div>
+
 
 <div class="stat-texto">
 
@@ -1375,7 +1463,9 @@ Votos Registrados
 </div>
 
 
-<!-- ESTADO -->
+<!-- =====================================================
+     ESTADO ELECCIÓN
+===================================================== -->
 
 <div class="estado-card">
 
@@ -1395,8 +1485,11 @@ Estado de la Elección
 <div class="info-row">
 
 <strong>
+
 Elección actual
+
 </strong>
+
 
 <span>
 
@@ -1412,12 +1505,17 @@ Elección actual
 <div class="info-row">
 
 <strong>
+
 Estado
+
 </strong>
+
 
 <span>
 
-<?php if ($estadoEleccion === "abierta") { ?>
+<?php if (
+    $estadoEleccion === "abierta"
+) { ?>
 
 <span class="estado-abierta">
 
@@ -1443,13 +1541,17 @@ Estado
 </div>
 
 
-<!-- ACCESOS -->
+<!-- =====================================================
+     ACCESOS RÁPIDOS
+===================================================== -->
 
 <div class="accesos">
 
 
 <h2>
+
 ⚡ Accesos Rápidos
+
 </h2>
 
 
@@ -1468,7 +1570,7 @@ Gestionar Estudiantes
 
 
 <a
-href="jurados.php"
+href="jurado.php"
 class="acceso verde">
 
 <i class="bi bi-person-badge-fill"></i>
@@ -1547,7 +1649,12 @@ Gestionar Elecciones
 <a
 href="abrir_eleccion.php"
 class="acceso verde"
-onclick="return confirm('¿Desea abrir la elección?');">
+
+onclick="
+return confirm(
+'¿Desea abrir la elección?'
+);
+">
 
 <i class="bi bi-unlock-fill"></i>
 
@@ -1559,7 +1666,12 @@ Abrir Elección
 <a
 href="cerrar_eleccion.php"
 class="acceso rojo"
-onclick="return confirm('¿Está seguro de cerrar la elección?');">
+
+onclick="
+return confirm(
+'¿Está seguro de cerrar la elección?'
+);
+">
 
 <i class="bi bi-lock-fill"></i>
 
@@ -1584,7 +1696,9 @@ Cerrar Sesión
 </div>
 
 
-<!-- INFORMACIÓN ELECCIÓN -->
+<!-- =====================================================
+     INFORMACIÓN ELECCIÓN
+===================================================== -->
 
 <div class="info-eleccion">
 
@@ -1601,8 +1715,11 @@ Información de la Elección
 <div class="info-row">
 
 <strong>
+
 Nombre
+
 </strong>
+
 
 <span>
 
@@ -1618,14 +1735,19 @@ Nombre
 <div class="info-row">
 
 <strong>
+
 Descripción
+
 </strong>
+
 
 <span>
 
 <?php
 
-if ($descripcionEleccion !== "") {
+if (
+    $descripcionEleccion !== ""
+) {
 
     echo htmlspecialchars(
         $descripcionEleccion
@@ -1647,14 +1769,19 @@ if ($descripcionEleccion !== "") {
 <div class="info-row">
 
 <strong>
+
 Fecha de inicio
+
 </strong>
+
 
 <span>
 
 <?php
 
-if ($fechaInicio !== "") {
+if (
+    $fechaInicio !== ""
+) {
 
     echo htmlspecialchars(
         date(
@@ -1679,14 +1806,19 @@ if ($fechaInicio !== "") {
 <div class="info-row">
 
 <strong>
+
 Fecha de finalización
+
 </strong>
+
 
 <span>
 
 <?php
 
-if ($fechaFin !== "") {
+if (
+    $fechaFin !== ""
+) {
 
     echo htmlspecialchars(
         date(
@@ -1711,12 +1843,17 @@ if ($fechaFin !== "") {
 <div class="info-row">
 
 <strong>
+
 Estado
+
 </strong>
+
 
 <span>
 
-<?php if ($estadoEleccion === "abierta") { ?>
+<?php if (
+    $estadoEleccion === "abierta"
+) { ?>
 
 <span class="estado-abierta">
 
@@ -1742,7 +1879,9 @@ Estado
 </div>
 
 
-<!-- FOOTER -->
+<!-- =====================================================
+     FOOTER
+===================================================== -->
 
 <div class="footer">
 

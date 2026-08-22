@@ -13,13 +13,15 @@ if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol'])
 ) {
+
     header("Location: login.php");
     exit();
+
 }
 
 
 /* =========================================================
-   ADMINISTRADOR Y JURADO
+   VERIFICAR ROL
 ========================================================= */
 
 $rol = strtolower(
@@ -28,12 +30,15 @@ $rol = strtolower(
     )
 );
 
+
 if (
     $rol !== "administrador" &&
     $rol !== "jurado"
 ) {
+
     header("Location: login.php");
     exit();
+
 }
 
 
@@ -43,7 +48,9 @@ if (
 
 $elecciones = [];
 
+
 $resultadoElecciones = $conn->query("
+
     SELECT
         id,
         nombre,
@@ -51,9 +58,13 @@ $resultadoElecciones = $conn->query("
         fecha_inicio,
         fecha_fin,
         estado
+
     FROM elecciones
+
     ORDER BY fecha_inicio DESC
+
 ");
+
 
 if ($resultadoElecciones) {
 
@@ -63,7 +74,9 @@ if ($resultadoElecciones) {
     ) {
 
         $elecciones[] = $fila;
+
     }
+
 }
 
 
@@ -78,22 +91,26 @@ $idEleccion =
 
 
 /* =========================================================
-   SI NO SE SELECCIONA,
-   TOMAR LA ÚLTIMA ELECCIÓN
+   SELECCIONAR ÚLTIMA ELECCIÓN
 ========================================================= */
 
-if ($idEleccion <= 0 && count($elecciones) > 0) {
+if (
+    $idEleccion <= 0 &&
+    count($elecciones) > 0
+) {
 
     $idEleccion =
         (int)$elecciones[0]['id'];
+
 }
 
 
 /* =========================================================
-   DATOS ELECCIÓN
+   DATOS DE LA ELECCIÓN
 ========================================================= */
 
 $eleccion = null;
+
 
 foreach (
     $elecciones as $e
@@ -107,7 +124,9 @@ foreach (
         $eleccion = $e;
 
         break;
+
     }
+
 }
 
 
@@ -166,9 +185,11 @@ if ($eleccion) {
         FROM candidatos ca
 
         INNER JOIN cargos cg
+
             ON cg.id = ca.id_cargo
 
         LEFT JOIN votos v
+
             ON v.id_candidato = ca.id
 
         WHERE ca.id_eleccion = ?
@@ -176,11 +197,17 @@ if ($eleccion) {
         GROUP BY
 
             ca.id,
+
             ca.nombre,
+
             ca.apellido,
+
             ca.curso,
+
             ca.foto,
+
             ca.id_cargo,
+
             cg.nombre_cargo
 
         ORDER BY
@@ -224,6 +251,7 @@ if ($eleccion) {
 
             $valoresCandidatos[] =
                 (int)$fila['votos'];
+
         }
 
 
@@ -232,16 +260,12 @@ if ($eleccion) {
     }
 
 
-    /* =====================================================
-       TOTAL CANDIDATOS
-    ===================================================== */
-
     $totalCandidatos =
         count($datosCandidatos);
 
 
     /* =====================================================
-       TOTAL VOTOS
+       TOTAL DE VOTOS
     ===================================================== */
 
     $stmt = $conn->prepare("
@@ -252,6 +276,7 @@ if ($eleccion) {
         FROM votos v
 
         INNER JOIN candidatos c
+
             ON c.id = v.id_candidato
 
         WHERE c.id_eleccion = ?
@@ -278,6 +303,7 @@ if ($eleccion) {
             (int)$datos['total'];
 
         $stmt->close();
+
     }
 
 
@@ -349,15 +375,18 @@ if ($eleccion) {
 
             $datosCargos[] =
                 (int)$fila['votos'];
+
         }
 
 
         $stmt->close();
+
     }
 
 
     $totalCargos =
         count($labelsCargos);
+
 }
 
 
@@ -376,23 +405,14 @@ $nombreUsuario =
 $colores = [
 
     '#0d6efd',
-
     '#198754',
-
     '#ffc107',
-
     '#dc3545',
-
     '#6f42c1',
-
     '#fd7e14',
-
     '#20c997',
-
     '#0dcaf0',
-
     '#6610f2',
-
     '#d63384'
 
 ];
@@ -411,6 +431,7 @@ for (
         $colores[
             $i % count($colores)
         ];
+
 }
 
 ?>
@@ -418,7 +439,6 @@ for (
 <!DOCTYPE html>
 
 <html lang="es">
-
 
 <head>
 
@@ -435,21 +455,15 @@ Gráficas electorales
 </title>
 
 
-<!-- BOOTSTRAP -->
-
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
-<!-- ICONOS -->
-
 <link
 rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-
-<!-- CHART.JS -->
 
 <script
 src="https://cdn.jsdelivr.net/npm/chart.js">
@@ -458,411 +472,439 @@ src="https://cdn.jsdelivr.net/npm/chart.js">
 
 <style>
 
-/* =========================================================
-   GENERAL
-========================================================= */
-
 * {
-    box-sizing: border-box;
+    box-sizing:border-box;
 }
 
 
 body {
 
-    margin: 0;
+    margin:0;
 
-    background: #eef3f9;
+    background:#eef3f9;
 
     font-family:
         Arial,
         Helvetica,
         sans-serif;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    SIDEBAR
-========================================================= */
+===================================================== */
 
 .sidebar {
 
-    position: fixed;
+    position:fixed;
 
-    left: 0;
+    left:0;
 
-    top: 0;
+    top:0;
 
-    width: 250px;
+    width:250px;
 
-    height: 100vh;
+    height:100vh;
 
-    background: #1453a3;
+    background:#1453a3;
 
-    color: white;
+    color:white;
 
-    z-index: 1000;
+    z-index:1000;
+
+    overflow-y:auto;
+
 }
 
 
 .logo {
 
-    text-align: center;
+    text-align:center;
 
-    padding: 25px 10px;
+    padding:25px 10px;
 
     border-bottom:
         1px solid
         rgba(255,255,255,.20);
+
 }
 
 
 .logo-icon {
 
-    font-size: 48px;
+    font-size:48px;
+
 }
 
 
 .logo h1 {
 
-    margin: 8px 0 0;
+    margin:8px 0 0;
 
-    font-size: 27px;
+    font-size:27px;
 
-    font-weight: bold;
+    font-weight:bold;
+
 }
 
 
 .logo p {
 
-    margin: 5px 0 0;
+    margin:5px 0 0;
 
-    font-size: 13px;
+    font-size:13px;
 
-    opacity: .8;
+    opacity:.8;
+
 }
 
 
-/* =========================================================
-   MENÚ
-========================================================= */
-
 .menu {
 
-    padding-top: 15px;
+    padding-top:15px;
+
 }
 
 
 .menu a {
 
-    display: flex;
+    display:flex;
 
-    align-items: center;
+    align-items:center;
 
-    gap: 12px;
+    gap:12px;
 
-    color: white;
+    color:white;
 
-    text-decoration: none;
+    text-decoration:none;
 
-    padding: 15px 22px;
+    padding:15px 22px;
 
-    font-size: 16px;
+    font-size:16px;
 
-    transition: .2s;
+    transition:.2s;
+
 }
 
 
 .menu a:hover {
 
-    background: #0d4388;
+    background:#0d4388;
+
 }
 
 
 .menu a.activo {
 
-    background: #0d4388;
+    background:#0d4388;
 
     border-left:
         4px solid white;
+
 }
 
 
 .menu i {
 
-    width: 22px;
+    width:22px;
 
-    font-size: 19px;
+    font-size:19px;
+
 }
 
 
 .separador {
 
-    height: 1px;
+    height:1px;
 
     background:
         rgba(255,255,255,.20);
 
-    margin: 12px 15px;
+    margin:12px 15px;
+
 }
 
 
-/* =========================================================
-   CONTENIDO
-========================================================= */
+/* =====================================================
+   MAIN
+===================================================== */
 
 .main {
 
-    margin-left: 250px;
+    margin-left:250px;
 
-    min-height: 100vh;
+    min-height:100vh;
+
 }
 
 
 .topbar {
 
-    height: 70px;
+    height:70px;
 
-    background: #1473ed;
+    background:#1473ed;
 
-    color: white;
+    color:white;
 
-    display: flex;
+    display:flex;
 
-    align-items: center;
+    align-items:center;
 
-    justify-content: space-between;
+    justify-content:space-between;
 
-    padding: 0 30px;
+    padding:0 30px;
 
     box-shadow:
         0 3px 12px
         rgba(0,0,0,.15);
+
 }
 
 
 .topbar h4 {
 
-    margin: 0;
+    margin:0;
 
-    font-weight: bold;
+    font-weight:bold;
+
 }
 
 
 .contenido {
 
-    padding: 35px;
+    padding:35px;
+
 }
 
 
 .titulo {
 
-    color: #1453a3;
+    color:#1453a3;
 
-    font-size: 32px;
+    font-size:32px;
 
-    font-weight: bold;
+    font-weight:bold;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    SELECTOR
-========================================================= */
+===================================================== */
 
 .selector {
 
-    background: white;
+    background:white;
 
-    padding: 25px;
+    padding:25px;
 
-    border-radius: 18px;
+    border-radius:18px;
 
-    margin-top: 20px;
+    margin-top:20px;
 
     box-shadow:
         0 6px 18px
         rgba(0,0,0,.10);
+
 }
 
 
 .btn-ver {
 
-    background: #1473ed;
+    background:#1473ed;
 
-    color: white;
+    color:white;
 
-    border: none;
+    border:none;
 
-    font-weight: bold;
+    font-weight:bold;
+
 }
 
 
 .btn-ver:hover {
 
-    background: #0d5dcc;
+    background:#0d5dcc;
 
-    color: white;
+    color:white;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    ELECCIÓN
-========================================================= */
+===================================================== */
 
 .eleccion {
 
-    background: white;
+    background:white;
 
-    border-radius: 18px;
+    border-radius:18px;
 
-    padding: 25px;
+    padding:25px;
 
-    margin-top: 25px;
+    margin-top:25px;
 
     box-shadow:
         0 6px 18px
         rgba(0,0,0,.10);
+
 }
 
 
 .eleccion h3 {
 
-    color: #1453a3;
+    color:#1453a3;
 
-    font-weight: bold;
+    font-weight:bold;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    ESTADÍSTICAS
-========================================================= */
+===================================================== */
 
 .estadistica {
 
-    background: white;
+    background:white;
 
-    border-radius: 18px;
+    border-radius:18px;
 
-    padding: 25px;
+    padding:25px;
 
-    margin-top: 20px;
+    margin-top:20px;
 
-    text-align: center;
+    text-align:center;
 
     box-shadow:
         0 6px 18px
         rgba(0,0,0,.10);
+
 }
 
 
 .estadistica i {
 
-    font-size: 45px;
+    font-size:45px;
 
-    color: #1473ed;
+    color:#1473ed;
+
 }
 
 
 .estadistica h2 {
 
-    font-size: 38px;
+    font-size:38px;
 
-    color: #1453a3;
+    color:#1453a3;
 
-    font-weight: bold;
+    font-weight:bold;
 
-    margin: 8px 0;
+    margin:8px 0;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    GRÁFICAS
-========================================================= */
+===================================================== */
 
 .grafica-card {
 
-    background: white;
+    background:white;
 
-    border-radius: 18px;
+    border-radius:18px;
 
-    padding: 25px;
+    padding:25px;
 
-    margin-top: 25px;
+    margin-top:25px;
 
     box-shadow:
         0 6px 20px
         rgba(0,0,0,.10);
+
 }
 
 
 .grafica-card h3 {
 
-    color: #1453a3;
+    color:#1453a3;
 
-    font-weight: bold;
+    font-weight:bold;
 
-    margin-bottom: 20px;
+    margin-bottom:20px;
+
 }
 
 
 .grafica-container {
 
-    position: relative;
+    position:relative;
 
-    width: 100%;
+    width:100%;
 
-    height: 450px;
+    height:450px;
+
 }
 
 
-/* =========================================================
-   TABLA RESUMEN
-========================================================= */
+/* =====================================================
+   TABLA
+===================================================== */
 
 .tabla {
 
-    margin-top: 25px;
+    margin-top:25px;
+
 }
 
 
 .tabla th {
 
-    background: #cfe2ff;
+    background:#cfe2ff;
 
-    color: #084298;
+    color:#084298;
+
 }
 
 
-/* =========================================================
+/* =====================================================
    RESPONSIVE
-========================================================= */
+===================================================== */
 
 @media(max-width:800px) {
 
     .sidebar {
 
-        position: relative;
+        position:relative;
 
-        width: 100%;
+        width:100%;
 
-        height: auto;
+        height:auto;
+
     }
 
 
     .main {
 
-        margin-left: 0;
-    }
+        margin-left:0;
 
-
-    .grafica-container {
-
-        height: 350px;
     }
 
 
     .contenido {
 
-        padding: 20px;
+        padding:20px;
+
+    }
+
+
+    .grafica-container {
+
+        height:350px;
+
     }
 
 }
@@ -877,7 +919,7 @@ body {
 
 <!-- =====================================================
      SIDEBAR
-========================================================= -->
+===================================================== -->
 
 <div class="sidebar">
 
@@ -903,7 +945,9 @@ VOTACIONES
 <?php
 
 echo $rol === "jurado"
+
     ? "Panel del Jurado"
+
     : "Panel del Administrador";
 
 ?>
@@ -922,7 +966,6 @@ echo $rol === "jurado"
     $rol === "administrador"
 ) { ?>
 
-
 <a href="admin.php">
 
 <i class="bi bi-house-fill"></i>
@@ -931,9 +974,7 @@ Inicio
 
 </a>
 
-
 <?php } else { ?>
-
 
 <a href="jurado.php">
 
@@ -942,7 +983,6 @@ Inicio
 Inicio
 
 </a>
-
 
 <?php } ?>
 
@@ -953,7 +993,6 @@ Inicio
     $rol === "jurado"
 ) { ?>
 
-
 <a href="ingresar_estudiante.php">
 
 <i class="bi bi-person-vcard-fill"></i>
@@ -961,7 +1000,6 @@ Inicio
 Ingresar estudiante
 
 </a>
-
 
 <?php } ?>
 
@@ -990,17 +1028,13 @@ Gráficas
 </a>
 
 
-<!-- JURADOS SOLO ADMIN -->
-
 <?php if (
     $rol === "administrador"
 ) { ?>
 
-
 <div class="separador"></div>
 
-
-<a href="jurados.php">
+<a href="jurado.php">
 
 <i class="bi bi-person-badge-fill"></i>
 
@@ -1008,14 +1042,11 @@ Jurados
 
 </a>
 
-
 <?php } ?>
 
 
 <div class="separador"></div>
 
-
-<!-- CERRAR SESIÓN -->
 
 <a href="logout.php">
 
@@ -1033,15 +1064,12 @@ Cerrar sesión
 
 <!-- =====================================================
      MAIN
-========================================================= -->
+===================================================== -->
 
 <div class="main">
 
 
-<!-- TOPBAR -->
-
 <div class="topbar">
-
 
 <h4>
 
@@ -1060,16 +1088,11 @@ Cerrar sesión
 
 </span>
 
-
 </div>
 
 
 <div class="contenido">
 
-
-<!-- =====================================================
-     TÍTULO
-========================================================= -->
 
 <h1 class="titulo">
 
@@ -1089,20 +1112,17 @@ de las elecciones.
 
 
 <!-- =====================================================
-     SELECTOR DE ELECCIÓN
-========================================================= -->
+     SELECTOR
+===================================================== -->
 
 <div class="selector">
 
-
 <form method="GET">
-
 
 <div class="row align-items-end">
 
 
 <div class="col-md-9">
-
 
 <label class="form-label fw-bold">
 
@@ -1130,7 +1150,6 @@ Seleccione una elección
     $elecciones as $e
 ) { ?>
 
-
 <option
 
 value="<?php echo (int)$e['id']; ?>"
@@ -1156,18 +1175,15 @@ if (
 
 </option>
 
-
 <?php } ?>
 
 
 </select>
 
-
 </div>
 
 
 <div class="col-md-3 mt-3 mt-md-0">
-
 
 <button
 type="submit"
@@ -1179,15 +1195,12 @@ Ver gráfica
 
 </button>
 
-
 </div>
 
 
 </div>
-
 
 </form>
-
 
 </div>
 
@@ -1198,11 +1211,10 @@ Ver gráfica
 
 
 <!-- =====================================================
-     INFORMACIÓN ELECCIÓN
-========================================================= -->
+     INFORMACIÓN
+===================================================== -->
 
 <div class="eleccion">
-
 
 <h3>
 
@@ -1279,6 +1291,7 @@ Estado
 
 
 <span class="badge
+
 <?php
 
 echo strtolower(
@@ -1304,28 +1317,23 @@ echo strtolower(
 
 </div>
 
-
 </div>
-
 
 </div>
 
 
 <!-- =====================================================
      ESTADÍSTICAS
-========================================================= -->
+===================================================== -->
 
 <div class="row">
 
 
 <div class="col-md-4">
 
-
 <div class="estadistica">
 
-
 <i class="bi bi-hand-index-thumb-fill"></i>
-
 
 <h2>
 
@@ -1333,28 +1341,22 @@ echo strtolower(
 
 </h2>
 
-
 <p>
 
 Votos registrados
 
 </p>
 
-
 </div>
-
 
 </div>
 
 
 <div class="col-md-4">
 
-
 <div class="estadistica">
 
-
 <i class="bi bi-people-fill"></i>
-
 
 <h2>
 
@@ -1362,28 +1364,22 @@ Votos registrados
 
 </h2>
 
-
 <p>
 
 Candidatos
 
 </p>
 
-
 </div>
-
 
 </div>
 
 
 <div class="col-md-4">
 
-
 <div class="estadistica">
 
-
 <i class="bi bi-award-fill"></i>
-
 
 <h2>
 
@@ -1391,16 +1387,13 @@ Candidatos
 
 </h2>
 
-
 <p>
 
 Cargos
 
 </p>
 
-
 </div>
-
 
 </div>
 
@@ -1410,7 +1403,7 @@ Cargos
 
 <!-- =====================================================
      GRÁFICA CANDIDATOS
-========================================================= -->
+===================================================== -->
 
 <div class="grafica-card">
 
@@ -1428,16 +1421,15 @@ Votos por candidato
     count($datosCandidatos) > 0
 ) { ?>
 
-
 <div class="grafica-container">
 
-<canvas id="graficaCandidatos"></canvas>
+<canvas
+id="graficaCandidatos">
+</canvas>
 
 </div>
 
-
 <?php } else { ?>
-
 
 <div class="alert alert-warning">
 
@@ -1447,7 +1439,6 @@ No hay candidatos o votos para mostrar.
 
 </div>
 
-
 <?php } ?>
 
 
@@ -1456,7 +1447,7 @@ No hay candidatos o votos para mostrar.
 
 <!-- =====================================================
      GRÁFICA CARGOS
-========================================================= -->
+===================================================== -->
 
 <div class="grafica-card">
 
@@ -1474,23 +1465,21 @@ Votos por cargo
     count($labelsCargos) > 0
 ) { ?>
 
-
 <div class="grafica-container">
 
-<canvas id="graficaCargos"></canvas>
+<canvas
+id="graficaCargos">
+</canvas>
 
 </div>
 
-
 <?php } else { ?>
-
 
 <div class="alert alert-warning">
 
 No hay cargos configurados para esta elección.
 
 </div>
-
 
 <?php } ?>
 
@@ -1499,8 +1488,8 @@ No hay cargos configurados para esta elección.
 
 
 <!-- =====================================================
-     TABLA RESUMEN
-========================================================= -->
+     TABLA
+===================================================== -->
 
 <div class="grafica-card">
 
@@ -1517,7 +1506,8 @@ Resumen de votación
 <div class="table-responsive">
 
 
-<table class="table table-bordered table-hover tabla">
+<table
+class="table table-bordered table-hover tabla">
 
 
 <thead>
@@ -1550,13 +1540,30 @@ Votos
 <tbody>
 
 
+<?php if (
+    count($datosCandidatos) === 0
+) { ?>
+
+<tr>
+
+<td
+colspan="3"
+class="text-center">
+
+No hay datos disponibles.
+
+</td>
+
+</tr>
+
+<?php } ?>
+
+
 <?php foreach (
     $datosCandidatos as $fila
 ) { ?>
 
-
 <tr>
-
 
 <td>
 
@@ -1588,9 +1595,7 @@ Votos
 
 </td>
 
-
 </tr>
-
 
 <?php } ?>
 
@@ -1601,7 +1606,6 @@ Votos
 
 
 </div>
-
 
 </div>
 
@@ -1626,14 +1630,10 @@ No hay elecciones registradas.
 </div>
 
 
-<!-- =====================================================
-     JAVASCRIPT
-========================================================= -->
-
 <script>
 
 /* =========================================================
-   DATOS CANDIDATOS
+   DATOS DE CANDIDATOS
 ========================================================= */
 
 const labelsCandidatos =
@@ -1677,19 +1677,18 @@ if (
         canvasCandidatos,
         {
 
-            type: "bar",
+            type:"bar",
 
-            data: {
+            data:{
 
                 labels:
                     labelsCandidatos,
 
-                datasets: [
+                datasets:[
 
                     {
 
-                        label:
-                            "Votos",
+                        label:"Votos",
 
                         data:
                             valoresCandidatos,
@@ -1697,7 +1696,7 @@ if (
                         backgroundColor:
                             coloresCandidatos,
 
-                        borderWidth: 1
+                        borderWidth:1
 
                     }
 
@@ -1705,31 +1704,31 @@ if (
 
             },
 
-            options: {
+            options:{
 
-                responsive: true,
+                responsive:true,
 
-                maintainAspectRatio: false,
+                maintainAspectRatio:false,
 
-                plugins: {
+                plugins:{
 
-                    legend: {
+                    legend:{
 
-                        display: true
+                        display:true
 
                     }
 
                 },
 
-                scales: {
+                scales:{
 
-                    y: {
+                    y:{
 
-                        beginAtZero: true,
+                        beginAtZero:true,
 
-                        ticks: {
+                        ticks:{
 
-                            precision: 0
+                            precision:0
 
                         }
 
@@ -1746,7 +1745,7 @@ if (
 
 
 /* =========================================================
-   DATOS CARGOS
+   DATOS DE CARGOS
 ========================================================= */
 
 const labelsCargos =
@@ -1783,48 +1782,38 @@ if (
         canvasCargos,
         {
 
-            type: "doughnut",
+            type:"doughnut",
 
-            data: {
+            data:{
 
                 labels:
                     labelsCargos,
 
-                datasets: [
+                datasets:[
 
                     {
 
-                        label:
-                            "Votos",
+                        label:"Votos",
 
                         data:
                             valoresCargos,
 
-                        backgroundColor: [
+                        backgroundColor:[
 
                             "#0d6efd",
-
                             "#198754",
-
                             "#ffc107",
-
                             "#dc3545",
-
                             "#6f42c1",
-
                             "#fd7e14",
-
                             "#20c997",
-
                             "#0dcaf0",
-
                             "#6610f2",
-
                             "#d63384"
 
                         ],
 
-                        borderWidth: 2
+                        borderWidth:2
 
                     }
 
@@ -1832,18 +1821,17 @@ if (
 
             },
 
-            options: {
+            options:{
 
-                responsive: true,
+                responsive:true,
 
-                maintainAspectRatio: false,
+                maintainAspectRatio:false,
 
-                plugins: {
+                plugins:{
 
-                    legend: {
+                    legend:{
 
-                        position:
-                            "bottom"
+                        position:"bottom"
 
                     }
 
