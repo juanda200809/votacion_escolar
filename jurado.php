@@ -4,184 +4,218 @@ session_start();
 
 include("config/conexion.php");
 
-
-/* =====================================================
+/* =========================================================
    VERIFICAR SESIÓN
-===================================================== */
+========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol'])
 ) {
-
     header("Location: login.php");
     exit();
-
 }
 
 
-/* =====================================================
-   VERIFICAR QUE SEA JURADO
-===================================================== */
+/* =========================================================
+   VERIFICAR ROL
+========================================================= */
 
-$rol = strtolower(
-    trim(
-        (string)$_SESSION['rol']
-    )
-);
-
+$rol = strtolower(trim((string)$_SESSION['rol']));
 
 if ($rol !== "jurado") {
 
-    /*
-     * Si alguien que no es jurado intenta
-     * entrar directamente a esta página,
-     * lo enviamos a su panel correspondiente.
-     */
-
     if ($rol === "administrador") {
-
         header("Location: admin.php");
         exit();
-
     }
-
 
     if ($rol === "estudiante") {
-
         header("Location: votar.php");
         exit();
-
     }
-
 
     session_unset();
     session_destroy();
 
     header("Location: login.php");
     exit();
-
 }
 
 
-/* =====================================================
+/* =========================================================
    DATOS DEL JURADO
-===================================================== */
+========================================================= */
 
-$idJurado =
-    (int)$_SESSION['id'];
+$idJurado = (int)$_SESSION['id'];
 
-$nombreJurado =
-    $_SESSION['nombre'] ?? 'Jurado';
+$nombreJurado = $_SESSION['nombre'] ?? 'Jurado';
+$apellidoJurado = "";
 
 
-/* =====================================================
-   OBTENER INFORMACIÓN DEL JURADO
-===================================================== */
-
-$documento = "";
-$apellido = "";
-$curso = "";
-
+/* =========================================================
+   CONSULTAR JURADO
+========================================================= */
 
 $stmt = $conn->prepare("
-    SELECT
-        documento,
-        nombre,
-        apellido,
-        curso
+    SELECT nombre, apellido
     FROM usuarios
     WHERE id = ?
     AND LOWER(TRIM(rol)) = 'jurado'
     LIMIT 1
 ");
 
-
 if ($stmt) {
 
-    $stmt->bind_param(
-        "i",
-        $idJurado
-    );
-
+    $stmt->bind_param("i", $idJurado);
     $stmt->execute();
 
-    $resultado =
-        $stmt->get_result();
-
+    $resultado = $stmt->get_result();
 
     if ($resultado->num_rows > 0) {
 
-        $jurado =
-            $resultado->fetch_assoc();
+        $jurado = $resultado->fetch_assoc();
 
-        $documento =
-            $jurado['documento'];
-
-        $nombreJurado =
-            $jurado['nombre'];
-
-        $apellido =
-            $jurado['apellido'];
-
-        $curso =
-            $jurado['curso'];
-
+        $nombreJurado = $jurado['nombre'];
+        $apellidoJurado = $jurado['apellido'];
     }
 
     $stmt->close();
-
 }
 
 
-/* =====================================================
-   ELECCIÓN ACTUAL
-===================================================== */
+/* =========================================================
+   BUSCAR ELECCIÓN ABIERTA
+========================================================= */
 
-$nombreEleccion =
-    "Sin elección registrada";
+$eleccion = null;
 
-$estadoEleccion =
-    "cerrada";
-
-$descripcion =
-    "";
-
-
-$resultado = $conn->query("
+$resultadoEleccion = $conn->query("
     SELECT
+        id,
         nombre,
         descripcion,
+        fecha_inicio,
+        fecha_fin,
         estado
     FROM elecciones
+    WHERE LOWER(TRIM(estado)) = 'abierta'
     ORDER BY id DESC
     LIMIT 1
 ");
 
-
 if (
-    $resultado &&
-    $resultado->num_rows > 0
+    $resultadoEleccion &&
+    $resultadoEleccion->num_rows > 0
 ) {
 
-    $eleccion =
-        $resultado->fetch_assoc();
-
-    $nombreEleccion =
-        $eleccion['nombre'];
-
-    $descripcion =
-        $eleccion['descripcion'];
-
-    $estadoEleccion =
-        strtolower(
-            trim(
-                $eleccion['estado']
-            )
-        );
-
+    $eleccion = $resultadoEleccion->fetch_assoc();
 }
 
+$eleccionAbierta = ($eleccion !== null);
+
+
+/* =========================================================
+   TOTAL ESTUDIANTES
+========================================================= */
+
+$totalEstudiantes = 0;
+
+$resultado = $conn->query("
+    SELECT COUNT(*) AS total
+    FROM usuarios
+    WHERE LOWER(TRIM(rol)) = 'estudiante'
+");
+
+if ($resultado) {
+
+    $datos = $resultado->fetch_assoc();
+
+    $totalEstudiantes = (int)$datos['total'];
+}
+
+
+/* =========================================================
+   TOTAL VOTANTES
+========================================================= */
+
+$totalVotantes = 0;
+$totalPendientes = $totalEstudiantes;
+
+if ($eleccionAbierta) {
+
+    $idEleccion = (int)$eleccion['id'];
+
+    /* ---------------------------------------------
+       CANTIDAD DE CARGOS
+    --------------------------------------------- */
+
+    $totalCargos = 0;
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS total
+        FROM eleccion_cargos
+        WHERE id_eleccion = ?
+    ");
+
+    if ($stmt) {
+
+        $stmt->bind_param("i", $idEleccion);
+        $stmt->execute();
+
+        $resultado = $stmt->get_result();
+        $datos = $resultado->fetch_assoc();
+
+        $totalCargos = (int)$datos['total'];
+
+        $stmt->close();
+    }
+
+
+    /* ---------------------------------------------
+       ESTUDIANTES QUE COMPLETARON LA VOTACIÓN
+    --------------------------------------------- */
+
+    if ($totalCargos > 0) {
+
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM (
+                SELECT
+                    v.id_usuario
+                FROM votos v
+                INNER JOIN candidatos c
+                    ON c.id = v.id_candidato
+                WHERE c.id_eleccion = ?
+                GROUP BY v.id_usuario
+                HAVING COUNT(DISTINCT v.id_cargo) = ?
+            ) AS votantes
+        ");
+
+        if ($stmt) {
+
+            $stmt->bind_param(
+                "ii",
+                $idEleccion,
+                $totalCargos
+            );
+
+            $stmt->execute();
+
+            $resultado = $stmt->get_result();
+            $datos = $resultado->fetch_assoc();
+
+            $totalVotantes = (int)$datos['total'];
+
+            $stmt->close();
+        }
+    }
+
+    $totalPendientes = max(
+        0,
+        $totalEstudiantes - $totalVotantes
+    );
+}
 
 ?>
 
@@ -197,9 +231,7 @@ if (
 name="viewport"
 content="width=device-width, initial-scale=1">
 
-<title>
-Panel del Jurado
-</title>
+<title>Panel del Jurado</title>
 
 
 <!-- BOOTSTRAP -->
@@ -218,378 +250,413 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 <style>
 
-/* =====================================================
+/* =========================================================
    GENERAL
-===================================================== */
+========================================================= */
 
 * {
-    box-sizing:border-box;
+    box-sizing: border-box;
 }
-
 
 body {
 
-    margin:0;
+    margin: 0;
 
-    background:#eef3f9;
+    background: #eef3f9;
 
     font-family:
         Arial,
         Helvetica,
         sans-serif;
-
 }
 
 
-/* =====================================================
+/* =========================================================
    SIDEBAR
-===================================================== */
+========================================================= */
 
 .sidebar {
 
-    position:fixed;
+    position: fixed;
 
-    left:0;
+    left: 0;
 
-    top:0;
+    top: 0;
 
-    width:250px;
+    width: 250px;
 
-    height:100vh;
+    height: 100vh;
 
-    background:#1453a3;
+    background: #1453a3;
 
-    color:white;
+    color: white;
 
+    z-index: 1000;
 }
 
 
 .logo {
 
-    text-align:center;
+    text-align: center;
 
-    padding:25px 10px;
+    padding: 25px 10px;
 
     border-bottom:
         1px solid
-        rgba(255,255,255,.2);
-
+        rgba(255,255,255,.20);
 }
 
 
 .logo-icon {
 
-    font-size:50px;
-
+    font-size: 50px;
 }
 
 
 .logo h1 {
 
-    margin:8px 0 0;
+    margin: 8px 0 0;
 
-    font-size:30px;
+    font-size: 30px;
 
-    font-weight:bold;
-
+    font-weight: bold;
 }
 
 
 .menu {
 
-    padding-top:15px;
-
+    padding-top: 15px;
 }
 
 
 .menu a {
 
-    display:flex;
+    display: flex;
 
-    align-items:center;
+    align-items: center;
 
-    gap:12px;
+    gap: 12px;
 
-    color:white;
+    color: white;
 
-    text-decoration:none;
+    text-decoration: none;
 
-    padding:15px 22px;
+    padding: 15px 22px;
 
-    font-size:16px;
+    font-size: 16px;
 
+    transition: .2s;
 }
 
 
 .menu a:hover {
 
-    background:#0d4388;
+    background: #0d4388;
+}
 
+
+.menu a.activo {
+
+    background: #0d4388;
 }
 
 
 .menu i {
 
-    width:22px;
+    width: 22px;
 
-    font-size:19px;
-
+    font-size: 19px;
 }
 
 
 .separador {
 
-    height:1px;
+    height: 1px;
 
     background:
-        rgba(255,255,255,.2);
+        rgba(255,255,255,.20);
 
-    margin:12px 15px;
-
+    margin: 12px 15px;
 }
 
 
-/* =====================================================
-   PRINCIPAL
-===================================================== */
+/* =========================================================
+   CONTENIDO
+========================================================= */
 
 .main {
 
-    margin-left:250px;
+    margin-left: 250px;
 
-    min-height:100vh;
-
+    min-height: 100vh;
 }
 
 
-/* =====================================================
-   TOPBAR
-===================================================== */
-
 .topbar {
 
-    height:70px;
+    height: 70px;
 
-    background:#1473ed;
+    background: #1473ed;
 
-    color:white;
+    color: white;
 
-    display:flex;
+    display: flex;
 
-    align-items:center;
+    align-items: center;
 
-    justify-content:space-between;
+    justify-content: space-between;
 
-    padding:0 30px;
+    padding: 0 30px;
 
     box-shadow:
         0 3px 12px
         rgba(0,0,0,.15);
-
 }
 
 
 .topbar h4 {
 
-    margin:0;
-
+    margin: 0;
 }
 
 
-/* =====================================================
-   CONTENIDO
-===================================================== */
-
 .contenido {
 
-    padding:35px;
-
+    padding: 35px;
 }
 
 
 .titulo {
 
-    color:#1453a3;
+    color: #1453a3;
 
-    font-size:32px;
+    font-size: 32px;
 
-    font-weight:bold;
-
+    font-weight: bold;
 }
 
 
-/* =====================================================
+/* =========================================================
    BIENVENIDA
-===================================================== */
+========================================================= */
 
 .bienvenida {
 
-    background:#cfe2ff;
+    background: #cfe2ff;
 
     border:
         1px solid #9ec5fe;
 
-    border-radius:10px;
+    border-radius: 10px;
 
-    padding:25px;
+    padding: 25px;
 
-    color:#084298;
-
+    color: #084298;
 }
 
 
 .bienvenida h3 {
 
-    font-weight:bold;
-
+    font-weight: bold;
 }
 
 
 .bienvenida h2 {
 
-    font-weight:bold;
-
+    font-weight: bold;
 }
 
 
-/* =====================================================
-   TARJETAS
-===================================================== */
+/* =========================================================
+   ESTADÍSTICAS
+========================================================= */
 
-.tarjetas {
+.estadisticas {
 
-    display:grid;
+    display: grid;
 
     grid-template-columns:
-        repeat(3,1fr);
+        repeat(3, 1fr);
 
-    gap:22px;
+    gap: 20px;
 
-    margin-top:30px;
-
+    margin-top: 25px;
 }
 
 
-.tarjeta {
+.estadistica {
 
-    background:white;
+    background: white;
 
-    border-radius:18px;
+    border-radius: 18px;
 
-    padding:30px;
+    padding: 25px;
 
-    text-align:center;
+    text-align: center;
 
     box-shadow:
         0 6px 18px
         rgba(0,0,0,.10);
-
 }
 
 
-.tarjeta i {
+.estadistica i {
 
-    font-size:55px;
+    font-size: 45px;
 
-    color:#1473ed;
-
-    margin-bottom:15px;
-
+    color: #1473ed;
 }
 
 
-.tarjeta h3 {
+.estadistica h2 {
 
-    color:#1453a3;
+    color: #1453a3;
 
-    font-weight:bold;
+    font-size: 38px;
 
+    font-weight: bold;
+
+    margin: 8px 0;
 }
 
 
-/* =====================================================
+.estadistica p {
+
+    margin: 0;
+
+    font-weight: bold;
+}
+
+
+/* =========================================================
+   TARJETA DEL VOTANTE
+========================================================= */
+
+.votante-card {
+
+    background: white;
+
+    margin-top: 25px;
+
+    padding: 30px;
+
+    border-radius: 18px;
+
+    box-shadow:
+        0 6px 20px
+        rgba(0,0,0,.10);
+}
+
+
+.votante-card h2 {
+
+    color: #1453a3;
+
+    font-weight: bold;
+}
+
+
+.input-documento {
+
+    height: 55px;
+
+    font-size: 18px;
+}
+
+
+.btn-votar {
+
+    background: #1473ed;
+
+    border: none;
+
+    color: white;
+
+    font-size: 18px;
+
+    font-weight: bold;
+
+    padding: 13px 25px;
+
+    border-radius: 8px;
+}
+
+
+.btn-votar:hover {
+
+    background: #0d5dcc;
+
+    color: white;
+}
+
+
+/* =========================================================
    ELECCIÓN
-===================================================== */
+========================================================= */
 
 .eleccion {
 
-    background:white;
+    background: white;
 
-    margin-top:30px;
+    margin-top: 25px;
 
-    padding:30px;
+    padding: 30px;
 
-    border-radius:18px;
+    border-radius: 18px;
 
     box-shadow:
         0 6px 18px
         rgba(0,0,0,.10);
-
 }
 
 
-.estado-abierta {
+.estado {
 
-    display:inline-block;
+    display: inline-block;
 
-    background:#198754;
+    padding: 8px 18px;
 
-    color:white;
+    border-radius: 8px;
 
-    padding:8px 18px;
-
-    border-radius:8px;
-
-    font-weight:bold;
-
+    font-weight: bold;
 }
 
 
-.estado-cerrada {
+.abierta {
 
-    display:inline-block;
+    background: #198754;
 
-    background:#dc3545;
-
-    color:white;
-
-    padding:8px 18px;
-
-    border-radius:8px;
-
-    font-weight:bold;
-
+    color: white;
 }
 
 
-/* =====================================================
+/* =========================================================
    RESPONSIVE
-===================================================== */
+========================================================= */
+
+@media(max-width:900px) {
+
+    .estadisticas {
+
+        grid-template-columns: 1fr;
+    }
+}
+
 
 @media(max-width:800px) {
 
     .sidebar {
 
-        position:relative;
+        position: relative;
 
-        width:100%;
+        width: 100%;
 
-        height:auto;
-
+        height: auto;
     }
-
 
     .main {
 
-        margin-left:0;
-
-    }
-
-
-    .tarjetas {
-
-        grid-template-columns:1fr;
-
+        margin-left: 0;
     }
 
 }
@@ -603,7 +670,7 @@ body {
 
 
 <!-- =====================================================
-     SIDEBAR
+     MENÚ LATERAL
 ===================================================== -->
 
 <div class="sidebar">
@@ -625,7 +692,9 @@ JURADO
 <div class="menu">
 
 
-<a href="jurado.php">
+<a
+href="jurado.php"
+class="activo">
 
 <i class="bi bi-house-fill"></i>
 
@@ -670,11 +739,13 @@ Cerrar sesión
 
 
 <!-- =====================================================
-     PRINCIPAL
+     CONTENIDO PRINCIPAL
 ===================================================== -->
 
 <div class="main">
 
+
+<!-- TOPBAR -->
 
 <div class="topbar">
 
@@ -731,15 +802,15 @@ Bienvenido,
 
 <h2>
 
-Bienvenido al sistema de votaciones escolares.
+Control de votaciones escolares
 
 </h2>
 
 
-<p class="mb-0 mt-2">
+<p class="mb-0">
 
-Desde este panel puedes consultar la información
-de la elección y verificar sus resultados.
+Desde este panel puedes ingresar el documento
+del estudiante que realizará la votación.
 
 </p>
 
@@ -747,95 +818,173 @@ de la elección y verificar sus resultados.
 
 
 <!-- =====================================================
-     TARJETAS
+     ESTADÍSTICAS
 ===================================================== -->
 
-<div class="tarjetas">
+<div class="estadisticas">
 
 
-<div class="tarjeta">
+<div class="estadistica">
 
-<i class="bi bi-person-badge-fill"></i>
+<i class="bi bi-people-fill"></i>
 
-<h3>
+<h2>
 
-Jurado
+<?php echo $totalEstudiantes; ?>
 
-</h3>
+</h2>
 
 <p>
-
-<?php echo htmlspecialchars(
-    $nombreJurado
-); ?>
-
-<?php echo htmlspecialchars(
-    $apellido
-); ?>
-
+Estudiantes registrados
 </p>
 
 </div>
 
 
-<div class="tarjeta">
+<div class="estadistica">
 
-<i class="bi bi-calendar-event-fill"></i>
+<i class="bi bi-person-check-fill"></i>
 
-<h3>
+<h2>
 
-Elección
+<?php echo $totalVotantes; ?>
 
-</h3>
+</h2>
 
 <p>
-
-<?php echo htmlspecialchars(
-    $nombreEleccion
-); ?>
-
+Votaciones terminadas
 </p>
 
 </div>
 
 
-<div class="tarjeta">
+<div class="estadistica">
 
-<i class="bi bi-shield-check"></i>
+<i class="bi bi-hourglass-split"></i>
 
-<h3>
+<h2>
 
-Estado
+<?php echo $totalPendientes; ?>
 
-</h3>
+</h2>
+
+<p>
+Estudiantes pendientes
+</p>
+
+</div>
 
 
-<?php if ($estadoEleccion === "abierta") { ?>
+</div>
 
-<span class="estado-abierta">
 
-🟢 Elección abierta
+<!-- =====================================================
+     INGRESAR DOCUMENTO
+===================================================== -->
 
-</span>
+<div class="votante-card">
+
+
+<h2>
+
+<i class="bi bi-person-vcard-fill"></i>
+
+Registrar estudiante votante
+
+</h2>
+
+
+<p class="text-muted">
+
+Ingrese el documento del estudiante para comprobar
+si puede realizar la votación.
+
+</p>
+
+
+<hr>
+
+
+<?php if (!$eleccionAbierta) { ?>
+
+
+<div class="alert alert-danger">
+
+<i class="bi bi-lock-fill"></i>
+
+<strong>
+
+La elección está cerrada.
+
+</strong>
+
+<br>
+
+No se pueden realizar votaciones en este momento.
+
+</div>
+
 
 <?php } else { ?>
 
-<span class="estado-cerrada">
 
-🔴 Elección cerrada
+<form
+method="POST"
+action="votar_jurado.php">
 
-</span>
 
-<?php } ?>
+<div class="mb-4">
+
+<label class="form-label fw-bold">
+
+<i class="bi bi-person-vcard-fill"></i>
+
+Documento del estudiante
+
+</label>
+
+
+<input
+
+type="text"
+
+name="documento"
+
+class="form-control input-documento"
+
+placeholder="Ingrese el documento del estudiante"
+
+required
+
+autocomplete="off"
+
+maxlength="30">
 
 </div>
+
+
+<button
+type="submit"
+class="btn btn-votar">
+
+<i class="bi bi-search"></i>
+
+Buscar estudiante
+
+</button>
+
+
+</form>
+
+
+<?php } ?>
 
 
 </div>
 
 
 <!-- =====================================================
-     INFORMACIÓN
+     ELECCIÓN ACTUAL
 ===================================================== -->
 
 <div class="eleccion">
@@ -843,9 +992,9 @@ Estado
 
 <h2 class="text-primary">
 
-<i class="bi bi-info-circle-fill"></i>
+<i class="bi bi-calendar-check-fill"></i>
 
-Información de la elección
+Elección actual
 
 </h2>
 
@@ -853,70 +1002,77 @@ Información de la elección
 <hr>
 
 
+<?php if ($eleccion) { ?>
+
+
+<div class="row">
+
+
+<div class="col-md-8">
+
 <h5>
-
 Nombre
-
 </h5>
 
 <p>
 
 <?php echo htmlspecialchars(
-    $nombreEleccion
+    $eleccion['nombre']
 ); ?>
 
 </p>
 
 
+<?php if (
+    !empty($eleccion['descripcion'])
+) { ?>
+
 <h5>
-
 Descripción
-
 </h5>
 
 <p>
 
-<?php
-
-if ($descripcion !== "") {
-
-    echo htmlspecialchars(
-        $descripcion
-    );
-
-} else {
-
-    echo "No hay descripción disponible.";
-
-}
-
-?>
+<?php echo htmlspecialchars(
+    $eleccion['descripcion']
+); ?>
 
 </p>
 
+<?php } ?>
+
+</div>
+
+
+<div class="col-md-4">
 
 <h5>
-
 Estado
-
 </h5>
 
 
-<?php if ($estadoEleccion === "abierta") { ?>
+<span class="estado abierta">
 
-<span class="estado-abierta">
-
-🟢 Abierta
+🟢 Elección abierta
 
 </span>
+
+</div>
+
+</div>
+
 
 <?php } else { ?>
 
-<span class="estado-cerrada">
 
-🔴 Cerrada
+<div class="alert alert-danger">
 
-</span>
+<i class="bi bi-lock-fill"></i>
+
+No existe una elección abierta actualmente.
+
+</div>
+
 
 <?php } ?>
 
