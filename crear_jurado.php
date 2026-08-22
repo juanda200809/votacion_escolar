@@ -6,11 +6,13 @@ session_start();
    VERIFICAR ADMINISTRADOR
 ========================================= */
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'administrador') {
-
+if (
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol']) ||
+    $_SESSION['rol'] !== 'administrador'
+) {
     header("Location: login.php");
     exit();
-
 }
 
 include("config/conexion.php");
@@ -20,20 +22,21 @@ $tipoMensaje = "";
 
 
 /* =========================================
-   CREAR JURADO
+   REGISTRAR JURADO
 ========================================= */
 
 if (isset($_POST['guardar'])) {
 
-    $documento = trim($_POST['documento']);
-    $nombre = trim($_POST['nombre']);
-    $apellido = trim($_POST['apellido']);
-
+    $documento = trim($_POST['documento'] ?? '');
+    $nombre    = trim($_POST['nombre'] ?? '');
+    $apellido  = trim($_POST['apellido'] ?? '');
+    $curso     = trim($_POST['curso'] ?? '');
 
     if (
-        $documento == "" ||
-        $nombre == "" ||
-        $apellido == ""
+        $documento === "" ||
+        $nombre === "" ||
+        $apellido === "" ||
+        $curso === ""
     ) {
 
         $mensaje = "Debe completar todos los campos.";
@@ -41,51 +44,59 @@ if (isset($_POST['guardar'])) {
 
     } else {
 
-
         /* =========================================
            VERIFICAR DOCUMENTO
         ========================================= */
 
-        $verificar = $conn->prepare("
+        $stmt = $conn->prepare("
             SELECT id
             FROM usuarios
             WHERE documento = ?
             LIMIT 1
         ");
 
-        $verificar->bind_param(
-            "s",
-            $documento
-        );
+        $stmt->bind_param("s", $documento);
+        $stmt->execute();
 
-        $verificar->execute();
-
-        $resultado = $verificar->get_result();
-
+        $resultado = $stmt->get_result();
 
         if ($resultado->num_rows > 0) {
 
-            $mensaje = "Ya existe un usuario con ese documento.";
+            $mensaje =
+                "Ya existe un usuario con ese documento.";
+
             $tipoMensaje = "danger";
+
+            $stmt->close();
 
         } else {
 
+            $stmt->close();
+
 
             /* =========================================
-               CONTRASEÑA = DOCUMENTO
+               CONTRASEÑA AUTOMÁTICA
+               = DOCUMENTO
             ========================================= */
 
-            $passwordHash = password_hash(
+            $password_hash = password_hash(
                 $documento,
                 PASSWORD_DEFAULT
             );
 
 
             /* =========================================
-               CREAR JURADO
+               CORREO VACÍO
             ========================================= */
 
-            $insertar = $conn->prepare("
+            $correo = "";
+
+
+            /* =========================================
+               INSERTAR JURADO
+            ========================================= */
+
+            $stmt = $conn->prepare("
                 INSERT INTO usuarios
                 (
                     documento,
@@ -96,50 +107,38 @@ if (isset($_POST['guardar'])) {
                     password,
                     rol
                 )
-                VALUES
-                (
-                    ?,
-                    ?,
-                    ?,
-                    '',
-                    '',
-                    ?,
-                    'jurado'
-                )
+                VALUES (?, ?, ?, ?, ?, ?, 'jurado')
             ");
 
-
-            $insertar->bind_param(
-                "ssss",
+            $stmt->bind_param(
+                "ssssss",
                 $documento,
                 $nombre,
                 $apellido,
-                $passwordHash
+                $correo,
+                $curso,
+                $password_hash
             );
 
 
-            if ($insertar->execute()) {
+            if ($stmt->execute()) {
 
                 $mensaje =
-                    "Jurado creado correctamente. " .
-                    "La contraseña es su documento.";
+                    "Jurado registrado correctamente.";
 
                 $tipoMensaje = "success";
 
             } else {
 
                 $mensaje =
-                    "Error al crear el jurado: " .
-                    $conn->error;
+                    "Error al registrar el jurado.";
 
                 $tipoMensaje = "danger";
-
             }
 
+            $stmt->close();
         }
-
     }
-
 }
 
 
@@ -151,25 +150,22 @@ if (isset($_GET['eliminar'])) {
 
     $id = intval($_GET['eliminar']);
 
+    if ($id > 0) {
 
-    $eliminar = $conn->prepare("
-        DELETE FROM usuarios
-        WHERE id = ?
-        AND rol = 'jurado'
-    ");
+        $stmt = $conn->prepare("
+            DELETE FROM usuarios
+            WHERE id = ?
+            AND rol = 'jurado'
+        ");
 
-    $eliminar->bind_param(
-        "i",
-        $id
-    );
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
 
-    $eliminar->execute();
-
+        $stmt->close();
+    }
 
     header("Location: crear_jurado.php");
-
     exit();
-
 }
 
 
@@ -182,11 +178,22 @@ $jurados = $conn->query("
         id,
         documento,
         nombre,
-        apellido
+        apellido,
+        curso
     FROM usuarios
     WHERE rol = 'jurado'
-    ORDER BY nombre ASC
+    ORDER BY nombre ASC, apellido ASC
 ");
+
+
+if (!$jurados) {
+
+    die(
+        "Error al consultar jurados: " .
+        $conn->error
+    );
+
+}
 
 
 $totalJurados = $jurados->num_rows;
@@ -202,15 +209,19 @@ $totalJurados = $jurados->num_rows;
 <meta charset="UTF-8">
 
 <meta name="viewport"
-content="width=device-width, initial-scale=1">
+      content="width=device-width, initial-scale=1">
 
 <title>Gestión de Jurados</title>
 
+
+<!-- BOOTSTRAP -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
+
+<!-- ICONOS -->
 
 <link
 rel="stylesheet"
@@ -219,154 +230,188 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 <style>
 
+/* =========================================
+   GENERAL
+========================================= */
+
 body {
 
-    background: #eef3f9;
+    background:#eef3f9;
 
-    font-family: Arial, sans-serif;
+    min-height:100vh;
 
 }
 
+
+/* =========================================
+   CONTENEDOR
+========================================= */
 
 .contenedor {
 
-    max-width: 1200px;
-
-    margin: auto;
-
-    padding: 30px;
+    max-width:1400px;
 
 }
 
+
+/* =========================================
+   TARJETAS
+========================================= */
+
+.card-jurado {
+
+    border:none;
+
+    border-radius:18px;
+
+    box-shadow:
+        0 5px 20px rgba(0,0,0,.12);
+
+}
+
+
+/* =========================================
+   TITULOS
+========================================= */
+
+.titulo {
+
+    color:#0d47a1;
+
+    font-weight:700;
+
+}
+
+
+/* =========================================
+   CABECERA
+========================================= */
 
 .encabezado {
 
-    background: #0d47a1;
+    background:#0d47a1;
 
-    color: white;
+    color:white;
 
-    padding: 20px 25px;
+    border-radius:
+        18px 18px 0 0;
 
-    border-radius: 15px;
-
-    margin-bottom: 25px;
-
-    display: flex;
-
-    justify-content: space-between;
-
-    align-items: center;
+    padding:25px;
 
 }
 
 
-.encabezado h2 {
-
-    margin: 0;
-
-}
-
-
-.card {
-
-    border: none;
-
-    border-radius: 15px;
-
-    box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
-
-}
-
+/* =========================================
+   ICONO
+========================================= */
 
 .icono-jurado {
 
-    font-size: 60px;
-
-    text-align: center;
-
-    color: #6f42c1;
+    font-size:55px;
 
 }
 
 
-.form-title {
+/* =========================================
+   INFORMACIÓN
+========================================= */
 
-    color: #0d47a1;
+.info-password {
 
-    font-weight: bold;
+    background:#cff4fc;
 
-}
+    color:#055160;
 
+    border:1px solid #b6effb;
 
-.btn-guardar {
+    border-radius:10px;
 
-    background: #198754;
-
-    color: white;
-
-    width: 100%;
-
-    padding: 12px;
-
-    font-size: 17px;
-
-    font-weight: bold;
+    padding:14px;
 
 }
 
 
-.btn-guardar:hover {
+/* =========================================
+   TABLA
+========================================= */
 
-    background: #157347;
+.table {
 
-    color: white;
+    background:white;
+
+}
+
+
+.table thead th {
+
+    background:#cfe2ff;
+
+    font-weight:700;
+
+    vertical-align:middle;
 
 }
 
 
-.contador {
+/* =========================================
+   BOTONES
+========================================= */
 
-    background: #6f42c1;
+.btn-accion {
 
-    color: white;
+    border-radius:10px;
 
-    padding: 8px 15px;
-
-    border-radius: 20px;
-
-    font-weight: bold;
+    font-weight:600;
 
 }
 
+
+.btn-editar {
+
+    background:#ffc107;
+
+    border:none;
+
+    color:#000;
+
+}
+
+
+.btn-eliminar {
+
+    background:#dc3545;
+
+    border:none;
+
+    color:white;
+
+}
+
+
+/* =========================================
+   BUSCADOR
+========================================= */
 
 .buscar {
 
-    max-width: 350px;
+    max-width:400px;
 
 }
 
 
-.table thead {
+/* =========================================
+   FOOTER
+========================================= */
 
-    background: #0d6efd;
+.footer {
 
-    color: white;
+    text-align:center;
 
-}
+    color:#6c757d;
 
+    margin-top:30px;
 
-@media(max-width:768px){
-
-    .encabezado {
-
-        flex-direction: column;
-
-        gap: 15px;
-
-        text-align: center;
-
-    }
+    padding:20px;
 
 }
 
@@ -378,54 +423,84 @@ body {
 <body>
 
 
-<div class="contenedor">
+<div class="container-fluid contenedor py-4">
 
 
 <!-- =========================================
      ENCABEZADO
 ========================================= -->
 
+<div class="card card-jurado mb-4">
+
+
 <div class="encabezado">
+
+
+<div class="d-flex
+            justify-content-between
+            align-items-center
+            flex-wrap
+            gap-3">
+
+
+<div class="d-flex
+            align-items-center
+            gap-3">
+
+
+<div class="icono-jurado">
+
+⚖️
+
+</div>
+
 
 <div>
 
-<h2>
-
-<i class="bi bi-person-badge-fill"></i>
+<h2 class="mb-1">
 
 Gestión de Jurados
 
 </h2>
 
-<small>
+<p class="mb-0">
 
-Administración de jurados
+Administre los jurados encargados
+de las votaciones.
 
-</small>
+</p>
+
+</div>
 
 </div>
 
 
 <a
 href="admin.php"
-class="btn btn-light">
+class="btn btn-light btn-accion">
 
-<i class="bi bi-arrow-left-circle"></i>
+<i class="bi bi-arrow-left-circle-fill"></i>
 
-Volver al Panel
+Panel Administrador
 
 </a>
 
+
 </div>
+
+</div>
+
+
+<div class="card-body p-4">
 
 
 <!-- =========================================
      MENSAJE
 ========================================= -->
 
-<?php if ($mensaje != "") { ?>
+<?php if ($mensaje !== "") { ?>
 
-<div class="alert alert-<?php echo $tipoMensaje; ?>">
+<div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
 
 <i class="bi bi-info-circle-fill"></i>
 
@@ -445,19 +520,16 @@ Volver al Panel
 
 <div class="col-lg-4">
 
-<div class="card">
+
+<div class="card card-jurado h-100">
+
 
 <div class="card-body p-4">
 
 
-<div class="icono-jurado">
+<h4 class="titulo mb-4">
 
 <i class="bi bi-person-badge-fill"></i>
-
-</div>
-
-
-<h4 class="text-center form-title mb-4">
 
 Registrar nuevo jurado
 
@@ -473,24 +545,16 @@ Registrar nuevo jurado
 
 <label class="form-label">
 
-<i class="bi bi-person-vcard-fill"></i>
-
-Documento
+<strong>Documento</strong>
 
 </label>
 
 <input
-
 type="text"
-
 name="documento"
-
 class="form-control"
-
-placeholder="Ingrese el documento"
-
+placeholder="Documento del jurado"
 required
-
 autocomplete="off">
 
 </div>
@@ -502,22 +566,15 @@ autocomplete="off">
 
 <label class="form-label">
 
-<i class="bi bi-person-fill"></i>
-
-Nombre
+<strong>Nombre</strong>
 
 </label>
 
 <input
-
 type="text"
-
 name="nombre"
-
 class="form-control"
-
-placeholder="Nombre del jurado"
-
+placeholder="Nombre"
 required>
 
 </div>
@@ -525,55 +582,68 @@ required>
 
 <!-- APELLIDO -->
 
-<div class="mb-4">
+<div class="mb-3">
 
 <label class="form-label">
 
-<i class="bi bi-person-fill"></i>
-
-Apellido
+<strong>Apellido</strong>
 
 </label>
 
 <input
-
 type="text"
-
 name="apellido"
-
 class="form-control"
-
-placeholder="Apellido del jurado"
-
+placeholder="Apellido"
 required>
 
 </div>
 
 
-<!-- INFORMACIÓN CONTRASEÑA -->
+<!-- CURSO -->
 
-<div class="alert alert-info">
+<div class="mb-3">
 
-<i class="bi bi-key-fill"></i>
+<label class="form-label">
 
-<strong>Contraseña automática:</strong>
+<strong>Curso</strong>
 
-<br>
+</label>
 
-La contraseña será igual al documento del jurado.
+<input
+type="text"
+name="curso"
+class="form-control"
+placeholder="Ejemplo: 1101"
+required>
 
 </div>
 
 
-<!-- BOTÓN -->
+<!-- =========================================
+     CONTRASEÑA
+========================================= -->
+
+<div class="info-password mb-4">
+
+<i class="bi bi-key-fill"></i>
+
+<strong>Contraseña automática</strong>
+
+<br>
+
+La contraseña del jurado será
+su <strong>número de documento</strong>.
+
+</div>
+
+
+<!-- GUARDAR -->
 
 <button
-
 type="submit"
-
 name="guardar"
-
-class="btn btn-guardar">
+class="btn btn-success btn-lg w-100 btn-accion">
 
 <i class="bi bi-person-plus-fill"></i>
 
@@ -598,48 +668,72 @@ Guardar Jurado
 
 <div class="col-lg-8">
 
-<div class="card">
+
+<div class="card card-jurado h-100">
+
 
 <div class="card-body p-4">
 
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex
+            justify-content-between
+            align-items-center
+            flex-wrap
+            gap-2
+            mb-3">
 
-<h4>
 
-<i class="bi bi-people-fill"></i>
+<h4 class="titulo mb-0">
 
-Lista de Jurados
+<i class="bi bi-list-ul"></i>
+
+Jurados registrados
 
 </h4>
 
 
-<span class="contador">
+<span class="badge bg-primary fs-6">
 
 Total: <?php echo $totalJurados; ?>
 
 </span>
 
+
 </div>
 
 
+<!-- BUSCADOR -->
+
+<div class="input-group buscar mb-3">
+
+
+<span class="input-group-text">
+
+<i class="bi bi-search"></i>
+
+</span>
+
+
 <input
-
 type="text"
-
 id="buscar"
+class="form-control"
+placeholder="Buscar jurado...">
 
-class="form-control buscar mb-4"
+</div>
 
-placeholder="🔍 Buscar jurado...">
 
+<!-- TABLA -->
 
 <div class="table-responsive">
 
 
-<table class="table table-bordered table-hover">
+<table
+class="table table-bordered table-hover align-middle">
+
 
 <thead>
+
 
 <tr>
 
@@ -651,9 +745,12 @@ placeholder="🔍 Buscar jurado...">
 
 <th>Apellido</th>
 
+<th>Curso</th>
+
 <th>Acciones</th>
 
 </tr>
+
 
 </thead>
 
@@ -663,37 +760,32 @@ placeholder="🔍 Buscar jurado...">
 
 <?php
 
-if ($jurados->num_rows == 0) {
+if ($jurados->num_rows > 0) {
+
+    while ($j = $jurados->fetch_assoc()) {
 
 ?>
 
-<tr>
-
-<td
-colspan="5"
-class="text-center text-muted">
-
-No hay jurados registrados.
-
-</td>
-
-</tr>
-
-<?php
-
-}
-
-
-while ($jurado = $jurados->fetch_assoc()) {
-
-?>
 
 <tr>
 
 
 <td>
 
-<?php echo $jurado['id']; ?>
+<?php echo (int)$j['id']; ?>
+
+</td>
+
+
+<td>
+
+<strong>
+
+<?php echo htmlspecialchars(
+    $j['documento']
+); ?>
+
+</strong>
 
 </td>
 
@@ -701,7 +793,7 @@ while ($jurado = $jurados->fetch_assoc()) {
 <td>
 
 <?php echo htmlspecialchars(
-$jurado['documento']
+    $j['nombre']
 ); ?>
 
 </td>
@@ -710,29 +802,34 @@ $jurado['documento']
 <td>
 
 <?php echo htmlspecialchars(
-$jurado['nombre']
+    $j['apellido']
 ); ?>
 
 </td>
 
 
 <td>
+
+<span class="badge bg-secondary">
 
 <?php echo htmlspecialchars(
-$jurado['apellido']
+    $j['curso']
 ); ?>
+
+</span>
 
 </td>
 
 
 <td>
+
+
+<div class="d-flex gap-1 flex-wrap">
 
 
 <a
-
-href="editar_estudiante.php?id=<?php echo $jurado['id']; ?>&tipo=jurado"
-
-class="btn btn-warning btn-sm">
+href="editar_jurado.php?id=<?php echo (int)$j['id']; ?>"
+class="btn btn-editar btn-sm btn-accion">
 
 <i class="bi bi-pencil-square"></i>
 
@@ -742,11 +839,8 @@ Editar
 
 
 <a
-
-href="crear_jurado.php?eliminar=<?php echo $jurado['id']; ?>"
-
-class="btn btn-danger btn-sm"
-
+href="crear_jurado.php?eliminar=<?php echo (int)$j['id']; ?>"
+class="btn btn-eliminar btn-sm btn-accion"
 onclick="return confirm('¿Está seguro de eliminar este jurado?');">
 
 <i class="bi bi-trash-fill"></i>
@@ -756,10 +850,44 @@ Eliminar
 </a>
 
 
+</div>
+
+
 </td>
 
 
 </tr>
+
+
+<?php
+
+    }
+
+} else {
+
+?>
+
+
+<tr>
+
+<td
+colspan="6"
+class="text-center text-muted py-5">
+
+<i class="bi bi-person-x fs-1"></i>
+
+<br>
+
+<strong>
+
+No hay jurados registrados.
+
+</strong>
+
+</td>
+
+</tr>
+
 
 <?php
 
@@ -775,6 +903,92 @@ Eliminar
 
 </div>
 
+
+</div>
+
+</div>
+
+</div>
+
+
+</div>
+
+
+</div>
+
+</div>
+
+
+<!-- =========================================
+     INFORMACIÓN
+========================================= -->
+
+<div class="card card-jurado mt-4">
+
+
+<div class="card-body">
+
+
+<div class="row text-center">
+
+
+<div class="col-md-4">
+
+<i class="bi bi-person-badge-fill fs-2 text-primary"></i>
+
+<h5 class="mt-2">
+
+Jurados
+
+</h5>
+
+<p class="text-muted">
+
+<?php echo $totalJurados; ?> registrados
+
+</p>
+
+</div>
+
+
+<div class="col-md-4">
+
+<i class="bi bi-key-fill fs-2 text-success"></i>
+
+<h5 class="mt-2">
+
+Contraseña
+
+</h5>
+
+<p class="text-muted">
+
+Documento del jurado
+
+</p>
+
+</div>
+
+
+<div class="col-md-4">
+
+<i class="bi bi-shield-check fs-2 text-primary"></i>
+
+<h5 class="mt-2">
+
+Rol
+
+</h5>
+
+<p class="text-muted">
+
+Jurado de votación
+
+</p>
+
+</div>
+
+
 </div>
 
 </div>
@@ -782,68 +996,78 @@ Eliminar
 </div>
 
 
-</div>
+<!-- FOOTER -->
 
+<div class="footer">
 
-<div class="text-center mt-4">
+<strong>
 
-<a
-href="admin.php"
-class="btn btn-primary">
+Sistema de Votaciones Escolares v2.0
 
-<i class="bi bi-arrow-left"></i>
+</strong>
 
-Volver al Panel Administrador
+<br>
 
-</a>
+© <?php echo date("Y"); ?>
 
-</div>
-
+Todos los derechos reservados.
 
 </div>
 
+
+</div>
+
+
+<!-- =========================================
+     BUSCADOR
+========================================= -->
 
 <script>
-
-/* =========================================
-   BUSCADOR
-========================================= */
 
 const buscar =
 document.getElementById("buscar");
 
+const filas =
+document.querySelectorAll(
+    "#tablaJurados tr"
+);
 
-buscar.addEventListener("keyup", function() {
 
-    let texto =
-        this.value.toLowerCase();
+buscar.addEventListener(
+    "input",
+    function () {
+
+        const texto =
+        this.value
+        .toLowerCase()
+        .trim();
 
 
-    let filas =
-        document.querySelectorAll(
-            "#tablaJurados tr"
+        filas.forEach(
+            function (fila) {
+
+                const contenido =
+                fila.textContent
+                .toLowerCase();
+
+
+                if (
+                    contenido.includes(texto)
+                ) {
+
+                    fila.style.display = "";
+
+                } else {
+
+                    fila.style.display = "none";
+
+                }
+
+            }
         );
 
-
-    filas.forEach(function(fila) {
-
-        let contenido =
-            fila.textContent.toLowerCase();
-
-
-        if (contenido.includes(texto)) {
-
-            fila.style.display = "";
-
-        } else {
-
-            fila.style.display = "none";
-
-        }
-
-    });
-
-});
+    }
+);
 
 </script>
 

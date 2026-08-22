@@ -8,45 +8,36 @@ session_start();
 
 if (
     !isset($_SESSION['id']) ||
-    $_SESSION['rol'] != 'administrador'
+    !isset($_SESSION['rol']) ||
+    $_SESSION['rol'] !== 'administrador'
 ) {
-
     header("Location: login.php");
     exit();
-
 }
 
+
+/* =========================================
+   CONEXIÓN
+========================================= */
 
 include("config/conexion.php");
 
 
 /* =========================================
-   BUSCAR ELECCIÓN ABIERTA
+   BUSCAR LA ÚLTIMA ELECCIÓN
 ========================================= */
 
 $consulta = $conn->query("
-
     SELECT id, nombre, estado
-
     FROM elecciones
-
-    WHERE estado = 'abierta'
-
     ORDER BY id DESC
-
     LIMIT 1
-
 ");
 
 
-/* =========================================
-   NO HAY ELECCIÓN ABIERTA
-========================================= */
+if (!$consulta || $consulta->num_rows === 0) {
 
-if (!$consulta || $consulta->num_rows == 0) {
-
-    header("Location: admin.php?mensaje=no_hay_eleccion");
-
+    header("Location: admin.php?error=no_eleccion");
     exit();
 
 }
@@ -55,94 +46,76 @@ if (!$consulta || $consulta->num_rows == 0) {
 $eleccion = $consulta->fetch_assoc();
 
 $idEleccion = (int)$eleccion['id'];
+$nombreEleccion = $eleccion['nombre'];
+$estadoActual = $eleccion['estado'];
 
 
 /* =========================================
    CERRAR ELECCIÓN
 ========================================= */
 
-$cerrar = $conn->prepare("
-
+$stmt = $conn->prepare("
     UPDATE elecciones
-
     SET estado = 'cerrada'
-
     WHERE id = ?
-
 ");
 
+$stmt->bind_param("i", $idEleccion);
 
-if (!$cerrar) {
+if ($stmt->execute()) {
 
-    die(
-        "Error al preparar la consulta: "
-        . $conn->error
-    );
+    /* =====================================
+       REGISTRAR EN AUDITORÍA SI EXISTE
+    ===================================== */
 
-}
-
-
-$cerrar->bind_param(
-    "i",
-    $idEleccion
-);
-
-
-if ($cerrar->execute()) {
-
-    /* =========================================
-       VERIFICAR QUE REALMENTE SE CERRÓ
-    ========================================= */
-
-    $verificar = $conn->prepare("
-
-        SELECT estado
-
-        FROM elecciones
-
-        WHERE id = ?
-
-        LIMIT 1
-
+    $tablaAuditoria = $conn->query("
+        SHOW TABLES LIKE 'auditoria'
     ");
 
-    $verificar->bind_param(
-        "i",
-        $idEleccion
-    );
+    if ($tablaAuditoria && $tablaAuditoria->num_rows > 0) {
 
-    $verificar->execute();
+        $usuarioId = (int)$_SESSION['id'];
 
-    $resultado = $verificar->get_result();
+        $descripcion =
+            "El administrador cerró la elección: "
+            . $nombreEleccion;
 
+        $stmtAuditoria = $conn->prepare("
+            INSERT INTO auditoria
+            (usuario_id, accion, descripcion, fecha)
+            VALUES (?, 'CIERRE_ELECCION', ?, NOW())
+        ");
 
-    if ($resultado->num_rows > 0) {
+        if ($stmtAuditoria) {
 
-        $estado = $resultado->fetch_assoc();
-
-
-        if ($estado['estado'] == 'cerrada') {
-
-            header(
-                "Location: admin.php?mensaje=eleccion_cerrada"
+            $stmtAuditoria->bind_param(
+                "is",
+                $usuarioId,
+                $descripcion
             );
 
-            exit();
+            $stmtAuditoria->execute();
 
+            $stmtAuditoria->close();
         }
-
     }
 
 
-    die("La elección no pudo cerrarse correctamente.");
+    $stmt->close();
 
-} else {
-
-    die(
-        "Error al cerrar la elección: "
-        . $conn->error
-    );
+    header("Location: admin.php?cerrada=1");
+    exit();
 
 }
+
+
+/* =========================================
+   ERROR
+========================================= */
+
+$stmt->close();
+
+header("Location: admin.php?error=cerrar");
+exit();
 
 ?>
