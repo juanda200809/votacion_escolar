@@ -3,7 +3,7 @@
 session_start();
 
 /* =========================================
-   VERIFICAR SESIÓN DEL ADMINISTRADOR
+   VERIFICAR ADMINISTRADOR
 ========================================= */
 
 if (
@@ -15,187 +15,135 @@ if (
     exit();
 }
 
-
-/* =========================================
-   CONEXIÓN
-========================================= */
-
 include("config/conexion.php");
 
 
 /* =========================================
-   INFORMACIÓN DEL ADMINISTRADOR
+   MENSAJES
 ========================================= */
 
-$nombreAdministrador =
-    $_SESSION['nombre'] ?? 'Administrador';
+$mensaje = "";
+$tipoMensaje = "";
+
+if (isset($_GET['cerrada'])) {
+    $mensaje = "La elección fue cerrada correctamente.";
+    $tipoMensaje = "success";
+}
+
+if (isset($_GET['abierta'])) {
+    $mensaje = "La elección fue abierta correctamente.";
+    $tipoMensaje = "success";
+}
+
+if (isset($_GET['error'])) {
+
+    $tipoMensaje = "danger";
+
+    if ($_GET['error'] == "no_eleccion") {
+        $mensaje = "No existe ninguna elección registrada.";
+    }
+
+    if ($_GET['error'] == "cerrar") {
+        $mensaje = "No se pudo cerrar la elección.";
+    }
+
+    if ($_GET['error'] == "abrir") {
+        $mensaje = "No se pudo abrir la elección.";
+    }
+}
 
 
 /* =========================================
-   CONTADORES
+   CONTAR ESTUDIANTES
 ========================================= */
 
-
-/* ESTUDIANTES */
-
-$consultaEstudiantes = $conn->query("
+$resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM usuarios
-    WHERE rol = 'estudiante'
+    WHERE rol='estudiante'
 ");
 
 $totalEstudiantes = 0;
 
-if ($consultaEstudiantes) {
-
-    $fila = $consultaEstudiantes->fetch_assoc();
-
-    $totalEstudiantes = (int)$fila['total'];
-
+if ($resultado) {
+    $fila = $resultado->fetch_assoc();
+    $totalEstudiantes = $fila['total'];
 }
 
 
-/* JURADOS */
+/* =========================================
+   CONTAR JURADOS
+========================================= */
 
-$consultaJurados = $conn->query("
+$resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM usuarios
-    WHERE rol = 'jurado'
+    WHERE rol='jurado'
 ");
 
 $totalJurados = 0;
 
-if ($consultaJurados) {
-
-    $fila = $consultaJurados->fetch_assoc();
-
-    $totalJurados = (int)$fila['total'];
-
+if ($resultado) {
+    $fila = $resultado->fetch_assoc();
+    $totalJurados = $fila['total'];
 }
 
 
-/* CANDIDATOS */
+/* =========================================
+   CONTAR CANDIDATOS
+========================================= */
 
-$consultaCandidatos = $conn->query("
+$resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM candidatos
 ");
 
 $totalCandidatos = 0;
 
-if ($consultaCandidatos) {
-
-    $fila = $consultaCandidatos->fetch_assoc();
-
-    $totalCandidatos = (int)$fila['total'];
-
+if ($resultado) {
+    $fila = $resultado->fetch_assoc();
+    $totalCandidatos = $fila['total'];
 }
 
 
-/* VOTOS */
+/* =========================================
+   CONTAR VOTOS
+========================================= */
 
-$consultaVotos = $conn->query("
+$resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM votos
 ");
 
 $totalVotos = 0;
 
-if ($consultaVotos) {
-
-    $fila = $consultaVotos->fetch_assoc();
-
-    $totalVotos = (int)$fila['total'];
-
+if ($resultado) {
+    $fila = $resultado->fetch_assoc();
+    $totalVotos = $fila['total'];
 }
 
 
 /* =========================================
-   OBTENER ÚLTIMA ELECCIÓN
+   ESTADO DE ELECCIÓN
 ========================================= */
 
-$consultaEleccion = $conn->query("
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
+$estadoEleccion = "cerrada";
+$nombreEleccion = "Sin elección";
+
+$resultado = $conn->query("
+    SELECT id, nombre, estado
     FROM elecciones
     ORDER BY id DESC
     LIMIT 1
 ");
 
+if ($resultado && $resultado->num_rows > 0) {
 
-$idEleccion = 0;
-$nombreEleccion = "Sin elección registrada";
-$descripcionEleccion = "";
-$fechaInicio = "";
-$fechaFin = "";
-$estadoEleccion = "cerrada";
+    $eleccion = $resultado->fetch_assoc();
 
-
-if (
-    $consultaEleccion &&
-    $consultaEleccion->num_rows > 0
-) {
-
-    $eleccion = $consultaEleccion->fetch_assoc();
-
-    $idEleccion =
-        (int)$eleccion['id'];
-
-    $nombreEleccion =
-        $eleccion['nombre'];
-
-    $descripcionEleccion =
-        $eleccion['descripcion'];
-
-    $fechaInicio =
-        $eleccion['fecha_inicio'];
-
-    $fechaFin =
-        $eleccion['fecha_fin'];
-
-    $estadoEleccion =
-        $eleccion['estado'];
-
+    $estadoEleccion = $eleccion['estado'];
+    $nombreEleccion = $eleccion['nombre'];
 }
-
-
-/* =========================================
-   DATOS PARA MOSTRAR ESTADO
-========================================= */
-
-if ($estadoEleccion === 'abierta') {
-
-    $textoEstado = "Abierta";
-
-    $claseEstado = "estado-abierta";
-
-    $iconoEstado = "bi-unlock-fill";
-
-} else {
-
-    $textoEstado = "Cerrada";
-
-    $claseEstado = "estado-cerrada";
-
-    $iconoEstado = "bi-lock-fill";
-
-}
-
-
-/* =========================================
-   FECHA Y HORA
-========================================= */
-
-$fechaActual =
-    date("d/m/Y");
-
-$horaActual =
-    date("h:i A");
 
 ?>
 
@@ -208,25 +156,19 @@ $horaActual =
 <meta charset="UTF-8">
 
 <meta name="viewport"
-      content="width=device-width, initial-scale=1">
+content="width=device-width, initial-scale=1">
 
-<title>
-Panel Administrador - Sistema de Votaciones
-</title>
+<title>Panel Administrador</title>
 
 
-<!-- =========================================
-     BOOTSTRAP
-========================================= -->
+<!-- Bootstrap -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
-<!-- =========================================
-     ICONOS
-========================================= -->
+<!-- Bootstrap Icons -->
 
 <link
 rel="stylesheet"
@@ -240,11 +182,8 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 ========================================= */
 
 * {
-
     box-sizing:border-box;
-
 }
-
 
 body {
 
@@ -253,9 +192,9 @@ body {
     background:#eef3f9;
 
     font-family:
-        Arial,
-        Helvetica,
-        sans-serif;
+    Arial,
+    Helvetica,
+    sans-serif;
 
 }
 
@@ -276,7 +215,7 @@ body {
 
     height:100vh;
 
-    background:#0d47a1;
+    background:#1453a3;
 
     color:white;
 
@@ -287,17 +226,14 @@ body {
 }
 
 
-/* LOGO */
-
 .logo {
-
-    padding:28px 20px;
 
     text-align:center;
 
+    padding:25px 10px;
+
     border-bottom:
-        1px solid
-        rgba(255,255,255,.2);
+    1px solid rgba(255,255,255,.2);
 
 }
 
@@ -306,23 +242,19 @@ body {
 
     font-size:45px;
 
-    display:block;
-
-    margin-bottom:5px;
-
 }
 
 
-.logo-text {
+.logo h1 {
 
     font-size:30px;
 
-    font-weight:700;
+    margin:10px 0 0;
+
+    font-weight:bold;
 
 }
 
-
-/* MENÚ */
 
 .menu {
 
@@ -337,13 +269,13 @@ body {
 
     align-items:center;
 
-    gap:12px;
-
-    padding:14px 20px;
+    gap:10px;
 
     color:white;
 
     text-decoration:none;
+
+    padding:14px 20px;
 
     font-size:16px;
 
@@ -354,10 +286,7 @@ body {
 
 .menu a:hover {
 
-    background:
-        rgba(255,255,255,.12);
-
-    padding-left:25px;
+    background:#0d4388;
 
 }
 
@@ -373,12 +302,11 @@ body {
 
 .menu-separador {
 
-    height:1px;
+    border-top:
+    1px solid rgba(255,255,255,.2);
 
-    background:
-        rgba(255,255,255,.2);
-
-    margin:10px 15px;
+    margin:
+    10px 15px;
 
 }
 
@@ -387,7 +315,7 @@ body {
    CONTENIDO
 ========================================= */
 
-.contenido {
+.main {
 
     margin-left:250px;
 
@@ -397,14 +325,14 @@ body {
 
 
 /* =========================================
-   BARRA SUPERIOR
+   TOPBAR
 ========================================= */
 
 .topbar {
 
     height:70px;
 
-    background:#0d6efd;
+    background:#1473ed;
 
     color:white;
 
@@ -417,32 +345,23 @@ body {
     padding:0 30px;
 
     box-shadow:
-        0 3px 12px rgba(0,0,0,.15);
+    0 3px 10px rgba(0,0,0,.15);
 
 }
 
 
-.topbar-title {
+.topbar h4 {
 
-    font-size:21px;
-
-    font-weight:500;
-
-}
-
-
-.topbar-admin {
-
-    font-size:16px;
+    margin:0;
 
 }
 
 
 /* =========================================
-   CONTENEDOR PRINCIPAL
+   CONTENEDOR
 ========================================= */
 
-.principal {
+.contenido {
 
     padding:30px;
 
@@ -453,98 +372,61 @@ body {
    BIENVENIDA
 ========================================= */
 
-.titulo-principal {
+.titulo {
 
-    color:#0d47a1;
+    color:#1453a3;
 
-    font-size:34px;
+    font-size:32px;
 
-    font-weight:700;
-
-    margin-bottom:20px;
+    font-weight:bold;
 
 }
 
-
-.descripcion {
-
-    color:#4f5d73;
-
-    margin-top:20px;
-
-    margin-bottom:25px;
-
-}
-
-
-/* =========================================
-   TARJETA BIENVENIDA
-========================================= */
 
 .bienvenida {
 
     background:#cfe2ff;
 
-    border:1px solid #9ec5fe;
+    border:
+    1px solid #9ec5fe;
 
-    border-radius:8px;
+    border-radius:6px;
 
-    padding:25px;
+    padding:20px;
 
     color:#084298;
 
 }
 
 
-.bienvenida-titulo {
-
-    font-size:25px;
-
-    font-weight:700;
-
-}
-
-
-.bienvenida-texto {
+.bienvenida h2 {
 
     font-size:29px;
 
-    font-weight:700;
-
-    margin-top:5px;
+    font-weight:bold;
 
 }
 
 
 /* =========================================
-   FECHA
-========================================= */
-
-.fecha-hora {
-
-    text-align:right;
-
-    font-size:16px;
-
-    margin-top:25px;
-
-    color:#111;
-
-}
-
-
-/* =========================================
-   TARJETAS ESTADÍSTICAS
+   ESTADÍSTICAS
 ========================================= */
 
 .estadisticas {
 
-    margin-top:25px;
+    display:grid;
+
+    grid-template-columns:
+    repeat(4,1fr);
+
+    gap:22px;
+
+    margin-top:30px;
 
 }
 
 
-.stat-card {
+.stat {
 
     background:white;
 
@@ -554,49 +436,35 @@ body {
 
     text-align:center;
 
-    height:100%;
-
     box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
-
-    transition:.2s;
-
-}
-
-
-.stat-card:hover {
-
-    transform:
-        translateY(-4px);
+    0 6px 18px rgba(0,0,0,.10);
 
 }
 
 
 .stat-icon {
 
-    font-size:75px;
+    font-size:65px;
 
-    line-height:1;
-
-    margin-bottom:15px;
+    margin-bottom:10px;
 
 }
 
 
-.stat-number {
+.stat-numero {
 
-    color:#0d6efd;
+    font-size:45px;
 
-    font-size:44px;
+    color:#1473ed;
 
-    font-weight:700;
+    font-weight:bold;
 
 }
 
 
-.stat-title {
+.stat-texto {
 
-    font-size:18px;
+    font-size:17px;
 
     color:#555;
 
@@ -604,32 +472,21 @@ body {
 
 
 /* =========================================
-   ESTADO ELECCIÓN
+   ESTADO
 ========================================= */
 
 .estado-card {
 
+    margin-top:25px;
+
     background:white;
 
-    border-radius:18px;
+    padding:25px;
 
-    padding:30px;
+    border-radius:15px;
 
     box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
-
-    height:100%;
-
-}
-
-
-.estado-titulo {
-
-    color:#0d47a1;
-
-    font-size:27px;
-
-    font-weight:700;
+    0 6px 18px rgba(0,0,0,.10);
 
 }
 
@@ -642,11 +499,11 @@ body {
 
     color:white;
 
-    padding:8px 15px;
+    padding:7px 18px;
 
-    border-radius:8px;
+    border-radius:7px;
 
-    font-weight:700;
+    font-weight:bold;
 
 }
 
@@ -659,11 +516,11 @@ body {
 
     color:white;
 
-    padding:8px 15px;
+    padding:7px 18px;
 
-    border-radius:8px;
+    border-radius:7px;
 
-    font-weight:700;
+    font-weight:bold;
 
 }
 
@@ -674,27 +531,37 @@ body {
 
 .accesos {
 
-    background:white;
+    margin-top:30px;
 
-    border-radius:20px;
+    background:white;
 
     padding:30px;
 
-    margin-top:30px;
+    border-radius:18px;
 
     box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
+    0 6px 20px rgba(0,0,0,.10);
 
 }
 
 
-.accesos-titulo {
+.accesos h2 {
 
     text-align:center;
 
-    font-size:30px;
-
     margin-bottom:25px;
+
+}
+
+
+.acceso-grid {
+
+    display:grid;
+
+    grid-template-columns:
+    repeat(3,1fr);
+
+    gap:16px;
 
 }
 
@@ -709,190 +576,64 @@ body {
 
     flex-direction:column;
 
-    justify-content:center;
-
     align-items:center;
 
-    text-align:center;
+    justify-content:center;
 
     color:white;
 
     text-decoration:none;
 
+    font-weight:bold;
+
     font-size:16px;
 
-    font-weight:700;
-
     transition:.2s;
-
-    padding:15px;
 
 }
 
 
 .acceso:hover {
 
+    transform:translateY(-3px);
+
     color:white;
-
-    transform:
-        translateY(-3px);
-
-    box-shadow:
-        0 7px 15px rgba(0,0,0,.18);
 
 }
 
 
 .acceso i {
 
-    font-size:34px;
+    font-size:40px;
 
-    margin-bottom:12px;
+    margin-bottom:10px;
 
 }
 
-
-/* COLORES */
 
 .azul {
-
-    background:#0d6efd;
-
+    background:#1473ed;
 }
-
 
 .verde {
-
     background:#198754;
-
 }
-
 
 .celeste {
-
-    background:#13bddd;
-
-    color:#000;
-
+    background:#16c1df;
 }
-
 
 .amarillo {
-
     background:#ffc107;
-
-    color:#000;
-
+    color:#111;
 }
-
 
 .rojo {
-
     background:#dc3545;
-
 }
 
-
-.gris {
-
+.oscuro {
     background:#212529;
-
-}
-
-
-/* =========================================
-   INFORMACIÓN ELECCIÓN
-========================================= */
-
-.info-card {
-
-    background:white;
-
-    border-radius:18px;
-
-    padding:30px;
-
-    margin-top:30px;
-
-    box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
-
-}
-
-
-.info-titulo {
-
-    color:#0d47a1;
-
-    font-size:28px;
-
-    font-weight:700;
-
-    margin-bottom:20px;
-
-}
-
-
-.info-row {
-
-    display:flex;
-
-    justify-content:space-between;
-
-    border-bottom:
-        1px solid #ddd;
-
-    padding:12px 5px;
-
-}
-
-
-.info-row:last-child {
-
-    border-bottom:none;
-
-}
-
-
-/* =========================================
-   RESUMEN
-========================================= */
-
-.resumen {
-
-    background:white;
-
-    border-radius:18px;
-
-    padding:30px;
-
-    box-shadow:
-        0 5px 18px rgba(0,0,0,.10);
-
-}
-
-
-.resumen h3 {
-
-    color:#198754;
-
-}
-
-
-.resumen-item {
-
-    display:flex;
-
-    justify-content:space-between;
-
-    padding:12px;
-
-    border:1px solid #ddd;
-
-    border-radius:8px;
-
-    margin-bottom:8px;
-
 }
 
 
@@ -902,16 +643,13 @@ body {
 
 .footer {
 
-    margin-top:50px;
-
-    padding:30px;
-
     text-align:center;
 
-    border-top:
-        1px solid #ccd3dc;
+    padding:35px;
 
-    color:#667085;
+    margin-top:40px;
+
+    color:#65758b;
 
 }
 
@@ -920,30 +658,26 @@ body {
    RESPONSIVE
 ========================================= */
 
-@media (max-width:900px) {
+@media(max-width:1000px) {
 
-    .sidebar {
+    .estadisticas {
 
-        width:210px;
-
-    }
-
-    .contenido {
-
-        margin-left:210px;
+        grid-template-columns:
+        repeat(2,1fr);
 
     }
 
-    .bienvenida-texto {
+    .acceso-grid {
 
-        font-size:23px;
+        grid-template-columns:
+        repeat(2,1fr);
 
     }
 
 }
 
 
-@media (max-width:700px) {
+@media(max-width:700px) {
 
     .sidebar {
 
@@ -955,27 +689,21 @@ body {
 
     }
 
-    .contenido {
+    .main {
 
         margin-left:0;
 
     }
 
-    .topbar {
+    .estadisticas {
 
-        padding:15px;
-
-    }
-
-    .principal {
-
-        padding:15px;
+        grid-template-columns:1fr;
 
     }
 
-    .fecha-hora {
+    .acceso-grid {
 
-        text-align:left;
+        grid-template-columns:1fr;
 
     }
 
@@ -995,20 +723,13 @@ body {
 
 <div class="sidebar">
 
-
 <div class="logo">
 
 <div class="logo-icon">
-
 📦
-
 </div>
 
-<div class="logo-text">
-
-VOTACIONES
-
-</div>
+<h1>VOTACIONES</h1>
 
 </div>
 
@@ -1034,7 +755,7 @@ Estudiantes
 </a>
 
 
-<a href="crear_jurado.php">
+<a href="jurado.php">
 
 <i class="bi bi-person-badge-fill"></i>
 
@@ -1048,6 +769,15 @@ Jurados
 <i class="bi bi-file-earmark-excel-fill"></i>
 
 Exportar Excel
+
+</a>
+
+
+<a href="importar_estudiantes.php">
+
+<i class="bi bi-file-earmark-arrow-up-fill"></i>
+
+Importar Excel
 
 </a>
 
@@ -1109,9 +839,6 @@ Cerrar Elección
 </a>
 
 
-<div class="menu-separador"></div>
-
-
 <a href="logout.php">
 
 <i class="bi bi-box-arrow-right"></i>
@@ -1127,494 +854,228 @@ Cerrar Sesión
 
 
 <!-- =========================================
-     CONTENIDO
+     CONTENIDO PRINCIPAL
 ========================================= -->
 
-<div class="contenido">
+<div class="main">
 
 
 <!-- TOPBAR -->
 
 <div class="topbar">
 
-
-<div class="topbar-title">
+<h4>
 
 🎓 Sistema de Votaciones Escolares
 
-</div>
+</h4>
 
-
-<div class="topbar-admin">
+<span>
 
 Administrador
 
+</span>
+
 </div>
 
 
+<div class="contenido">
+
+
+<!-- =========================================
+     MENSAJES
+========================================= -->
+
+<?php if ($mensaje != "") { ?>
+
+<div class="alert alert-<?php echo $tipoMensaje; ?>">
+
+<i class="bi bi-info-circle-fill"></i>
+
+<?php echo htmlspecialchars($mensaje); ?>
+
 </div>
 
-
-<!-- PRINCIPAL -->
-
-<div class="principal">
+<?php } ?>
 
 
 <!-- =========================================
      BIENVENIDA
 ========================================= -->
 
-<h1 class="titulo-principal">
+<h1 class="titulo">
 
-Bienvenido,
-<?php echo htmlspecialchars(
-    $nombreAdministrador
-); ?>
-
-👋
+Bienvenido, Administrador 👋
 
 </h1>
 
 
 <div class="bienvenida">
 
-
-<div class="bienvenida-titulo">
+<h4>
 
 👋 ¡Bienvenido al Panel de Administración!
 
-</div>
+</h4>
 
+<h2>
 
-<div class="bienvenida-texto">
+Administre estudiantes, jurados, candidatos,
+votaciones y resultados desde un solo lugar.
 
-Administre estudiantes, jurados,
-candidatos, votaciones y resultados
-desde un solo lugar.
-
-</div>
+</h2>
 
 </div>
 
 
-<p class="descripcion">
+<p class="mt-3 text-secondary">
 
-Panel de Administración del Sistema de
-Votaciones Escolares
+Panel de Administración del Sistema de Votaciones Escolares
 
 </p>
-
-
-<div class="fecha-hora">
-
-📅 <strong>Fecha:</strong>
-
-<?php echo $fechaActual; ?>
-
-
-&nbsp;&nbsp;&nbsp;
-
-
-🕐 <strong>Hora:</strong>
-
-<?php echo $horaActual; ?>
-
-</div>
 
 
 <!-- =========================================
      ESTADÍSTICAS
 ========================================= -->
 
-<div class="row g-4 estadisticas">
+<div class="estadisticas">
 
 
-<!-- ESTUDIANTES -->
-
-<div class="col-xl-3 col-md-6">
-
-<div class="stat-card">
-
+<div class="stat">
 
 <div class="stat-icon">
-
-🧑‍🎓
-
+👨‍🎓
 </div>
 
-
-<div class="stat-number">
+<div class="stat-numero">
 
 <?php echo $totalEstudiantes; ?>
 
 </div>
 
-
-<div class="stat-title">
+<div class="stat-texto">
 
 Estudiantes Registrados
 
 </div>
 
-
-</div>
-
 </div>
 
 
-<!-- JURADOS -->
-
-<div class="col-xl-3 col-md-6">
-
-<div class="stat-card">
-
+<div class="stat">
 
 <div class="stat-icon">
-
 ⚖️
-
 </div>
 
-
-<div class="stat-number">
+<div class="stat-numero">
 
 <?php echo $totalJurados; ?>
 
 </div>
 
-
-<div class="stat-title">
+<div class="stat-texto">
 
 Jurados Registrados
 
 </div>
 
-
-</div>
-
 </div>
 
 
-<!-- CANDIDATOS -->
-
-<div class="col-xl-3 col-md-6">
-
-<div class="stat-card">
-
+<div class="stat">
 
 <div class="stat-icon">
-
 📦
-
 </div>
 
-
-<div class="stat-number">
+<div class="stat-numero">
 
 <?php echo $totalCandidatos; ?>
 
 </div>
 
-
-<div class="stat-title">
+<div class="stat-texto">
 
 Candidatos Inscritos
 
 </div>
 
-
-</div>
-
 </div>
 
 
-<!-- VOTOS -->
-
-<div class="col-xl-3 col-md-6">
-
-<div class="stat-card">
-
+<div class="stat">
 
 <div class="stat-icon">
-
 ☑️
-
 </div>
 
-
-<div class="stat-number">
+<div class="stat-numero">
 
 <?php echo $totalVotos; ?>
 
 </div>
 
-
-<div class="stat-title">
+<div class="stat-texto">
 
 Votos Registrados
 
 </div>
 
-
 </div>
-
-</div>
-
 
 </div>
 
 
 <!-- =========================================
-     ESTADO ELECCIÓN + RESUMEN
+     ESTADO ELECCIÓN
 ========================================= -->
-
-<div class="row g-4 mt-1">
-
-
-<!-- ESTADO -->
-
-<div class="col-lg-8">
-
 
 <div class="estado-card">
 
+<h3>
 
-<div class="estado-titulo mb-3">
-
-<i class="bi bi-info-circle-fill"></i>
-
-Información del Sistema
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Administrador
-
-</strong>
-
-<span>
-
-<?php echo htmlspecialchars(
-    $nombreAdministrador
-); ?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Fecha
-
-</strong>
-
-<span>
-
-<?php echo $fechaActual; ?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Hora
-
-</strong>
-
-<span>
-
-<?php echo $horaActual; ?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Elección actual
-
-</strong>
-
-<span>
-
-<?php echo htmlspecialchars(
-    $nombreEleccion
-); ?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
+<i class="bi bi-info-circle-fill text-primary"></i>
 
 Estado de la elección
 
-</strong>
-
-<span>
-
-<span class="<?php echo $claseEstado; ?>">
-
-<i class="bi <?php echo $iconoEstado; ?>"></i>
-
-<?php echo $textoEstado; ?>
-
-</span>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Versión
-
-</strong>
-
-<span>
-
-2.0 Profesional
-
-</span>
-
-</div>
-
-
-</div>
-
-</div>
-
-
-<!-- RESUMEN -->
-
-<div class="col-lg-4">
-
-
-<div class="resumen">
-
-
-<h3>
-
-<i class="bi bi-clipboard-data-fill"></i>
-
-Resumen
-
 </h3>
 
+<hr>
 
-<div class="resumen-item">
+<p>
 
-<span>
+<strong>Elección:</strong>
 
-Estudiantes
+<?php echo htmlspecialchars($nombreEleccion); ?>
 
-</span>
-
-<span class="badge bg-primary">
-
-<?php echo $totalEstudiantes; ?>
-
-</span>
-
-</div>
+</p>
 
 
-<div class="resumen-item">
+<p>
 
-<span>
+<strong>Estado:</strong>
 
-Jurados
+<?php if ($estadoEleccion === 'abierta') { ?>
+
+<span class="estado-abierta">
+
+🟢 Abierta
 
 </span>
 
-<span class="badge bg-success">
+<?php } else { ?>
 
-<?php echo $totalJurados; ?>
+<span class="estado-cerrada">
 
-</span>
-
-</div>
-
-
-<div class="resumen-item">
-
-<span>
-
-Candidatos
+🔴 Cerrada
 
 </span>
 
-<span class="badge bg-success">
+<?php } ?>
 
-<?php echo $totalCandidatos; ?>
-
-</span>
-
-</div>
-
-
-<div class="resumen-item">
-
-<span>
-
-Votos
-
-</span>
-
-<span class="badge bg-warning text-dark">
-
-<?php echo $totalVotos; ?>
-
-</span>
-
-</div>
-
-
-<div class="resumen-item">
-
-<span>
-
-Estado
-
-</span>
-
-<span>
-
-<span class="<?php echo $claseEstado; ?>">
-
-<?php echo $textoEstado; ?>
-
-</span>
-
-</span>
-
-</div>
-
-
-</div>
-
-</div>
-
+</p>
 
 </div>
 
@@ -1625,20 +1086,15 @@ Estado
 
 <div class="accesos">
 
-
-<div class="accesos-titulo">
+<h2>
 
 ⚡ Accesos Rápidos
 
-</div>
+</h2>
 
 
-<div class="row g-3">
+<div class="acceso-grid">
 
-
-<!-- ESTUDIANTES -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="estudiantes.php"
@@ -1650,15 +1106,9 @@ Gestionar Estudiantes
 
 </a>
 
-</div>
-
-
-<!-- JURADOS -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
-href="crear_jurado.php"
+href="jurado.php"
 class="acceso verde">
 
 <i class="bi bi-person-badge-fill"></i>
@@ -1667,12 +1117,6 @@ Gestionar Jurados
 
 </a>
 
-</div>
-
-
-<!-- EXPORTAR -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="exportar_estudiantes.php"
@@ -1684,12 +1128,17 @@ Exportar Excel
 
 </a>
 
-</div>
 
+<a
+href="importar_estudiantes.php"
+class="acceso verde">
 
-<!-- CANDIDATOS -->
+<i class="bi bi-file-earmark-arrow-up-fill"></i>
 
-<div class="col-lg-4 col-md-6">
+Importar Excel
+
+</a>
+
 
 <a
 href="candidatos.php"
@@ -1701,12 +1150,6 @@ Gestionar Candidatos
 
 </a>
 
-</div>
-
-
-<!-- RESULTADOS -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="resultados.php"
@@ -1718,12 +1161,6 @@ Ver Resultados
 
 </a>
 
-</div>
-
-
-<!-- GRÁFICAS -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="graficas.php"
@@ -1735,12 +1172,6 @@ Ver Gráficas
 
 </a>
 
-</div>
-
-
-<!-- ELECCIONES -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="elecciones.php"
@@ -1752,21 +1183,10 @@ Gestionar Elecciones
 
 </a>
 
-</div>
-
-
-<!-- ABRIR -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="abrir_eleccion.php"
-class="acceso verde"
-onclick="
-return confirm(
-'¿Desea abrir la elección?'
-);
-">
+class="acceso verde">
 
 <i class="bi bi-unlock-fill"></i>
 
@@ -1774,21 +1194,10 @@ Abrir Elección
 
 </a>
 
-</div>
-
-
-<!-- CERRAR -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="cerrar_eleccion.php"
-class="acceso rojo"
-onclick="
-return confirm(
-'¿Está seguro de cerrar la elección?'
-);
-">
+class="acceso rojo">
 
 <i class="bi bi-lock-fill"></i>
 
@@ -1796,16 +1205,10 @@ Cerrar Elección
 
 </a>
 
-</div>
-
-
-<!-- CERRAR SESIÓN -->
-
-<div class="col-lg-4 col-md-6">
 
 <a
 href="logout.php"
-class="acceso gris">
+class="acceso oscuro">
 
 <i class="bi bi-box-arrow-right"></i>
 
@@ -1813,164 +1216,8 @@ Cerrar Sesión
 
 </a>
 
-</div>
-
 
 </div>
-
-</div>
-
-
-<!-- =========================================
-     INFORMACIÓN DE ELECCIÓN
-========================================= -->
-
-<div class="info-card">
-
-
-<div class="info-titulo">
-
-<i class="bi bi-calendar-check-fill"></i>
-
-Información de la Elección
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Nombre
-
-</strong>
-
-<span>
-
-<?php echo htmlspecialchars(
-    $nombreEleccion
-); ?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Descripción
-
-</strong>
-
-<span>
-
-<?php
-
-echo htmlspecialchars(
-    $descripcionEleccion !== ''
-        ? $descripcionEleccion
-        : 'Sin descripción'
-);
-
-?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Fecha de inicio
-
-</strong>
-
-<span>
-
-<?php
-
-if ($fechaInicio !== '') {
-
-    echo htmlspecialchars(
-        date(
-            "d/m/Y h:i A",
-            strtotime($fechaInicio)
-        )
-    );
-
-} else {
-
-    echo "No definida";
-
-}
-
-?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Fecha de finalización
-
-</strong>
-
-<span>
-
-<?php
-
-if ($fechaFin !== '') {
-
-    echo htmlspecialchars(
-        date(
-            "d/m/Y h:i A",
-            strtotime($fechaFin)
-        )
-    );
-
-} else {
-
-    echo "No definida";
-
-}
-
-?>
-
-</span>
-
-</div>
-
-
-<div class="info-row">
-
-<strong>
-
-Estado
-
-</strong>
-
-<span>
-
-<span class="<?php echo $claseEstado; ?>">
-
-<i class="bi <?php echo $iconoEstado; ?>"></i>
-
-<?php echo $textoEstado; ?>
-
-</span>
-
-</span>
-
-</div>
-
 
 </div>
 
@@ -1987,19 +1234,13 @@ Sistema de Votaciones Escolares v2.0
 
 </strong>
 
+<br><br>
+
+Desarrollado para el proyecto de grado
 
 <br><br>
 
-
-Desarrollado para el Proyecto de Grado
-
-
-<br><br>
-
-
-© <?php echo date("Y"); ?>
-
-Todos los derechos reservados.
+© 2026 Todos los derechos reservados.
 
 </div>
 
@@ -2007,13 +1248,6 @@ Todos los derechos reservados.
 </div>
 
 </div>
-
-
-<!-- BOOTSTRAP JS -->
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
 
 
 </body>

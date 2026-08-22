@@ -1,10 +1,7 @@
+
 <?php
 
 session_start();
-
-/* =========================================
-   VERIFICAR ADMINISTRADOR
-========================================= */
 
 if (
     !isset($_SESSION['id']) ||
@@ -15,107 +12,44 @@ if (
     exit();
 }
 
-
-/* =========================================
-   CONEXIÓN
-========================================= */
-
 include("config/conexion.php");
 
 
-/* =========================================
-   BUSCAR ÚLTIMA ELECCIÓN
-========================================= */
-
 $consulta = $conn->query("
-    SELECT id, nombre, estado
+    SELECT id
     FROM elecciones
     ORDER BY id DESC
     LIMIT 1
 ");
 
 
-if (!$consulta || $consulta->num_rows === 0) {
+if (!$consulta || $consulta->num_rows == 0) {
 
     header("Location: admin.php?error=no_eleccion");
     exit();
-
 }
 
 
 $eleccion = $consulta->fetch_assoc();
 
-$idEleccion = (int)$eleccion['id'];
-$nombreEleccion = $eleccion['nombre'];
+$id = (int)$eleccion['id'];
 
-
-/* =========================================
-   ABRIR ELECCIÓN
-========================================= */
 
 $stmt = $conn->prepare("
     UPDATE elecciones
-    SET estado = 'abierta'
-    WHERE id = ?
+    SET estado='abierta'
+    WHERE id=?
 ");
 
-$stmt->bind_param("i", $idEleccion);
+$stmt->bind_param("i", $id);
 
-
-if ($stmt->execute()) {
-
-    /* =====================================
-       AUDITORÍA
-    ===================================== */
-
-    $tablaAuditoria = $conn->query("
-        SHOW TABLES LIKE 'auditoria'
-    ");
-
-    if ($tablaAuditoria && $tablaAuditoria->num_rows > 0) {
-
-        $usuarioId = (int)$_SESSION['id'];
-
-        $descripcion =
-            "El administrador abrió la elección: "
-            . $nombreEleccion;
-
-        $stmtAuditoria = $conn->prepare("
-            INSERT INTO auditoria
-            (usuario_id, accion, descripcion, fecha)
-            VALUES (?, 'APERTURA_ELECCION', ?, NOW())
-        ");
-
-        if ($stmtAuditoria) {
-
-            $stmtAuditoria->bind_param(
-                "is",
-                $usuarioId,
-                $descripcion
-            );
-
-            $stmtAuditoria->execute();
-
-            $stmtAuditoria->close();
-        }
-    }
-
-
-    $stmt->close();
-
-    header("Location: admin.php?abierta=1");
-    exit();
-
-}
-
-
-/* =========================================
-   ERROR
-========================================= */
+$stmt->execute();
 
 $stmt->close();
 
-header("Location: admin.php?error=abrir");
+
+header("Location: admin.php?abierta=1");
+
 exit();
 
 ?>
