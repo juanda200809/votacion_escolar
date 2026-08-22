@@ -33,11 +33,8 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
-
     $fila = $resultado->fetch_assoc();
-
-    $total_estudiantes =
-        (int)$fila['total'];
+    $total_estudiantes = (int)$fila['total'];
 }
 
 
@@ -50,11 +47,8 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
-
     $fila = $resultado->fetch_assoc();
-
-    $total_jurados =
-        (int)$fila['total'];
+    $total_jurados = (int)$fila['total'];
 }
 
 
@@ -66,11 +60,8 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
-
     $fila = $resultado->fetch_assoc();
-
-    $total_candidatos =
-        (int)$fila['total'];
+    $total_candidatos = (int)$fila['total'];
 }
 
 
@@ -82,11 +73,8 @@ $resultado = $conn->query("
 ");
 
 if ($resultado) {
-
     $fila = $resultado->fetch_assoc();
-
-    $total_votos =
-        (int)$fila['total'];
+    $total_votos = (int)$fila['total'];
 }
 
 
@@ -107,10 +95,284 @@ if (
     $resultado &&
     $resultado->num_rows > 0
 ) {
+    $eleccion_actual = $resultado->fetch_assoc();
+}
 
-    $eleccion_actual =
-        $resultado->fetch_assoc();
 
+/* =========================================================
+   PARTICIPACIÓN
+========================================================= */
+
+$participacion = 0;
+
+if ($total_estudiantes > 0) {
+
+    $participacion =
+        round(
+            ($total_votos / $total_estudiantes) * 100,
+            1
+        );
+
+    if ($participacion > 100) {
+        $participacion = 100;
+    }
+}
+
+
+/* =========================================================
+   ESTUDIANTES QUE TODAVÍA NO HAN VOTADO
+========================================================= */
+
+$sin_votar = $total_estudiantes - $total_votos;
+
+if ($sin_votar < 0) {
+    $sin_votar = 0;
+}
+
+
+/* =========================================================
+   PARTICIPACIÓN POR CURSO
+========================================================= */
+
+$cursos = [];
+
+$sqlCursos = "
+    SELECT
+        u.curso,
+        COUNT(DISTINCT u.id) AS estudiantes,
+        COUNT(DISTINCT v.id_usuario) AS votaron
+
+    FROM usuarios u
+
+    LEFT JOIN votos v
+        ON v.id_usuario = u.id
+
+    WHERE u.rol = 'estudiante'
+
+    GROUP BY u.curso
+
+    ORDER BY u.curso
+";
+
+$resultadoCursos =
+    $conn->query($sqlCursos);
+
+if ($resultadoCursos) {
+
+    while (
+        $fila = $resultadoCursos->fetch_assoc()
+    ) {
+
+        $estudiantesCurso =
+            (int)$fila['estudiantes'];
+
+        $votaronCurso =
+            (int)$fila['votaron'];
+
+        $porcentajeCurso = 0;
+
+        if ($estudiantesCurso > 0) {
+
+            $porcentajeCurso =
+                round(
+                    ($votaronCurso / $estudiantesCurso) * 100,
+                    1
+                );
+
+        }
+
+        $cursos[] = [
+            'curso' =>
+                $fila['curso'],
+            'estudiantes' =>
+                $estudiantesCurso,
+            'votaron' =>
+                $votaronCurso,
+            'porcentaje' =>
+                $porcentajeCurso
+        ];
+    }
+}
+
+
+/* =========================================================
+   RESULTADOS PARCIALES
+========================================================= */
+
+$resultadosParciales = [];
+
+if ($eleccion_actual) {
+
+    $idEleccion =
+        (int)$eleccion_actual['id'];
+
+    $sqlResultados = "
+        SELECT
+            c.nombre,
+            c.apellido,
+            ca.nombre_cargo,
+            COUNT(v.id) AS votos
+
+        FROM candidatos c
+
+        INNER JOIN cargos ca
+            ON ca.id = c.id_cargo
+
+        LEFT JOIN votos v
+            ON v.id_candidato = c.id
+            AND v.id_eleccion = c.id_eleccion
+
+        WHERE c.id_eleccion = $idEleccion
+
+        GROUP BY
+            c.id,
+            c.nombre,
+            c.apellido,
+            ca.nombre_cargo
+
+        ORDER BY
+            ca.id ASC,
+            votos DESC
+    ";
+
+    $resultado =
+        $conn->query($sqlResultados);
+
+    if ($resultado) {
+
+        while (
+            $fila = $resultado->fetch_assoc()
+        ) {
+
+            $resultadosParciales[] =
+                $fila;
+        }
+    }
+}
+
+
+/* =========================================================
+   BUSCADOR
+========================================================= */
+
+$busqueda = "";
+
+$busquedaResultados = [];
+
+if (isset($_GET['buscar'])) {
+
+    $busqueda =
+        trim($_GET['buscar']);
+
+    if ($busqueda !== "") {
+
+        $texto =
+            "%" . $conn->real_escape_string($busqueda) . "%";
+
+
+        /* ESTUDIANTES */
+
+        $sql = "
+            SELECT
+                id,
+                nombre,
+                apellido,
+                documento,
+                curso,
+                'Estudiante' AS tipo
+            FROM usuarios
+            WHERE rol = 'estudiante'
+            AND (
+                nombre LIKE '$texto'
+                OR apellido LIKE '$texto'
+                OR documento LIKE '$texto'
+                OR curso LIKE '$texto'
+            )
+            LIMIT 10
+        ";
+
+        $resultado =
+            $conn->query($sql);
+
+        if ($resultado) {
+
+            while (
+                $fila = $resultado->fetch_assoc()
+            ) {
+
+                $busquedaResultados[] =
+                    $fila;
+            }
+        }
+
+
+        /* JURADOS */
+
+        $sql = "
+            SELECT
+                id,
+                nombre,
+                apellido,
+                documento,
+                curso,
+                'Jurado' AS tipo
+            FROM usuarios
+            WHERE rol = 'jurado'
+            AND (
+                nombre LIKE '$texto'
+                OR apellido LIKE '$texto'
+                OR documento LIKE '$texto'
+            )
+            LIMIT 10
+        ";
+
+        $resultado =
+            $conn->query($sql);
+
+        if ($resultado) {
+
+            while (
+                $fila = $resultado->fetch_assoc()
+            ) {
+
+                $busquedaResultados[] =
+                    $fila;
+            }
+        }
+
+
+        /* CANDIDATOS */
+
+        $sql = "
+            SELECT
+                id,
+                nombre,
+                apellido,
+                curso,
+                id_cargo,
+                'Candidato' AS tipo
+            FROM candidatos
+            WHERE
+                nombre LIKE '$texto'
+                OR apellido LIKE '$texto'
+                OR curso LIKE '$texto'
+            LIMIT 10
+        ";
+
+        $resultado =
+            $conn->query($sql);
+
+        if ($resultado) {
+
+            while (
+                $fila = $resultado->fetch_assoc()
+            ) {
+
+                $busquedaResultados[] =
+                    $fila;
+            }
+        }
+    }
 }
 
 ?>
@@ -133,20 +395,19 @@ if (
 </title>
 
 
-<!-- BOOTSTRAP -->
-
 <link
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
     rel="stylesheet"
 >
 
 
-<!-- ICONOS -->
-
 <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 >
+
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 
 <style>
@@ -175,7 +436,7 @@ body {
 
 
 /* =========================================================
-   BARRA LATERAL
+   SIDEBAR
 ========================================================= */
 
 .sidebar {
@@ -284,7 +545,7 @@ body {
 
 
 /* =========================================================
-   CONTENIDO
+   MAIN
 ========================================================= */
 
 .main {
@@ -296,7 +557,7 @@ body {
 
 
 /* =========================================================
-   ENCABEZADO
+   TOPBAR
 ========================================================= */
 
 .topbar {
@@ -336,7 +597,7 @@ body {
 
 
 /* =========================================================
-   CONTENIDO PRINCIPAL
+   CONTENIDO
 ========================================================= */
 
 .contenido {
@@ -382,6 +643,48 @@ body {
     margin: 0;
 
     font-size: 17px;
+}
+
+
+/* =========================================================
+   BUSCADOR
+========================================================= */
+
+.buscador {
+
+    background: white;
+
+    padding: 20px;
+
+    border-radius: 16px;
+
+    margin-bottom: 25px;
+
+    box-shadow:
+        0 5px 16px
+        rgba(0,0,0,.08);
+}
+
+
+.buscador h3 {
+
+    color: #1459a6;
+
+    margin-bottom: 15px;
+}
+
+
+.form-busqueda {
+
+    display: flex;
+
+    gap: 10px;
+}
+
+
+.form-busqueda input {
+
+    flex: 1;
 }
 
 
@@ -447,7 +750,59 @@ body {
 
 
 /* =========================================================
-   ELECCIÓN ACTUAL
+   TARJETAS
+========================================================= */
+
+.panel-card {
+
+    background: white;
+
+    border-radius: 16px;
+
+    padding: 25px;
+
+    margin-bottom: 25px;
+
+    box-shadow:
+        0 5px 16px
+        rgba(0,0,0,.08);
+}
+
+
+.panel-card h3 {
+
+    color: #1459a6;
+
+    margin-bottom: 20px;
+}
+
+
+/* =========================================================
+   PARTICIPACIÓN
+========================================================= */
+
+.participacion-numero {
+
+    font-size: 45px;
+
+    font-weight: 700;
+
+    color: #1459a6;
+
+    text-align: center;
+}
+
+
+.progress {
+
+    height: 18px;
+
+    border-radius: 20px;
+}
+
+
+/* =========================================================
+   ELECCIÓN
 ========================================================= */
 
 .eleccion {
@@ -505,7 +860,54 @@ body {
 
 
 /* =========================================================
-   ACCESOS RÁPIDOS
+   CONTADOR
+========================================================= */
+
+.contador {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(4, 1fr);
+
+    gap: 10px;
+
+    margin-top: 20px;
+}
+
+
+.tiempo {
+
+    background: #f1f5f9;
+
+    padding: 15px;
+
+    text-align: center;
+
+    border-radius: 10px;
+}
+
+
+.tiempo strong {
+
+    display: block;
+
+    font-size: 25px;
+
+    color: #1459a6;
+}
+
+
+.tiempo span {
+
+    color: #64748b;
+
+    font-size: 12px;
+}
+
+
+/* =========================================================
+   ACCESOS
 ========================================================= */
 
 .titulo-accesos {
@@ -579,10 +981,6 @@ body {
 }
 
 
-/* =========================================================
-   COLORES
-========================================================= */
-
 .azul {
     background: #1976e8;
 }
@@ -616,7 +1014,7 @@ body {
 
 
 /* =========================================================
-   PIE DE PÁGINA
+   PIE
 ========================================================= */
 
 .footer {
@@ -636,36 +1034,10 @@ body {
     border-top:
         1px solid
         #dbe2ea;
-
 }
 
 
-.footer-centro {
-
-    max-width: 700px;
-
-    margin: auto;
-}
-
-
-.footer-centro > div:first-child {
-
-    font-size: 14px;
-
-    font-weight: 500;
-
-}
-
-
-.autor {
-
-    margin-top: 5px;
-
-    color: #64748b;
-}
-
-
-.autor strong {
+.footer strong {
 
     color: #1459a6;
 
@@ -721,12 +1093,15 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .footer {
+    .form-busqueda {
 
-        font-size: 12px;
+        flex-direction: column;
+    }
 
-        padding:
-            22px 10px;
+    .contador {
+
+        grid-template-columns:
+            repeat(2, 1fr);
     }
 
 }
@@ -740,11 +1115,10 @@ body {
 
 
 <!-- =====================================================
-     BARRA LATERAL
+     SIDEBAR
 ===================================================== -->
 
 <aside class="sidebar">
-
 
     <div class="sidebar-header">
 
@@ -753,7 +1127,6 @@ body {
             <i class="bi bi-building"></i>
 
         </div>
-
 
         <h2>
 
@@ -872,6 +1245,15 @@ body {
         <div class="menu-separador"></div>
 
 
+        <a href="descargar_pdf.php">
+
+            <i class="bi bi-file-earmark-pdf-fill"></i>
+
+            Descargar PDF
+
+        </a>
+
+
         <a href="cerrar_sesion.php">
 
             <i class="bi bi-box-arrow-right"></i>
@@ -887,15 +1269,13 @@ body {
 
 
 <!-- =====================================================
-     CONTENIDO
+     MAIN
 ===================================================== -->
 
 <main class="main">
 
 
-    <!-- =================================================
-         HEADER
-    ================================================= -->
+    <!-- HEADER -->
 
     <header class="topbar">
 
@@ -919,14 +1299,12 @@ body {
     </header>
 
 
-    <!-- =================================================
-         CONTENIDO PRINCIPAL
-    ================================================= -->
-
     <section class="contenido">
 
 
-        <!-- BIENVENIDA -->
+        <!-- =================================================
+             BIENVENIDA
+        ================================================= -->
 
         <div class="bienvenida">
 
@@ -936,13 +1314,202 @@ body {
 
             </h2>
 
-
             <p>
 
                 Panel principal de administración
                 del sistema de votaciones escolares.
 
             </p>
+
+        </div>
+
+
+        <!-- =================================================
+             BUSCADOR
+        ================================================= -->
+
+        <div class="buscador">
+
+            <h3>
+
+                <i class="bi bi-search"></i>
+
+                Buscar en el sistema
+
+            </h3>
+
+
+            <form
+                method="GET"
+                class="form-busqueda"
+            >
+
+                <input
+                    type="text"
+                    name="buscar"
+                    class="form-control"
+                    placeholder="Nombre, apellido, documento o curso..."
+                    value="<?php
+                        echo htmlspecialchars(
+                            $busqueda
+                        );
+                    ?>"
+                >
+
+
+                <button
+                    type="submit"
+                    class="btn btn-primary"
+                >
+
+                    <i class="bi bi-search"></i>
+
+                    Buscar
+
+                </button>
+
+
+                <?php if (
+                    $busqueda !== ""
+                ) { ?>
+
+                    <a
+                        href="admin.php"
+                        class="btn btn-secondary"
+                    >
+
+                        Limpiar
+
+                    </a>
+
+                <?php } ?>
+
+            </form>
+
+
+            <?php if (
+                $busqueda !== ""
+            ) { ?>
+
+
+                <div class="table-responsive mt-4">
+
+                    <?php if (
+                        count($busquedaResultados) > 0
+                    ) { ?>
+
+                        <table
+                            class="table table-hover align-middle"
+                        >
+
+                            <thead class="table-light">
+
+                                <tr>
+
+                                    <th>Tipo</th>
+
+                                    <th>Nombre</th>
+
+                                    <th>Documento</th>
+
+                                    <th>Curso</th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody>
+
+                            <?php foreach (
+                                $busquedaResultados
+                                as $persona
+                            ) { ?>
+
+                                <tr>
+
+                                    <td>
+
+                                        <span class="badge bg-primary">
+
+                                            <?php
+
+                                            echo htmlspecialchars(
+                                                $persona['tipo']
+                                            );
+
+                                            ?>
+
+                                        </span>
+
+                                    </td>
+
+
+                                    <td>
+
+                                        <?php
+
+                                        echo htmlspecialchars(
+                                            $persona['nombre']
+                                            . " "
+                                            .
+                                            $persona['apellido']
+                                        );
+
+                                        ?>
+
+                                    </td>
+
+
+                                    <td>
+
+                                        <?php
+
+                                        echo htmlspecialchars(
+                                            $persona['documento']
+                                            ?? '-'
+                                        );
+
+                                        ?>
+
+                                    </td>
+
+
+                                    <td>
+
+                                        <?php
+
+                                        echo htmlspecialchars(
+                                            $persona['curso']
+                                            ?? '-'
+                                        );
+
+                                        ?>
+
+                                    </td>
+
+                                </tr>
+
+                            <?php } ?>
+
+                            </tbody>
+
+                        </table>
+
+                    <?php } else { ?>
+
+                        <div class="alert alert-warning">
+
+                            No se encontraron resultados.
+
+                        </div>
+
+                    <?php } ?>
+
+                </div>
+
+
+            <?php } ?>
 
         </div>
 
@@ -1053,11 +1620,9 @@ body {
              ELECCIÓN ACTUAL
         ================================================= -->
 
-        <?php
-
-        if ($eleccion_actual) {
-
-        ?>
+        <?php if (
+            $eleccion_actual
+        ) { ?>
 
 
         <div class="eleccion">
@@ -1078,15 +1643,11 @@ body {
             </h2>
 
 
-            <?php
-
-            if (
+            <?php if (
                 !empty(
                     $eleccion_actual['descripcion']
                 )
-            ) {
-
-            ?>
+            ) { ?>
 
                 <p>
 
@@ -1100,20 +1661,12 @@ body {
 
                 </p>
 
-            <?php
-
-            }
-
-            ?>
+            <?php } ?>
 
 
-            <div>
+            <p>
 
-                <strong>
-
-                    Inicio:
-
-                </strong>
+                <strong>Inicio:</strong>
 
                 <?php
 
@@ -1127,11 +1680,7 @@ body {
                 &nbsp;&nbsp;|&nbsp;&nbsp;
 
 
-                <strong>
-
-                    Fin:
-
-                </strong>
+                <strong>Fin:</strong>
 
                 <?php
 
@@ -1141,55 +1690,394 @@ body {
 
                 ?>
 
-            </div>
+            </p>
 
 
-            <?php
-
-            if (
+            <?php if (
                 $eleccion_actual['estado']
                 == 'abierta'
-            ) {
-
-            ?>
+            ) { ?>
 
                 <span class="estado abierta">
-
-                    <i class="bi bi-circle-fill"></i>
 
                     Elección abierta
 
                 </span>
 
-            <?php
-
-            } else {
-
-            ?>
+            <?php } else { ?>
 
                 <span class="estado cerrada">
-
-                    <i class="bi bi-circle-fill"></i>
 
                     Elección cerrada
 
                 </span>
 
-            <?php
+            <?php } ?>
 
-            }
 
-            ?>
+            <!-- CONTADOR -->
+
+            <?php if (
+                $eleccion_actual['estado']
+                == 'abierta'
+            ) { ?>
+
+                <div class="contador">
+
+                    <div class="tiempo">
+
+                        <strong id="dias">
+                            00
+                        </strong>
+
+                        <span>
+                            Días
+                        </span>
+
+                    </div>
+
+
+                    <div class="tiempo">
+
+                        <strong id="horas">
+                            00
+                        </strong>
+
+                        <span>
+                            Horas
+                        </span>
+
+                    </div>
+
+
+                    <div class="tiempo">
+
+                        <strong id="minutos">
+                            00
+                        </strong>
+
+                        <span>
+                            Minutos
+                        </span>
+
+                    </div>
+
+
+                    <div class="tiempo">
+
+                        <strong id="segundos">
+                            00
+                        </strong>
+
+                        <span>
+                            Segundos
+                        </span>
+
+                    </div>
+
+                </div>
+
+            <?php } ?>
 
 
         </div>
 
 
-        <?php
+        <?php } ?>
 
-        }
 
-        ?>
+        <!-- =================================================
+             PARTICIPACIÓN
+        ================================================= -->
+
+        <div class="panel-card">
+
+            <h3>
+
+                <i class="bi bi-pie-chart-fill"></i>
+
+                Participación electoral
+
+            </h3>
+
+
+            <div class="participacion-numero">
+
+                <?php
+
+                echo $participacion;
+
+                ?>%
+
+            </div>
+
+
+            <div class="progress mt-3">
+
+                <div
+                    class="progress-bar bg-success"
+                    role="progressbar"
+                    style="width:
+                        <?php
+                        echo $participacion;
+                        ?>%"
+                >
+
+                    <?php
+
+                    echo $total_votos;
+
+                    ?>
+
+                    de
+
+                    <?php
+
+                    echo $total_estudiantes;
+
+                    ?>
+
+                    estudiantes
+
+                </div>
+
+            </div>
+
+
+            <p class="text-muted mt-3 mb-0">
+
+                <?php
+
+                echo $sin_votar;
+
+                ?>
+
+                estudiantes todavía no han votado.
+
+            </p>
+
+        </div>
+
+
+        <!-- =================================================
+             PARTICIPACIÓN POR CURSO
+        ================================================= -->
+
+        <div class="panel-card">
+
+            <h3>
+
+                <i class="bi bi-bar-chart-fill"></i>
+
+                Participación por curso
+
+            </h3>
+
+
+            <canvas
+                id="graficaCursos"
+                height="100"
+            ></canvas>
+
+        </div>
+
+
+        <!-- =================================================
+             RESULTADOS PARCIALES
+        ================================================= -->
+
+        <div class="panel-card">
+
+            <h3>
+
+                <i class="bi bi-trophy-fill"></i>
+
+                Resultados parciales
+
+            </h3>
+
+
+            <?php if (
+                count($resultadosParciales) > 0
+            ) { ?>
+
+
+                <div class="table-responsive">
+
+                    <table
+                        class="table table-hover"
+                    >
+
+                        <thead>
+
+                            <tr>
+
+                                <th>Cargo</th>
+
+                                <th>Candidato</th>
+
+                                <th>Votos</th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody>
+
+                        <?php foreach (
+                            $resultadosParciales
+                            as $resultado
+                        ) { ?>
+
+                            <tr>
+
+                                <td>
+
+                                    <?php
+
+                                    echo htmlspecialchars(
+                                        $resultado['nombre_cargo']
+                                    );
+
+                                    ?>
+
+                                </td>
+
+
+                                <td>
+
+                                    <?php
+
+                                    echo htmlspecialchars(
+                                        $resultado['nombre']
+                                        . " "
+                                        .
+                                        $resultado['apellido']
+                                    );
+
+                                    ?>
+
+                                </td>
+
+
+                                <td>
+
+                                    <strong>
+
+                                        <?php
+
+                                        echo (int)
+                                            $resultado['votos'];
+
+                                        ?>
+
+                                    </strong>
+
+                                </td>
+
+                            </tr>
+
+                        <?php } ?>
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+
+            <?php } else { ?>
+
+                <div class="alert alert-info">
+
+                    Todavía no hay resultados registrados.
+
+                </div>
+
+            <?php } ?>
+
+
+        </div>
+
+
+        <!-- =================================================
+             ALERTAS
+        ================================================= -->
+
+        <div class="panel-card">
+
+            <h3>
+
+                <i class="bi bi-bell-fill"></i>
+
+                Alertas del sistema
+
+            </h3>
+
+
+            <?php if (
+                $sin_votar > 0
+            ) { ?>
+
+                <div class="alert alert-warning">
+
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+
+                    Hay
+
+                    <strong>
+
+                        <?php
+
+                        echo $sin_votar;
+
+                        ?>
+
+                    </strong>
+
+                    estudiantes que todavía no han votado.
+
+                </div>
+
+            <?php } else { ?>
+
+                <div class="alert alert-success">
+
+                    Todos los estudiantes han registrado su voto.
+
+                </div>
+
+            <?php } ?>
+
+
+            <?php if (
+                $eleccion_actual &&
+                $eleccion_actual['estado'] == 'abierta'
+            ) { ?>
+
+                <div class="alert alert-success">
+
+                    <i class="bi bi-check-circle-fill"></i>
+
+                    La elección está actualmente abierta.
+
+                </div>
+
+            <?php } else { ?>
+
+                <div class="alert alert-secondary">
+
+                    <i class="bi bi-lock-fill"></i>
+
+                    No hay una elección abierta actualmente.
+
+                </div>
+
+            <?php } ?>
+
+
+        </div>
 
 
         <!-- =================================================
@@ -1358,50 +2246,270 @@ body {
     </section>
 
 
-    <!-- =================================================
-         PIE DE PÁGINA
-    ================================================= -->
+    <!-- =====================================================
+         FOOTER
+    ===================================================== -->
 
     <footer class="footer">
 
+        <div>
 
-        <div class="footer-centro">
-
-
-            <div>
-
-                Sistema de Votaciones Escolares
-
-            </div>
-
-
-            <div>
-
-                © 2026 — Todos los derechos reservados
-
-            </div>
-
-
-            <div class="autor">
-
-                Elaborado por
-
-                <strong>
-
-                    Juan David Otero Cantor
-
-                </strong>
-
-            </div>
-
+            Sistema de Votaciones Escolares
 
         </div>
 
+
+        <div>
+
+            © 2026 — Todos los derechos reservados
+
+        </div>
+
+
+        <div>
+
+            Elaborado por
+
+            <strong>
+
+                Juan David Otero Cantor
+
+            </strong>
+
+        </div>
 
     </footer>
 
 
 </main>
+
+
+<script>
+
+/* =========================================================
+   CONTADOR DE ELECCIÓN
+========================================================= */
+
+<?php if (
+    $eleccion_actual &&
+    $eleccion_actual['estado'] == 'abierta'
+) { ?>
+
+const fechaFin = new Date(
+    "<?php
+        echo date(
+            'Y-m-d\TH:i:s',
+            strtotime(
+                $eleccion_actual['fecha_fin']
+            )
+        );
+    ?>"
+).getTime();
+
+
+function actualizarContador() {
+
+    const ahora =
+        new Date().getTime();
+
+    const diferencia =
+        fechaFin - ahora;
+
+
+    if (diferencia <= 0) {
+
+        document.getElementById(
+            "dias"
+        ).innerText = "00";
+
+        document.getElementById(
+            "horas"
+        ).innerText = "00";
+
+        document.getElementById(
+            "minutos"
+        ).innerText = "00";
+
+        document.getElementById(
+            "segundos"
+        ).innerText = "00";
+
+        return;
+
+    }
+
+
+    const dias =
+        Math.floor(
+            diferencia /
+            (1000 * 60 * 60 * 24)
+        );
+
+
+    const horas =
+        Math.floor(
+            (diferencia %
+            (1000 * 60 * 60 * 24))
+            /
+            (1000 * 60 * 60)
+        );
+
+
+    const minutos =
+        Math.floor(
+            (diferencia %
+            (1000 * 60 * 60))
+            /
+            (1000 * 60)
+        );
+
+
+    const segundos =
+        Math.floor(
+            (diferencia %
+            (1000 * 60))
+            /
+            1000
+        );
+
+
+    document.getElementById(
+        "dias"
+    ).innerText =
+        String(dias).padStart(2, "0");
+
+
+    document.getElementById(
+        "horas"
+    ).innerText =
+        String(horas).padStart(2, "0");
+
+
+    document.getElementById(
+        "minutos"
+    ).innerText =
+        String(minutos).padStart(2, "0");
+
+
+    document.getElementById(
+        "segundos"
+    ).innerText =
+        String(segundos).padStart(2, "0");
+
+}
+
+
+actualizarContador();
+
+setInterval(
+    actualizarContador,
+    1000
+);
+
+<?php } ?>
+
+
+/* =========================================================
+   GRÁFICA POR CURSO
+========================================================= */
+
+const nombresCursos = [
+
+<?php
+
+foreach ($cursos as $curso) {
+
+    echo "'" .
+        addslashes(
+            $curso['curso']
+        )
+        . "',";
+
+}
+
+?>
+
+];
+
+
+const porcentajesCursos = [
+
+<?php
+
+foreach ($cursos as $curso) {
+
+    echo
+        $curso['porcentaje']
+        . ",";
+
+}
+
+?>
+
+];
+
+
+const canvas =
+    document.getElementById(
+        "graficaCursos"
+    );
+
+
+if (canvas) {
+
+    new Chart(
+        canvas,
+        {
+
+            type: "bar",
+
+            data: {
+
+                labels:
+                    nombresCursos,
+
+                datasets: [
+
+                    {
+
+                        label:
+                            "Participación %",
+
+                        data:
+                            porcentajesCursos,
+
+                        borderWidth: 1
+
+                    }
+
+                ]
+
+            },
+
+            options: {
+
+                responsive: true,
+
+                scales: {
+
+                    y: {
+
+                        beginAtZero: true,
+
+                        max: 100
+
+                    }
+
+                }
+
+            }
+
+        }
+    );
+
+}
+
+</script>
 
 
 </body>
