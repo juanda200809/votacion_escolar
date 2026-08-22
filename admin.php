@@ -2,163 +2,239 @@
 
 session_start();
 
-/* =========================================
-   VERIFICAR ADMINISTRADOR
-========================================= */
-
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
-) {
-    header("Location: login.php");
-    exit();
-}
-
 include("config/conexion.php");
 
 
-/* =========================================
+/* =====================================================
+   VERIFICAR SESIÓN DE ADMINISTRADOR
+===================================================== */
+
+if (!isset($_SESSION['id']) || !isset($_SESSION['rol'])) {
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+/* =====================================================
+   NORMALIZAR ROL
+===================================================== */
+
+$rolSesion = strtolower(
+    trim(
+        (string)$_SESSION['rol']
+    )
+);
+
+
+/* =====================================================
+   COMPROBAR ROL
+===================================================== */
+
+if ($rolSesion !== "administrador") {
+
+    /*
+     * Si la sesión no corresponde a un administrador,
+     * no permitimos entrar al panel.
+     */
+
+    session_unset();
+    session_destroy();
+
+    header("Location: login.php");
+    exit();
+
+}
+
+
+/* =====================================================
    INFORMACIÓN DEL ADMINISTRADOR
-========================================= */
+===================================================== */
 
-$nombreAdministrador = $_SESSION['nombre'] ?? 'Administrador';
+$nombreAdministrador =
+    $_SESSION['nombre'] ?? 'Administrador';
 
 
-/* =========================================
+/* =====================================================
    MENSAJES
-========================================= */
+===================================================== */
 
 $mensaje = "";
 $tipoMensaje = "";
 
+
 if (isset($_GET['cerrada'])) {
 
-    $mensaje = "La elección fue cerrada correctamente.";
+    $mensaje =
+        "La elección fue cerrada correctamente.";
+
     $tipoMensaje = "success";
 
 }
+
 
 if (isset($_GET['abierta'])) {
 
-    $mensaje = "La elección fue abierta correctamente.";
+    $mensaje =
+        "La elección fue abierta correctamente.";
+
     $tipoMensaje = "success";
 
 }
+
 
 if (isset($_GET['error'])) {
 
     $tipoMensaje = "danger";
 
+
     if ($_GET['error'] === "no_eleccion") {
 
-        $mensaje = "No existe ninguna elección registrada.";
+        $mensaje =
+            "No existe ninguna elección registrada.";
 
-    } elseif ($_GET['error'] === "cerrar") {
+    }
 
-        $mensaje = "No se pudo cerrar la elección.";
+    elseif ($_GET['error'] === "cerrar") {
 
-    } elseif ($_GET['error'] === "abrir") {
+        $mensaje =
+            "No se pudo cerrar la elección.";
 
-        $mensaje = "No se pudo abrir la elección.";
+    }
+
+    elseif ($_GET['error'] === "abrir") {
+
+        $mensaje =
+            "No se pudo abrir la elección.";
+
+    }
+
+    elseif ($_GET['error'] === "acceso") {
+
+        $mensaje =
+            "No tiene permisos para realizar esta acción.";
 
     }
 
 }
 
 
-/* =========================================
+/* =====================================================
    CONTAR ESTUDIANTES
-========================================= */
+===================================================== */
 
 $totalEstudiantes = 0;
 
+
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM usuarios
-    WHERE rol = 'estudiante'
+    WHERE LOWER(TRIM(rol)) = 'estudiante'
 ");
+
 
 if ($resultado) {
 
-    $fila = $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
-    $totalEstudiantes = (int)$fila['total'];
+    $totalEstudiantes =
+        (int)$fila['total'];
 
 }
 
 
-/* =========================================
+/* =====================================================
    CONTAR JURADOS
-========================================= */
+===================================================== */
 
 $totalJurados = 0;
 
+
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM usuarios
-    WHERE rol = 'jurado'
+    WHERE LOWER(TRIM(rol)) = 'jurado'
 ");
+
 
 if ($resultado) {
 
-    $fila = $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
-    $totalJurados = (int)$fila['total'];
+    $totalJurados =
+        (int)$fila['total'];
 
 }
 
 
-/* =========================================
+/* =====================================================
    CONTAR CANDIDATOS
-========================================= */
+===================================================== */
 
 $totalCandidatos = 0;
+
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM candidatos
 ");
 
+
 if ($resultado) {
 
-    $fila = $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
-    $totalCandidatos = (int)$fila['total'];
+    $totalCandidatos =
+        (int)$fila['total'];
 
 }
 
 
-/* =========================================
+/* =====================================================
    CONTAR VOTOS
-========================================= */
+===================================================== */
 
 $totalVotos = 0;
+
 
 $resultado = $conn->query("
     SELECT COUNT(*) AS total
     FROM votos
 ");
 
+
 if ($resultado) {
 
-    $fila = $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
-    $totalVotos = (int)$fila['total'];
+    $totalVotos =
+        (int)$fila['total'];
 
 }
 
 
-/* =========================================
+/* =====================================================
    OBTENER ÚLTIMA ELECCIÓN
-========================================= */
+===================================================== */
 
 $idEleccion = 0;
-$nombreEleccion = "Sin elección registrada";
+
+$nombreEleccion =
+    "Sin elección registrada";
+
 $descripcionEleccion = "";
+
 $fechaInicio = "";
+
 $fechaFin = "";
-$estadoEleccion = "cerrada";
+
+$estadoEleccion =
+    "cerrada";
 
 
 $resultado = $conn->query("
@@ -180,54 +256,72 @@ if (
     $resultado->num_rows > 0
 ) {
 
-    $eleccion = $resultado->fetch_assoc();
+    $eleccion =
+        $resultado->fetch_assoc();
+
 
     $idEleccion =
         (int)$eleccion['id'];
 
+
     $nombreEleccion =
         $eleccion['nombre'];
+
 
     $descripcionEleccion =
         $eleccion['descripcion'];
 
+
     $fechaInicio =
         $eleccion['fecha_inicio'];
+
 
     $fechaFin =
         $eleccion['fecha_fin'];
 
+
     $estadoEleccion =
-        $eleccion['estado'];
+        strtolower(
+            trim(
+                $eleccion['estado']
+            )
+        );
 
 }
 
 
-/* =========================================
-   ESTADO
-========================================= */
+/* =====================================================
+   NORMALIZAR ESTADO
+===================================================== */
 
 if ($estadoEleccion === "abierta") {
 
-    $textoEstado = "Abierta";
+    $textoEstado =
+        "Abierta";
 
-    $claseEstado = "estado-abierta";
+    $claseEstado =
+        "estado-abierta";
 
 } else {
 
-    $textoEstado = "Cerrada";
+    $textoEstado =
+        "Cerrada";
 
-    $claseEstado = "estado-cerrada";
+    $claseEstado =
+        "estado-cerrada";
 
 }
 
 
-/* =========================================
+/* =====================================================
    FECHA Y HORA
-========================================= */
+===================================================== */
 
-$fechaActual = date("d/m/Y");
-$horaActual = date("h:i A");
+$fechaActual =
+    date("d/m/Y");
+
+$horaActual =
+    date("h:i A");
 
 ?>
 
@@ -239,26 +333,23 @@ $horaActual = date("h:i A");
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
 
 <title>
 Panel de Administración
 </title>
 
 
-<!-- =========================================
-     BOOTSTRAP
-========================================= -->
+<!-- BOOTSTRAP -->
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
 
-<!-- =========================================
-     ICONOS
-========================================= -->
+<!-- ICONOS -->
 
 <link
 rel="stylesheet"
@@ -267,14 +358,12 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 <style>
 
-/* =========================================
+/* =====================================================
    GENERAL
-========================================= */
+===================================================== */
 
 * {
-
     box-sizing:border-box;
-
 }
 
 
@@ -292,9 +381,9 @@ body {
 }
 
 
-/* =========================================
-   MENÚ LATERAL
-========================================= */
+/* =====================================================
+   SIDEBAR
+===================================================== */
 
 .sidebar {
 
@@ -318,8 +407,6 @@ body {
 
 }
 
-
-/* LOGO */
 
 .logo {
 
@@ -351,8 +438,6 @@ body {
 
 }
 
-
-/* MENÚ */
 
 .menu {
 
@@ -410,9 +495,9 @@ body {
 }
 
 
-/* =========================================
-   CONTENIDO
-========================================= */
+/* =====================================================
+   CONTENIDO PRINCIPAL
+===================================================== */
 
 .main {
 
@@ -423,9 +508,9 @@ body {
 }
 
 
-/* =========================================
-   BARRA SUPERIOR
-========================================= */
+/* =====================================================
+   TOPBAR
+===================================================== */
 
 .topbar {
 
@@ -444,7 +529,8 @@ body {
     padding:0 30px;
 
     box-shadow:
-        0 3px 12px rgba(0,0,0,.15);
+        0 3px 12px
+        rgba(0,0,0,.15);
 
 }
 
@@ -456,9 +542,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    CONTENIDO
-========================================= */
+===================================================== */
 
 .contenido {
 
@@ -467,9 +553,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    TÍTULO
-========================================= */
+===================================================== */
 
 .titulo {
 
@@ -482,9 +568,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    BIENVENIDA
-========================================= */
+===================================================== */
 
 .bienvenida {
 
@@ -522,16 +608,16 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    ESTADÍSTICAS
-========================================= */
+===================================================== */
 
 .estadisticas {
 
     display:grid;
 
     grid-template-columns:
-        repeat(4, 1fr);
+        repeat(4,1fr);
 
     gap:22px;
 
@@ -551,7 +637,8 @@ body {
     text-align:center;
 
     box-shadow:
-        0 6px 18px rgba(0,0,0,.10);
+        0 6px 18px
+        rgba(0,0,0,.10);
 
     transition:.2s;
 
@@ -595,9 +682,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    ESTADO
-========================================= */
+===================================================== */
 
 .estado-card {
 
@@ -610,7 +697,8 @@ body {
     border-radius:18px;
 
     box-shadow:
-        0 6px 18px rgba(0,0,0,.10);
+        0 6px 18px
+        rgba(0,0,0,.10);
 
 }
 
@@ -656,9 +744,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    ACCESOS RÁPIDOS
-========================================= */
+===================================================== */
 
 .accesos {
 
@@ -671,7 +759,8 @@ body {
     border-radius:18px;
 
     box-shadow:
-        0 6px 20px rgba(0,0,0,.10);
+        0 6px 20px
+        rgba(0,0,0,.10);
 
 }
 
@@ -690,7 +779,7 @@ body {
     display:grid;
 
     grid-template-columns:
-        repeat(3, 1fr);
+        repeat(3,1fr);
 
     gap:16px;
 
@@ -736,7 +825,8 @@ body {
     color:white;
 
     box-shadow:
-        0 7px 15px rgba(0,0,0,.15);
+        0 7px 15px
+        rgba(0,0,0,.15);
 
 }
 
@@ -749,8 +839,6 @@ body {
 
 }
 
-
-/* COLORES */
 
 .azul {
 
@@ -803,9 +891,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    INFORMACIÓN ELECCIÓN
-========================================= */
+===================================================== */
 
 .info-eleccion {
 
@@ -818,7 +906,8 @@ body {
     border-radius:18px;
 
     box-shadow:
-        0 6px 18px rgba(0,0,0,.10);
+        0 6px 18px
+        rgba(0,0,0,.10);
 
 }
 
@@ -855,9 +944,9 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    FOOTER
-========================================= */
+===================================================== */
 
 .footer {
 
@@ -872,23 +961,23 @@ body {
 }
 
 
-/* =========================================
+/* =====================================================
    RESPONSIVE
-========================================= */
+===================================================== */
 
 @media(max-width:1000px) {
 
     .estadisticas {
 
         grid-template-columns:
-            repeat(2, 1fr);
+            repeat(2,1fr);
 
     }
 
     .acceso-grid {
 
         grid-template-columns:
-            repeat(2, 1fr);
+            repeat(2,1fr);
 
     }
 
@@ -907,11 +996,13 @@ body {
 
     }
 
+
     .main {
 
         margin-left:0;
 
     }
+
 
     .estadisticas {
 
@@ -919,11 +1010,13 @@ body {
 
     }
 
+
     .acceso-grid {
 
         grid-template-columns:1fr;
 
     }
+
 
     .info-row {
 
@@ -943,9 +1036,9 @@ body {
 <body>
 
 
-<!-- =========================================
+<!-- =====================================================
      MENÚ LATERAL
-========================================= -->
+===================================================== -->
 
 <div class="sidebar">
 
@@ -953,15 +1046,11 @@ body {
 <div class="logo">
 
 <div class="logo-icon">
-
 📦
-
 </div>
 
 <h1>
-
 VOTACIONES
-
 </h1>
 
 </div>
@@ -969,8 +1058,6 @@ VOTACIONES
 
 <div class="menu">
 
-
-<!-- INICIO -->
 
 <a href="admin.php">
 
@@ -981,8 +1068,6 @@ Inicio
 </a>
 
 
-<!-- ESTUDIANTES -->
-
 <a href="estudiantes.php">
 
 <i class="bi bi-people-fill"></i>
@@ -991,8 +1076,6 @@ Estudiantes
 
 </a>
 
-
-<!-- JURADOS -->
 
 <a href="jurados.php">
 
@@ -1003,8 +1086,6 @@ Jurados
 </a>
 
 
-<!-- EXPORTAR -->
-
 <a href="exportar_estudiantes.php">
 
 <i class="bi bi-file-earmark-excel-fill"></i>
@@ -1013,8 +1094,6 @@ Exportar Excel
 
 </a>
 
-
-<!-- IMPORTAR -->
 
 <a href="importar_estudiantes.php">
 
@@ -1025,8 +1104,6 @@ Importar Excel
 </a>
 
 
-<!-- CANDIDATOS -->
-
 <a href="candidatos.php">
 
 <i class="bi bi-person-vcard-fill"></i>
@@ -1035,8 +1112,6 @@ Candidatos
 
 </a>
 
-
-<!-- RESULTADOS -->
 
 <a href="resultados.php">
 
@@ -1047,8 +1122,6 @@ Resultados
 </a>
 
 
-<!-- ELECCIONES -->
-
 <a href="elecciones.php">
 
 <i class="bi bi-calendar-event-fill"></i>
@@ -1057,8 +1130,6 @@ Elecciones
 
 </a>
 
-
-<!-- GRÁFICAS -->
 
 <a href="graficas.php">
 
@@ -1072,15 +1143,9 @@ Gráficas
 <div class="menu-separador"></div>
 
 
-<!-- ABRIR ELECCIÓN -->
-
 <a
 href="abrir_eleccion.php"
-onclick="
-return confirm(
-'¿Desea abrir la elección?'
-);
-">
+onclick="return confirm('¿Desea abrir la elección?');">
 
 <i class="bi bi-unlock-fill"></i>
 
@@ -1089,15 +1154,9 @@ Abrir Elección
 </a>
 
 
-<!-- CERRAR ELECCIÓN -->
-
 <a
 href="cerrar_eleccion.php"
-onclick="
-return confirm(
-'¿Está seguro de cerrar la elección?'
-);
-">
+onclick="return confirm('¿Está seguro de cerrar la elección?');">
 
 <i class="bi bi-lock-fill"></i>
 
@@ -1108,8 +1167,6 @@ Cerrar Elección
 
 <div class="menu-separador"></div>
 
-
-<!-- CERRAR SESIÓN -->
 
 <a href="logout.php">
 
@@ -1125,14 +1182,12 @@ Cerrar Sesión
 </div>
 
 
-<!-- =========================================
-     CONTENIDO PRINCIPAL
-========================================= -->
+<!-- =====================================================
+     PRINCIPAL
+===================================================== -->
 
 <div class="main">
 
-
-<!-- BARRA SUPERIOR -->
 
 <div class="topbar">
 
@@ -1145,6 +1200,8 @@ Cerrar Sesión
 
 <span>
 
+<i class="bi bi-person-fill"></i>
+
 Administrador
 
 </span>
@@ -1155,13 +1212,11 @@ Administrador
 <div class="contenido">
 
 
-<!-- =========================================
-     MENSAJE
-========================================= -->
+<!-- MENSAJE -->
 
 <?php if ($mensaje !== "") { ?>
 
-<div class="alert alert-<?php echo $tipoMensaje; ?>">
+<div class="alert alert-<?php echo htmlspecialchars($tipoMensaje); ?>">
 
 <i class="bi bi-info-circle-fill"></i>
 
@@ -1172,13 +1227,12 @@ Administrador
 <?php } ?>
 
 
-<!-- =========================================
-     BIENVENIDA
-========================================= -->
+<!-- BIENVENIDA -->
 
 <h1 class="titulo">
 
 Bienvenido,
+
 <?php echo htmlspecialchars(
     $nombreAdministrador
 ); ?>
@@ -1195,6 +1249,7 @@ Bienvenido,
 👋 ¡Bienvenido al Panel de Administración!
 
 </h4>
+
 
 <h2>
 
@@ -1228,21 +1283,15 @@ Panel de Administración del Sistema de Votaciones Escolares
 </div>
 
 
-<!-- =========================================
-     ESTADÍSTICAS
-========================================= -->
+<!-- ESTADÍSTICAS -->
 
 <div class="estadisticas">
 
 
-<!-- ESTUDIANTES -->
-
 <div class="stat">
 
 <div class="stat-icon">
-
 👨‍🎓
-
 </div>
 
 <div class="stat-numero">
@@ -1260,14 +1309,10 @@ Estudiantes Registrados
 </div>
 
 
-<!-- JURADOS -->
-
 <div class="stat">
 
 <div class="stat-icon">
-
 ⚖️
-
 </div>
 
 <div class="stat-numero">
@@ -1285,14 +1330,10 @@ Jurados Registrados
 </div>
 
 
-<!-- CANDIDATOS -->
-
 <div class="stat">
 
 <div class="stat-icon">
-
 📦
-
 </div>
 
 <div class="stat-numero">
@@ -1310,14 +1351,10 @@ Candidatos Inscritos
 </div>
 
 
-<!-- VOTOS -->
-
 <div class="stat">
 
 <div class="stat-icon">
-
 ☑️
-
 </div>
 
 <div class="stat-numero">
@@ -1338,9 +1375,7 @@ Votos Registrados
 </div>
 
 
-<!-- =========================================
-     ESTADO ELECCIÓN
-========================================= -->
+<!-- ESTADO -->
 
 <div class="estado-card">
 
@@ -1353,15 +1388,14 @@ Estado de la Elección
 
 </h3>
 
+
 <hr>
 
 
 <div class="info-row">
 
 <strong>
-
 Elección actual
-
 </strong>
 
 <span>
@@ -1378,9 +1412,7 @@ Elección actual
 <div class="info-row">
 
 <strong>
-
 Estado
-
 </strong>
 
 <span>
@@ -1411,24 +1443,18 @@ Estado
 </div>
 
 
-<!-- =========================================
-     ACCESOS RÁPIDOS
-========================================= -->
+<!-- ACCESOS -->
 
 <div class="accesos">
 
 
 <h2>
-
 ⚡ Accesos Rápidos
-
 </h2>
 
 
 <div class="acceso-grid">
 
-
-<!-- ESTUDIANTES -->
 
 <a
 href="estudiantes.php"
@@ -1441,8 +1467,6 @@ Gestionar Estudiantes
 </a>
 
 
-<!-- JURADOS -->
-
 <a
 href="jurados.php"
 class="acceso verde">
@@ -1453,8 +1477,6 @@ Gestionar Jurados
 
 </a>
 
-
-<!-- EXPORTAR -->
 
 <a
 href="exportar_estudiantes.php"
@@ -1467,8 +1489,6 @@ Exportar Excel
 </a>
 
 
-<!-- IMPORTAR -->
-
 <a
 href="importar_estudiantes.php"
 class="acceso verde">
@@ -1479,8 +1499,6 @@ Importar Excel
 
 </a>
 
-
-<!-- CANDIDATOS -->
 
 <a
 href="candidatos.php"
@@ -1493,8 +1511,6 @@ Gestionar Candidatos
 </a>
 
 
-<!-- RESULTADOS -->
-
 <a
 href="resultados.php"
 class="acceso amarillo">
@@ -1505,8 +1521,6 @@ Ver Resultados
 
 </a>
 
-
-<!-- GRÁFICAS -->
 
 <a
 href="graficas.php"
@@ -1519,8 +1533,6 @@ Ver Gráficas
 </a>
 
 
-<!-- ELECCIONES -->
-
 <a
 href="elecciones.php"
 class="acceso azul">
@@ -1532,16 +1544,10 @@ Gestionar Elecciones
 </a>
 
 
-<!-- ABRIR -->
-
 <a
 href="abrir_eleccion.php"
 class="acceso verde"
-onclick="
-return confirm(
-'¿Desea abrir la elección?'
-);
-">
+onclick="return confirm('¿Desea abrir la elección?');">
 
 <i class="bi bi-unlock-fill"></i>
 
@@ -1550,16 +1556,10 @@ Abrir Elección
 </a>
 
 
-<!-- CERRAR -->
-
 <a
 href="cerrar_eleccion.php"
 class="acceso rojo"
-onclick="
-return confirm(
-'¿Está seguro de cerrar la elección?'
-);
-">
+onclick="return confirm('¿Está seguro de cerrar la elección?');">
 
 <i class="bi bi-lock-fill"></i>
 
@@ -1567,8 +1567,6 @@ Cerrar Elección
 
 </a>
 
-
-<!-- CERRAR SESIÓN -->
 
 <a
 href="logout.php"
@@ -1586,9 +1584,7 @@ Cerrar Sesión
 </div>
 
 
-<!-- =========================================
-     INFORMACIÓN DE ELECCIÓN
-========================================= -->
+<!-- INFORMACIÓN ELECCIÓN -->
 
 <div class="info-eleccion">
 
@@ -1605,9 +1601,7 @@ Información de la Elección
 <div class="info-row">
 
 <strong>
-
 Nombre
-
 </strong>
 
 <span>
@@ -1624,9 +1618,7 @@ Nombre
 <div class="info-row">
 
 <strong>
-
 Descripción
-
 </strong>
 
 <span>
@@ -1655,9 +1647,7 @@ if ($descripcionEleccion !== "") {
 <div class="info-row">
 
 <strong>
-
 Fecha de inicio
-
 </strong>
 
 <span>
@@ -1689,9 +1679,7 @@ if ($fechaInicio !== "") {
 <div class="info-row">
 
 <strong>
-
 Fecha de finalización
-
 </strong>
 
 <span>
@@ -1723,9 +1711,7 @@ if ($fechaFin !== "") {
 <div class="info-row">
 
 <strong>
-
 Estado
-
 </strong>
 
 <span>
@@ -1756,9 +1742,7 @@ Estado
 </div>
 
 
-<!-- =========================================
-     FOOTER
-========================================= -->
+<!-- FOOTER -->
 
 <div class="footer">
 
