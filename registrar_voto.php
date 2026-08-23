@@ -1,337 +1,369 @@
 <?php
-
 session_start();
 
 include("config/conexion.php");
 
-
-/* =========================================================
-   VERIFICAR QUE SEA JURADO
-========================================================= */
+/* =====================================================
+   1. VERIFICAR SESIÓN
+===================================================== */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'jurado'
+    $_SESSION['rol'] !== 'estudiante'
 ) {
     header("Location: login.php");
     exit();
 }
 
+$idUsuario = (int) $_SESSION['id'];
 
-/* =========================================================
-   VERIFICAR ESTUDIANTE
-========================================================= */
 
-if (
-    !isset($_SESSION['estudiante_votando_id']) ||
-    (int)$_SESSION['estudiante_votando_id'] <= 0
-) {
-    header("Location: ingresar_estudiante.php");
-    exit();
+/* =====================================================
+   2. OBTENER LA ELECCIÓN
+===================================================== */
+
+/*
+   Primero intentamos obtener la elección enviada
+   por el formulario.
+*/
+
+$idEleccion = 0;
+
+if (isset($_POST['id_eleccion'])) {
+    $idEleccion = (int) $_POST['id_eleccion'];
 }
 
-$idUsuario = (int)$_SESSION['estudiante_votando_id'];
 
+/*
+   Si el formulario no envía id_eleccion,
+   buscamos la elección actualmente abierta.
+*/
 
-/* =========================================================
-   RECIBIR CANDIDATOS
-========================================================= */
+if ($idEleccion <= 0) {
 
-if (
-    !isset($_POST['candidato']) ||
-    !is_array($_POST['candidato'])
-) {
-    die("No se recibieron los candidatos seleccionados.");
+    $sqlEleccion = "
+        SELECT id
+        FROM elecciones
+        WHERE estado = 'abierta'
+        ORDER BY id DESC
+        LIMIT 1
+    ";
+
+    $resultadoEleccion = $conn->query($sqlEleccion);
+
+    if (
+        !$resultadoEleccion ||
+        $resultadoEleccion->num_rows === 0
+    ) {
+        die("No hay ninguna elección abierta.");
+    }
+
+    $eleccion = $resultadoEleccion->fetch_assoc();
+
+    $idEleccion = (int) $eleccion['id'];
 }
 
-$selecciones = $_POST['candidato'];
 
+/* =====================================================
+   3. VERIFICAR QUE LA ELECCIÓN EXISTA Y ESTÉ ABIERTA
+===================================================== */
 
-/* =========================================================
-   OBTENER ELECCIÓN ABIERTA
-========================================================= */
-
-$sql = "
-    SELECT id, nombre
+$stmt = $conn->prepare("
+    SELECT id, nombre, estado
     FROM elecciones
-    WHERE estado = 'abierta'
-    ORDER BY id DESC
+    WHERE id = ?
     LIMIT 1
-";
+");
 
-$resultado = $conn->query($sql);
+$stmt->bind_param("i", $idEleccion);
+$stmt->execute();
 
-if (!$resultado) {
-    die("Error al consultar la elección: " . $conn->error);
-}
+$resultado = $stmt->get_result();
 
-if ($resultado->num_rows == 0) {
-    die("No existe una elección abierta.");
+if ($resultado->num_rows === 0) {
+    die("La elección no existe.");
 }
 
 $eleccion = $resultado->fetch_assoc();
 
-$idEleccion = (int)$eleccion['id'];
+$stmt->close();
 
 
-/* =========================================================
-   COMPROBAR SI EL ESTUDIANTE YA VOTÓ
-========================================================= */
+if ($eleccion['estado'] !== 'abierta') {
+    die("La elección está cerrada.");
+}
 
-$stmt = $conn->prepare("
-    SELECT id
-    FROM votos
-    WHERE id_usuario = ?
-    AND id_eleccion = ?
-    LIMIT 1
-");
 
-$stmt->bind_param(
-    "ii",
-    $idUsuario,
-    $idEleccion
-);
+/* =====================================================
+   4. OBTENER LOS CANDIDATOS SELECCIONADOS
+===================================================== */
 
-$stmt->execute();
+$selecciones = [];
 
-$resultado = $stmt->get_result();
 
-if ($resultado->num_rows > 0) {
+/*
+   CASO 1:
+   El formulario envía:
 
-    $stmt->close();
+   candidato[1] = 8
+   candidato[2] = 10
+*/
 
-    unset(
-        $_SESSION['estudiante_votando_id'],
-        $_SESSION['estudiante_votando_documento'],
-        $_SESSION['estudiante_votando_nombre'],
-        $_SESSION['estudiante_votando_curso']
-    );
+if (
+    isset($_POST['candidato']) &&
+    is_array($_POST['candidato'])
+) {
+
+    foreach ($_POST['candidato'] as $idCargo => $idCandidato) {
+
+        $idCargo = (int) $idCargo;
+        $idCandidato = (int) $idCandidato;
+
+        if ($idCargo > 0 && $idCandidato > 0) {
+
+            $selecciones[$idCargo] = $idCandidato;
+        }
+    }
+}
+
+
+/*
+   CASO 2:
+   Si el formulario envía un candidato individual.
+*/
+
+elseif (isset($_POST['id_candidato'])) {
+
+    $idCandidato = (int) $_POST['id_candidato'];
+
+    if ($idCandidato > 0) {
+
+        /*
+           Buscamos automáticamente el cargo
+           al que pertenece el candidato.
+        */
+
+        $stmt = $conn->prepare("
+            SELECT id_cargo
+            FROM candidatos
+            WHERE id = ?
+            AND id_eleccion = ?
+            LIMIT 1
+        ");
+
+        $stmt->bind_param(
+            "ii",
+            $idCandidato,
+            $idEleccion
+        );
+
+        $stmt->execute();
+
+        $resultado = $stmt->get_result();
+
+        if ($resultado->num_rows === 0) {
+            die("El candidato no pertenece a esta elección.");
+        }
+
+        $datos = $resultado->fetch_assoc();
+
+        $idCargo = (int) $datos['id_cargo'];
+
+        $selecciones[$idCargo] = $idCandidato;
+
+        $stmt->close();
+    }
+}
+
+
+/* =====================================================
+   5. VERIFICAR QUE SE HAYA SELECCIONADO ALGO
+===================================================== */
+
+if (empty($selecciones)) {
 
     die("
         <div style='
             font-family:Arial;
+            max-width:600px;
+            margin:60px auto;
+            padding:30px;
             text-align:center;
-            margin-top:80px;
+            border-radius:15px;
+            background:#ffffff;
+            box-shadow:0 5px 25px rgba(0,0,0,.12);
         '>
 
             <h2 style='color:#dc3545;'>
-                Este estudiante ya votó
+                No se seleccionó ningún candidato
             </h2>
 
             <p>
-                El estudiante ya tiene una votación
-                registrada en esta elección.
+                Debes seleccionar un candidato antes de registrar el voto.
             </p>
 
-            <a href='ingresar_estudiante.php'>
-                Volver
+            <a href='votar.php'
+               style='
+                    display:inline-block;
+                    padding:12px 22px;
+                    background:#1976d2;
+                    color:white;
+                    text-decoration:none;
+                    border-radius:8px;
+               '>
+                Volver a votar
             </a>
 
         </div>
     ");
-}
 
-$stmt->close();
-
-
-/* =========================================================
-   OBTENER CARGOS DE LA ELECCIÓN
-========================================================= */
-
-$cargos = [];
-
-$stmt = $conn->prepare("
-    SELECT
-        c.id,
-        c.nombre_cargo
-
-    FROM cargos c
-
-    INNER JOIN eleccion_cargos ec
-        ON ec.id_cargo = c.id
-
-    WHERE ec.id_eleccion = ?
-
-    ORDER BY c.id ASC
-");
-
-$stmt->bind_param(
-    "i",
-    $idEleccion
-);
-
-$stmt->execute();
-
-$resultado = $stmt->get_result();
-
-while ($fila = $resultado->fetch_assoc()) {
-
-    $idCargo = (int)$fila['id'];
-
-    $cargos[$idCargo] = $fila['nombre_cargo'];
-}
-
-$stmt->close();
-
-
-/* =========================================================
-   VERIFICAR QUE CADA CARGO TENGA SELECCIÓN
-========================================================= */
-
-foreach ($cargos as $idCargo => $nombreCargo) {
-
-    /*
-     * Convertimos explícitamente el ID a entero.
-     */
-
-    $idCargo = (int)$idCargo;
-
-
-    /*
-     * array_key_exists es más seguro para comprobar
-     * que realmente llegó la posición.
-     */
-
-    if (!array_key_exists($idCargo, $selecciones)) {
-
-        die("
-            <div style='
-                font-family:Arial;
-                text-align:center;
-                margin-top:80px;
-            '>
-
-                <h2 style='color:#dc3545;'>
-                    Falta seleccionar un candidato
-                </h2>
-
-                <p>
-                    Debe seleccionar un candidato
-                    para el cargo:
-                    <strong>
-                        " . htmlspecialchars($nombreCargo) . "
-                    </strong>
-                </p>
-
-                <a href='votar_por_jurado.php'>
-                    Volver a la votación
-                </a>
-
-            </div>
-        ");
-    }
 }
 
 
-/* =========================================================
-   INICIAR TRANSACCIÓN
-========================================================= */
+/* =====================================================
+   6. INICIAR TRANSACCIÓN
+===================================================== */
 
 $conn->begin_transaction();
 
-
 try {
 
+    /* =================================================
+       7. PROCESAR CADA CARGO
+    ================================================= */
 
-    /* =====================================================
-       PREPARAR CONSULTA DE CANDIDATO
-    ===================================================== */
+    foreach ($selecciones as $idCargo => $idCandidato) {
 
-    $stmtCandidato = $conn->prepare("
-        SELECT id
-        FROM candidatos
-        WHERE id = ?
-        AND id_eleccion = ?
-        AND id_cargo = ?
-        LIMIT 1
-    ");
+        $idCargo = (int) $idCargo;
+        $idCandidato = (int) $idCandidato;
 
 
-    if (!$stmtCandidato) {
-        throw new Exception(
-            "Error preparando candidato: "
-            . $conn->error
+        /* =============================================
+           VERIFICAR QUE EL CARGO PERTENEZCA
+           A LA ELECCIÓN
+        ============================================= */
+
+        $stmt = $conn->prepare("
+            SELECT id
+            FROM eleccion_cargos
+            WHERE id_eleccion = ?
+            AND id_cargo = ?
+            LIMIT 1
+        ");
+
+        $stmt->bind_param(
+            "ii",
+            $idEleccion,
+            $idCargo
         );
-    }
+
+        $stmt->execute();
+
+        $resultadoCargo = $stmt->get_result();
+
+        if ($resultadoCargo->num_rows === 0) {
+
+            throw new Exception(
+                "El cargo seleccionado no pertenece a esta elección."
+            );
+        }
+
+        $stmt->close();
 
 
-    /* =====================================================
-       PREPARAR INSERT
-    ===================================================== */
+        /* =============================================
+           VERIFICAR CANDIDATO
+        ============================================= */
 
-    $stmtVoto = $conn->prepare("
-        INSERT INTO votos
-        (
-            id_usuario,
-            id_candidato,
-            id_eleccion,
-            fecha_voto,
-            id_cargo
-        )
-        VALUES
-        (
-            ?,
-            ?,
-            ?,
-            NOW(),
-            ?
-        )
-    ");
+        $stmt = $conn->prepare("
+            SELECT
+                id,
+                nombre,
+                apellido,
+                id_cargo,
+                id_eleccion
+            FROM candidatos
+            WHERE id = ?
+            AND id_eleccion = ?
+            AND id_cargo = ?
+            LIMIT 1
+        ");
 
-
-    if (!$stmtVoto) {
-        throw new Exception(
-            "Error preparando voto: "
-            . $conn->error
-        );
-    }
-
-
-    /* =====================================================
-       REGISTRAR CADA VOTO
-    ===================================================== */
-
-    foreach ($cargos as $idCargo => $nombreCargo) {
-
-        $idCargo = (int)$idCargo;
-
-        $idCandidato =
-            (int)$selecciones[$idCargo];
-
-
-        /* ================================================
-           VALIDAR CANDIDATO
-        ================================================ */
-
-        $stmtCandidato->bind_param(
+        $stmt->bind_param(
             "iii",
             $idCandidato,
             $idEleccion,
             $idCargo
         );
 
-        $stmtCandidato->execute();
+        $stmt->execute();
 
-        $resultadoCandidato =
-            $stmtCandidato->get_result();
+        $resultadoCandidato = $stmt->get_result();
 
-
-        if ($resultadoCandidato->num_rows == 0) {
+        if ($resultadoCandidato->num_rows === 0) {
 
             throw new Exception(
-                "El candidato seleccionado para "
-                . $nombreCargo
-                . " no pertenece a esta elección."
+                "El candidato seleccionado no pertenece al cargo correspondiente."
             );
         }
 
+        $candidato = $resultadoCandidato->fetch_assoc();
 
-        /* ================================================
-           INSERTAR VOTO
-        ================================================ */
+        $stmt->close();
 
-        $stmtVoto->bind_param(
+
+        /* =============================================
+           VERIFICAR SI YA VOTÓ
+        ============================================= */
+
+        $stmt = $conn->prepare("
+            SELECT id
+            FROM votos
+            WHERE id_usuario = ?
+            AND id_eleccion = ?
+            AND id_cargo = ?
+            LIMIT 1
+        ");
+
+        $stmt->bind_param(
+            "iii",
+            $idUsuario,
+            $idEleccion,
+            $idCargo
+        );
+
+        $stmt->execute();
+
+        $resultadoVoto = $stmt->get_result();
+
+        if ($resultadoVoto->num_rows > 0) {
+
+            throw new Exception(
+                "Ya registraste tu voto para el cargo: " .
+                $idCargo
+            );
+        }
+
+        $stmt->close();
+
+
+        /* =============================================
+           REGISTRAR VOTO
+        ============================================= */
+
+        $stmt = $conn->prepare("
+            INSERT INTO votos (
+                id_usuario,
+                id_candidato,
+                id_eleccion,
+                fecha_voto,
+                id_cargo
+            )
+            VALUES (?, ?, ?, NOW(), ?)
+        ");
+
+        $stmt->bind_param(
             "iiii",
             $idUsuario,
             $idCandidato,
@@ -340,163 +372,86 @@ try {
         );
 
 
-        if (!$stmtVoto->execute()) {
+        /* =============================================
+           EJECUTAR INSERT
+        ============================================= */
+
+        if (!$stmt->execute()) {
 
             /*
-             * Si la base de datos detecta
-             * un voto duplicado.
-             */
+               Código MySQL 1062:
+               Entrada duplicada por la clave UNIQUE.
+            */
 
-            if ($stmtVoto->errno == 1062) {
+            if ($stmt->errno == 1062) {
 
                 throw new Exception(
-                    "Este estudiante ya tiene un voto registrado."
+                    "Ya registraste tu voto para este cargo."
                 );
             }
 
-
             throw new Exception(
-                "Error registrando el voto: "
-                . $stmtVoto->error
+                "No fue posible registrar el voto."
             );
         }
 
+        $stmt->close();
     }
 
 
-    /* =====================================================
-       CERRAR CONSULTAS
-    ===================================================== */
-
-    $stmtCandidato->close();
-
-    $stmtVoto->close();
-
-
-    /* =====================================================
-       CONFIRMAR
-    ===================================================== */
+    /* =================================================
+       8. CONFIRMAR TODOS LOS VOTOS
+    ================================================= */
 
     $conn->commit();
 
 
-    /* =====================================================
-       ELIMINAR ESTUDIANTE DE LA SESIÓN
-    ===================================================== */
+    /* =================================================
+       9. MENSAJE DE ÉXITO
+    ================================================= */
 
-    unset(
-        $_SESSION['estudiante_votando_id'],
-        $_SESSION['estudiante_votando_documento'],
-        $_SESSION['estudiante_votando_nombre'],
-        $_SESSION['estudiante_votando_curso'],
-        $_SESSION['eleccion_votante_id']
-    );
+    $_SESSION['mensaje'] =
+        "Tu voto fue registrado correctamente.";
+
+    $_SESSION['tipo_mensaje'] = "success";
 
 
-    /* =====================================================
-       MENSAJE
-    ===================================================== */
+    /* =================================================
+       10. REDIRECCIONAR
+    ================================================= */
 
-    $_SESSION['mensaje_jurado'] =
-        "La votación fue registrada correctamente.";
-
-
-    /* =====================================================
-       VOLVER A BUSCAR ESTUDIANTE
-    ===================================================== */
-
-    header(
-        "Location: ingresar_estudiante.php?voto=ok"
-    );
-
+    header("Location: votar.php?ok=1");
     exit();
 
 
-} catch (Exception $e) {
+}
 
 
-    /* =====================================================
-       CANCELAR SI OCURRIÓ UN ERROR
-    ===================================================== */
+/* =====================================================
+   11. SI OCURRE ALGÚN ERROR
+===================================================== */
+
+catch (Exception $e) {
+
+    /*
+       Si algo falla, deshacemos cualquier voto
+       que se haya intentado registrar durante
+       esta operación.
+    */
 
     $conn->rollback();
 
 
-    echo "
-    <!DOCTYPE html>
+    $_SESSION['mensaje'] = $e->getMessage();
 
-    <html lang='es'>
+    $_SESSION['tipo_mensaje'] = "error";
 
-    <head>
 
-        <meta charset='UTF-8'>
+    /*
+       Regresamos a la página de votación.
+    */
 
-        <title>Error de votación</title>
-
-        <style>
-
-            body {
-                font-family: Arial;
-                background: #eef3f9;
-                text-align: center;
-                padding-top: 80px;
-            }
-
-            .caja {
-                background: white;
-                max-width: 600px;
-                margin: auto;
-                padding: 35px;
-                border-radius: 15px;
-                box-shadow: 0 5px 20px
-                    rgba(0,0,0,.1);
-            }
-
-            h2 {
-                color: #dc3545;
-            }
-
-            a {
-                display: inline-block;
-                margin-top: 20px;
-                padding: 12px 20px;
-                background: #1976e8;
-                color: white;
-                text-decoration: none;
-                border-radius: 8px;
-            }
-
-        </style>
-
-    </head>
-
-    <body>
-
-        <div class='caja'>
-
-            <h2>
-                No se pudo registrar la votación
-            </h2>
-
-            <p>
-                "
-                . htmlspecialchars(
-                    $e->getMessage()
-                )
-                . "
-            </p>
-
-            <a href='votar_por_jurado.php'>
-                Volver a la votación
-            </a>
-
-        </div>
-
-    </body>
-
-    </html>
-    ";
-
+    header("Location: votar.php?error=1");
     exit();
 }
 
