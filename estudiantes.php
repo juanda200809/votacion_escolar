@@ -1,6 +1,9 @@
-<?php
+<<?php
 
-session_start();
+require_once "seguridad.php";
+
+evitarCache();
+verificarRol(['administrador']);
 
 if (
     !isset($_SESSION['id']) ||

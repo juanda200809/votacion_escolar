@@ -1,24 +1,15 @@
 <?php
 
-session_start();
-
-include("config/conexion.php");
-
-
 /* =========================================================
-   VERIFICAR ADMINISTRADOR
+   SEGURIDAD
 ========================================================= */
 
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'administrador'
-) {
+require_once "seguridad.php";
 
-    header("Location: login.php");
-    exit();
+evitarCache();
+verificarRol(['administrador']);
 
-}
+require_once "config/conexion.php";
 
 
 /* =========================================================
@@ -27,54 +18,81 @@ if (
 
 if (
     !isset($_GET['id']) ||
-    (int)$_GET['id'] <= 0
+    !is_numeric($_GET['id'])
 ) {
 
-    header("Location: elecciones.php");
+    header("Location: elecciones.php?error=eleccion_invalida");
     exit();
 
 }
 
 
-$id =
-    (int)$_GET['id'];
+$idEleccion = (int)$_GET['id'];
+
+
+if ($idEleccion <= 0) {
+
+    header("Location: elecciones.php?error=eleccion_invalida");
+    exit();
+
+}
+
+
+/* =========================================================
+   VARIABLES
+========================================================= */
+
+$mensaje = "";
+$tipoMensaje = "";
+
+$nombre = "";
+$descripcion = "";
+$fecha_inicio = "";
+$fecha_fin = "";
+
+$seleccionados = [];
 
 
 /* =========================================================
    OBTENER ELECCIÓN
 ========================================================= */
 
-$stmt =
-    $conn->prepare("
+$stmt = $conn->prepare("
 
-        SELECT
-            id,
-            nombre,
-            descripcion,
-            fecha_inicio,
-            fecha_fin,
-            estado
+    SELECT
+        id,
+        nombre,
+        descripcion,
+        fecha_inicio,
+        fecha_fin,
+        estado
 
-        FROM elecciones
+    FROM elecciones
 
-        WHERE id = ?
+    WHERE id = ?
 
-        LIMIT 1
+    LIMIT 1
 
-    ");
+");
+
+
+if (!$stmt) {
+
+    die("No se pudo consultar la elección.");
+
+}
 
 
 $stmt->bind_param(
     "i",
-    $id
+    $idEleccion
 );
 
 
 $stmt->execute();
 
 
-$resultado =
-    $stmt->get_result();
+$resultado = $stmt->get_result();
 
 
 if (
@@ -83,30 +101,135 @@ if (
 
     $stmt->close();
 
-    header("Location: elecciones.php");
+    header("Location: elecciones.php?error=no_encontrada");
+
     exit();
 
 }
 
 
-$eleccion =
-    $resultado->fetch_assoc();
+$eleccion = $resultado->fetch_assoc();
 
 
 $stmt->close();
 
 
 /* =========================================================
-   VARIABLES
+   DATOS INICIALES
 ========================================================= */
 
-$mensaje = "";
+$nombre =
+    $eleccion['nombre'];
 
-$tipoMensaje = "";
+$descripcion =
+    $eleccion['descripcion'];
+
+$fecha_inicio =
+    date(
+        'Y-m-d\TH:i',
+        strtotime(
+            $eleccion['fecha_inicio']
+        )
+    );
+
+$fecha_fin =
+    date(
+        'Y-m-d\TH:i',
+        strtotime(
+            $eleccion['fecha_fin']
+        )
+    );
+
+
+$estadoActual =
+    strtolower(
+        trim(
+            (string)$eleccion['estado']
+        )
+    );
 
 
 /* =========================================================
-   ACTUALIZAR ELECCIÓN
+   CARGOS ACTUALES
+========================================================= */
+
+$stmt = $conn->prepare("
+
+    SELECT
+        id_cargo
+
+    FROM eleccion_cargos
+
+    WHERE id_eleccion = ?
+
+");
+
+
+$stmt->bind_param(
+    "i",
+    $idEleccion
+);
+
+
+$stmt->execute();
+
+
+$resultado = $stmt->get_result();
+
+
+while (
+    $fila = $resultado->fetch_assoc()
+) {
+
+    $seleccionados[] =
+        (int)$fila['id_cargo'];
+
+}
+
+
+$stmt->close();
+
+
+/* =========================================================
+   CONTAR VOTOS
+========================================================= */
+
+$stmt = $conn->prepare("
+
+    SELECT
+        COUNT(*) AS total
+
+    FROM votos
+
+    WHERE id_eleccion = ?
+
+");
+
+
+$stmt->bind_param(
+    "i",
+    $idEleccion
+);
+
+
+$stmt->execute();
+
+
+$resultado = $stmt->get_result();
+
+
+$fila = $resultado->fetch_assoc();
+
+
+$totalVotos =
+    (int)$fila['total'];
+
+
+$stmt->close();
+
+
+/* =========================================================
+   PROCESAR FORMULARIO
 ========================================================= */
 
 if (
@@ -114,6 +237,10 @@ if (
     isset($_POST['actualizar'])
 ) {
 
+
+    /* =====================================================
+       RECIBIR DATOS
+    ===================================================== */
 
     $nombre =
         trim(
@@ -128,18 +255,14 @@ if (
 
 
     $fecha_inicio =
-        $_POST['fecha_inicio'] ?? "";
+        trim(
+            $_POST['fecha_inicio'] ?? ""
+        );
 
 
     $fecha_fin =
-        $_POST['fecha_fin'] ?? "";
-
-
-    $estado =
-        strtolower(
-            trim(
-                $_POST['estado'] ?? "cerrada"
-            )
+        trim(
+            $_POST['fecha_fin'] ?? ""
         );
 
 
@@ -147,19 +270,59 @@ if (
         $_POST['cargos'] ?? [];
 
 
-    /* =====================================================
-       VALIDAR ESTADO
-    ===================================================== */
-
     if (
-        $estado !== "abierta" &&
-        $estado !== "cerrada"
+        !is_array(
+            $cargosSeleccionados
+        )
     ) {
 
-        $estado =
-            "cerrada";
+        $cargosSeleccionados = [];
 
     }
+
+
+    /* =====================================================
+       LIMPIAR CARGOS
+    ===================================================== */
+
+    $cargosLimpios = [];
+
+
+    foreach (
+        $cargosSeleccionados
+        as $cargo
+    ) {
+
+        $idCargo =
+            filter_var(
+                $cargo,
+                FILTER_VALIDATE_INT
+            );
+
+
+        if (
+            $idCargo !== false &&
+            $idCargo > 0
+        ) {
+
+            $cargosLimpios[] =
+                $idCargo;
+
+        }
+
+    }
+
+
+    $cargosLimpios =
+        array_values(
+            array_unique(
+                $cargosLimpios
+            )
+        );
+
+
+    $seleccionados =
+        $cargosLimpios;
 
 
     /* =====================================================
@@ -172,6 +335,19 @@ if (
 
         $mensaje =
             "El nombre de la elección es obligatorio.";
+
+        $tipoMensaje =
+            "danger";
+
+    }
+
+
+    elseif (
+        mb_strlen($nombre) < 3
+    ) {
+
+        $mensaje =
+            "El nombre debe tener al menos 3 caracteres.";
 
         $tipoMensaje =
             "danger";
@@ -201,16 +377,22 @@ if (
 
 
         $inicio =
-            strtotime($fecha_inicio);
+            DateTime::createFromFormat(
+                'Y-m-d\TH:i',
+                $fecha_inicio
+            );
 
 
         $fin =
-            strtotime($fecha_fin);
+            DateTime::createFromFormat(
+                'Y-m-d\TH:i',
+                $fecha_fin
+            );
 
 
         if (
-            $inicio === false ||
-            $fin === false
+            !$inicio ||
+            !$fin
         ) {
 
             $mensaje =
@@ -235,467 +417,471 @@ if (
         }
 
 
-        /* =================================================
-           LIMPIAR CARGOS
-        ================================================= */
+        elseif (
+            count($cargosLimpios) === 0
+        ) {
+
+            $mensaje =
+                "Debe seleccionar al menos un cargo.";
+
+            $tipoMensaje =
+                "danger";
+
+        }
+
 
         else {
 
 
-            if (
-                !is_array(
-                    $cargosSeleccionados
-                )
-            ) {
-
-                $cargosSeleccionados =
-                    [];
-
-            }
-
-
-            $cargosLimpios = [];
-
-
-            foreach (
-                $cargosSeleccionados
-                as $cargo
-            ) {
-
-                $idCargo =
-                    (int)$cargo;
-
-
-                if (
-                    $idCargo > 0
-                ) {
-
-                    $cargosLimpios[] =
-                        $idCargo;
-
-                }
-
-            }
-
-
-            $cargosLimpios =
-                array_values(
-                    array_unique(
-                        $cargosLimpios
-                    )
-                );
-
+            /* =================================================
+               SI YA HAY VOTOS
+            ================================================= */
 
             if (
-                count($cargosLimpios) === 0
+                $totalVotos > 0
             ) {
 
-                $mensaje =
-                    "Debe seleccionar al menos un cargo.";
 
-                $tipoMensaje =
-                    "danger";
-
-            }
+                $cargosOriginales =
+                    $seleccionados;
 
 
-            else {
+                /*
+                 * Recuperamos los cargos reales
+                 * de la elección.
+                 */
 
-
-                /* =================================================
-                   COMPROBAR SI EXISTEN VOTOS
-                ================================================= */
-
-                $stmtVotos =
+                $stmtOriginales =
                     $conn->prepare("
 
                         SELECT
-                            COUNT(*) AS total
+                            id_cargo
 
-                        FROM votos v
+                        FROM eleccion_cargos
 
-                        INNER JOIN candidatos c
-                            ON c.id = v.id_candidato
-
-                        WHERE c.id_eleccion = ?
+                        WHERE id_eleccion = ?
 
                     ");
 
 
-                $stmtVotos->bind_param(
+                $stmtOriginales->bind_param(
                     "i",
-                    $id
+                    $idEleccion
                 );
 
 
-                $stmtVotos->execute();
+                $stmtOriginales->execute();
 
 
-                $resultadoVotos =
-                    $stmtVotos->get_result();
+                $resultadoOriginales =
+                    $stmtOriginales->get_result();
 
 
-                $datosVotos =
-                    $resultadoVotos->fetch_assoc();
+                $cargosOriginales = [];
 
 
-                $totalVotos =
-                    (int)$datosVotos['total'];
-
-
-                $stmtVotos->close();
-
-
-                /* =================================================
-                   SI YA HAY VOTOS
-                ================================================= */
-
-                if (
-                    $totalVotos > 0
+                while (
+                    $filaOriginal =
+                    $resultadoOriginales->fetch_assoc()
                 ) {
 
-
-                    /*
-                     * Para no dañar los votos existentes,
-                     * no permitimos cambiar los cargos
-                     * de una elección que ya tiene votos.
-                     */
-
-                    $stmtCargosActuales =
-                        $conn->prepare("
-
-                            SELECT
-                                id_cargo
-
-                            FROM eleccion_cargos
-
-                            WHERE id_eleccion = ?
-
-                            ORDER BY id_cargo
-
-                        ");
-
-
-                    $stmtCargosActuales->bind_param(
-                        "i",
-                        $id
-                    );
-
-
-                    $stmtCargosActuales->execute();
-
-
-                    $resultadoCargosActuales =
-                        $stmtCargosActuales->get_result();
-
-
-                    $cargosActuales = [];
-
-
-                    while (
-                        $fila =
-                        $resultadoCargosActuales->fetch_assoc()
-                    ) {
-
-                        $cargosActuales[] =
-                            (int)$fila['id_cargo'];
-
-                    }
-
-
-                    $stmtCargosActuales->close();
-
-
-                    sort(
-                        $cargosActuales
-                    );
-
-
-                    $cargosComparar =
-                        $cargosLimpios;
-
-
-                    sort(
-                        $cargosComparar
-                    );
-
-
-                    if (
-                        $cargosActuales !==
-                        $cargosComparar
-                    ) {
-
-                        $mensaje =
-                            "No se pueden cambiar los cargos de una elección que ya tiene votos registrados.";
-
-                        $tipoMensaje =
-                            "danger";
-
-                    }
+                    $cargosOriginales[] =
+                        (int)$filaOriginal['id_cargo'];
 
                 }
 
 
-                /* =================================================
-                   GUARDAR CAMBIOS
-                ================================================= */
+                $stmtOriginales->close();
+
+
+                sort(
+                    $cargosOriginales
+                );
+
+
+                $cargosComparar =
+                    $cargosLimpios;
+
+
+                sort(
+                    $cargosComparar
+                );
+
 
                 if (
-                    $mensaje === ""
+                    $cargosOriginales !==
+                    $cargosComparar
                 ) {
 
+                    $mensaje =
+                        "Esta elección ya tiene votos registrados y sus cargos no pueden modificarse.";
 
-                    $conn->begin_transaction();
+                    $tipoMensaje =
+                        "danger";
 
+                }
 
-                    try {
-
-
-                        /* =========================================
-                           SI SE QUIERE ABRIR
-                        ========================================= */
-
-                        if (
-                            $estado === "abierta"
-                        ) {
+            }
 
 
-                            /*
-                             * Cerramos cualquier otra elección
-                             * abierta antes de abrir esta.
-                             */
+            /* =================================================
+               GUARDAR CAMBIOS
+            ================================================= */
 
-                            $stmtCerrarOtras =
-                                $conn->prepare("
-
-                                    UPDATE elecciones
-
-                                    SET estado = 'cerrada'
-
-                                    WHERE estado = 'abierta'
-
-                                    AND id <> ?
-
-                                ");
+            if (
+                $mensaje === ""
+            ) {
 
 
-                            if (!$stmtCerrarOtras) {
-
-                                throw new Exception(
-                                    "No se pudieron cerrar las demás elecciones abiertas."
-                                );
-
-                            }
+                $conn->begin_transaction();
 
 
-                            $stmtCerrarOtras->bind_param(
-                                "i",
-                                $id
-                            );
+                try {
 
 
-                            $stmtCerrarOtras->execute();
+                    /* =========================================
+                       COMPROBAR NOMBRE DUPLICADO
+                    ========================================= */
+
+                    $stmtDuplicado =
+                        $conn->prepare("
+
+                            SELECT
+                                id
+
+                            FROM elecciones
+
+                            WHERE LOWER(TRIM(nombre))
+                                =
+                                LOWER(TRIM(?))
+
+                            AND id <> ?
+
+                            LIMIT 1
+
+                        ");
 
 
-                            $stmtCerrarOtras->close();
+                    if (!$stmtDuplicado) {
 
-                        }
+                        throw new Exception(
+                            "No se pudo comprobar el nombre."
+                        );
+
+                    }
 
 
-                        /* =========================================
-                           ACTUALIZAR ELECCIÓN
-                        ========================================= */
+                    $stmtDuplicado->bind_param(
+                        "si",
+                        $nombre,
+                        $idEleccion
+                    );
 
-                        $stmtActualizar =
+
+                    $stmtDuplicado->execute();
+
+
+                    $resultadoDuplicado =
+                        $stmtDuplicado->get_result();
+
+
+                    if (
+                        $resultadoDuplicado->num_rows > 0
+                    ) {
+
+                        $stmtDuplicado->close();
+
+                        throw new Exception(
+                            "Ya existe otra elección con ese nombre."
+                        );
+
+                    }
+
+
+                    $stmtDuplicado->close();
+
+
+                    /* =========================================
+                       ACTUALIZAR DATOS
+                    ========================================= */
+
+                    /*
+                     * IMPORTANTE:
+                     * El estado NO se modifica aquí.
+                     *
+                     * Para abrir:
+                     * abrir_eleccion.php
+                     *
+                     * Para cerrar:
+                     * cerrar_eleccion.php
+                     */
+
+                    $stmtActualizar =
+                        $conn->prepare("
+
+                            UPDATE elecciones
+
+                            SET
+                                nombre = ?,
+                                descripcion = ?,
+                                fecha_inicio = ?,
+                                fecha_fin = ?
+
+                            WHERE id = ?
+
+                        ");
+
+
+                    if (!$stmtActualizar) {
+
+                        throw new Exception(
+                            "No se pudo preparar la actualización."
+                        );
+
+                    }
+
+
+                    $stmtActualizar->bind_param(
+
+                        "ssssi",
+
+                        $nombre,
+                        $descripcion,
+                        $fecha_inicio,
+                        $fecha_fin,
+                        $idEleccion
+
+                    );
+
+
+                    if (
+                        !$stmtActualizar->execute()
+                    ) {
+
+                        $stmtActualizar->close();
+
+                        throw new Exception(
+                            "No se pudo actualizar la elección."
+                        );
+
+                    }
+
+
+                    $stmtActualizar->close();
+
+
+                    /* =========================================
+                       ACTUALIZAR CARGOS
+                    ========================================= */
+
+                    /*
+                     * Si ya existen votos no tocamos
+                     * la relación de cargos.
+                     */
+
+                    if (
+                        $totalVotos === 0
+                    ) {
+
+
+                        $stmtEliminar =
                             $conn->prepare("
 
-                                UPDATE elecciones
+                                DELETE FROM eleccion_cargos
 
-                                SET
-                                    nombre = ?,
-                                    descripcion = ?,
-                                    fecha_inicio = ?,
-                                    fecha_fin = ?,
-                                    estado = ?
-
-                                WHERE id = ?
+                                WHERE id_eleccion = ?
 
                             ");
 
 
-                        if (!$stmtActualizar) {
+                        if (!$stmtEliminar) {
 
                             throw new Exception(
-                                "No se pudo preparar la actualización."
+                                "No se pudieron actualizar los cargos."
                             );
 
                         }
 
 
-                        $stmtActualizar->bind_param(
-
-                            "sssssi",
-
-                            $nombre,
-
-                            $descripcion,
-
-                            $fecha_inicio,
-
-                            $fecha_fin,
-
-                            $estado,
-
-                            $id
-
+                        $stmtEliminar->bind_param(
+                            "i",
+                            $idEleccion
                         );
 
 
                         if (
-                            !$stmtActualizar->execute()
+                            !$stmtEliminar->execute()
                         ) {
-
-                            throw new Exception(
-                                "No se pudo actualizar la elección."
-                            );
-
-                        }
-
-
-                        $stmtActualizar->close();
-
-
-                        /* =========================================
-                           ACTUALIZAR CARGOS
-                        ========================================= */
-
-                        /*
-                         * Solo modificamos la relación de cargos
-                         * si la elección todavía no tiene votos.
-                         */
-
-                        if (
-                            $totalVotos === 0
-                        ) {
-
-
-                            $stmtEliminar =
-                                $conn->prepare("
-
-                                    DELETE FROM eleccion_cargos
-
-                                    WHERE id_eleccion = ?
-
-                                ");
-
-
-                            if (!$stmtEliminar) {
-
-                                throw new Exception(
-                                    "No se pudieron actualizar los cargos."
-                                );
-
-                            }
-
-
-                            $stmtEliminar->bind_param(
-                                "i",
-                                $id
-                            );
-
-
-                            $stmtEliminar->execute();
-
 
                             $stmtEliminar->close();
 
-
-                            $stmtCargo =
-                                $conn->prepare("
-
-                                    INSERT INTO eleccion_cargos
-                                    (
-                                        id_eleccion,
-                                        id_cargo
-                                    )
-
-                                    VALUES
-                                    (
-                                        ?,
-                                        ?
-                                    )
-
-                                ");
-
-
-                            if (!$stmtCargo) {
-
-                                throw new Exception(
-                                    "No se pudo preparar la asignación de cargos."
-                                );
-
-                            }
-
-
-                            foreach (
-                                $cargosLimpios
-                                as $idCargo
-                            ) {
-
-                                $stmtCargo->bind_param(
-                                    "ii",
-                                    $id,
-                                    $idCargo
-                                );
-
-
-                                if (
-                                    !$stmtCargo->execute()
-                                ) {
-
-                                    throw new Exception(
-                                        "No se pudo guardar uno de los cargos."
-                                    );
-
-                                }
-
-                            }
-
-
-                            $stmtCargo->close();
+                            throw new Exception(
+                                "No se pudieron eliminar los cargos anteriores."
+                            );
 
                         }
 
 
-                        /* =========================================
-                           CONFIRMAR
-                        ========================================= */
-
-                        $conn->commit();
+                        $stmtEliminar->close();
 
 
-                        header(
-                            "Location: elecciones.php?actualizada=1"
-                        );
+                        /* =================================
+                           INSERTAR NUEVOS CARGOS
+                        ================================= */
 
-                        exit();
+                        $stmtCargo =
+                            $conn->prepare("
+
+                                INSERT INTO eleccion_cargos
+                                (
+                                    id_eleccion,
+                                    id_cargo
+                                )
+
+                                VALUES
+                                (
+                                    ?,
+                                    ?
+                                )
+
+                            ");
 
 
-                    } catch (
-                        Exception $e
-                    ) {
+                        if (!$stmtCargo) {
+
+                            throw new Exception(
+                                "No se pudo preparar la asignación de cargos."
+                            );
+
+                        }
 
 
-                        $conn->rollback();
+                        foreach (
+                            $cargosLimpios
+                            as $idCargo
+                        ) {
 
 
-                        $mensaje =
-                            $e->getMessage();
+                            /* =============================
+                               VERIFICAR CARGO
+                            ============================= */
 
-                        $tipoMensaje =
-                            "danger";
+                            $stmtExiste =
+                                $conn->prepare("
+
+                                    SELECT
+                                        id
+
+                                    FROM cargos
+
+                                    WHERE id = ?
+
+                                    LIMIT 1
+
+                                ");
+
+
+                            if (!$stmtExiste) {
+
+                                throw new Exception(
+                                    "No se pudo validar un cargo."
+                                );
+
+                            }
+
+
+                            $stmtExiste->bind_param(
+                                "i",
+                                $idCargo
+                            );
+
+
+                            $stmtExiste->execute();
+
+
+                            $resultadoCargo =
+                                $stmtExiste->get_result();
+
+
+                            if (
+                                $resultadoCargo->num_rows === 0
+                            ) {
+
+                                $stmtExiste->close();
+
+                                throw new Exception(
+                                    "Uno de los cargos seleccionados no existe."
+                                );
+
+                            }
+
+
+                            $stmtExiste->close();
+
+
+                            /* =============================
+                               INSERTAR
+                            ============================= */
+
+                            $stmtCargo->bind_param(
+                                "ii",
+                                $idEleccion,
+                                $idCargo
+                            );
+
+
+                            if (
+                                !$stmtCargo->execute()
+                            ) {
+
+                                throw new Exception(
+                                    "No se pudo asignar uno de los cargos."
+                                );
+
+                            }
+
+                        }
+
+
+                        $stmtCargo->close();
 
                     }
+
+
+                    /* =========================================
+                       CONFIRMAR
+                    ========================================= */
+
+                    $conn->commit();
+
+
+                    header(
+                        "Location: elecciones.php?actualizada=1"
+                    );
+
+                    exit();
+
+
+                } catch (
+                    Throwable $e
+                ) {
+
+
+                    $conn->rollback();
+
+
+                    error_log(
+                        "Error editar_eleccion.php: "
+                        .
+                        $e->getMessage()
+                    );
+
+
+                    $mensaje =
+                        $e->getMessage();
+
+                    $tipoMensaje =
+                        "danger";
 
                 }
 
@@ -705,32 +891,11 @@ if (
 
     }
 
-
-    /*
-     * Mostrar nuevamente los datos introducidos
-     * si hubo algún error.
-     */
-
-    $eleccion['nombre'] =
-        $nombre;
-
-    $eleccion['descripcion'] =
-        $descripcion;
-
-    $eleccion['fecha_inicio'] =
-        $fecha_inicio;
-
-    $eleccion['fecha_fin'] =
-        $fecha_fin;
-
-    $eleccion['estado'] =
-        $estado;
-
 }
 
 
 /* =========================================================
-   CARGOS DISPONIBLES
+   LISTAR CARGOS
 ========================================================= */
 
 $cargos =
@@ -751,94 +916,11 @@ if (!$cargos) {
 
     die(
         "Error al consultar los cargos: "
-        . htmlspecialchars(
+        .
+        htmlspecialchars(
             $conn->error
         )
     );
-
-}
-
-
-/* =========================================================
-   CARGOS ACTUALMENTE SELECCIONADOS
-========================================================= */
-
-$seleccionados = [];
-
-
-$stmtRelacion =
-    $conn->prepare("
-
-        SELECT
-            id_cargo
-
-        FROM eleccion_cargos
-
-        WHERE id_eleccion = ?
-
-    ");
-
-
-$stmtRelacion->bind_param(
-    "i",
-    $id
-);
-
-
-$stmtRelacion->execute();
-
-
-$resultadoRelacion =
-    $stmtRelacion->get_result();
-
-
-while (
-    $fila =
-    $resultadoRelacion->fetch_assoc()
-) {
-
-    $seleccionados[] =
-        (int)$fila['id_cargo'];
-
-}
-
-
-$stmtRelacion->close();
-
-
-/* =========================================================
-   SI EL FORMULARIO FUE ENVIADO Y HUBO ERROR
-========================================================= */
-
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['actualizar']) &&
-    isset($_POST['cargos']) &&
-    is_array($_POST['cargos'])
-) {
-
-    $seleccionados = [];
-
-
-    foreach (
-        $_POST['cargos']
-        as $cargo
-    ) {
-
-        $idCargo =
-            (int)$cargo;
-
-
-        if (
-            $idCargo > 0
-        ) {
-
-            $seleccionados[] =
-                $idCargo;
-
-        }
-
-    }
 
 }
 
@@ -857,9 +939,7 @@ name="viewport"
 content="width=device-width, initial-scale=1">
 
 <title>
-
 Editar Elección
-
 </title>
 
 
@@ -875,9 +955,16 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 <style>
 
+* {
+    box-sizing: border-box;
+}
+
+
 body {
 
-    background:#eef3f9;
+    margin: 0;
+
+    background: #eef3f9;
 
     font-family:
         Arial,
@@ -889,22 +976,22 @@ body {
 
 .contenedor {
 
-    max-width:900px;
+    max-width: 950px;
 
-    margin:auto;
+    margin: auto;
 
-    padding:35px 20px;
+    padding: 35px 20px;
 
 }
 
 
 .card {
 
-    border:none;
+    border: none;
 
-    border-radius:20px;
+    border-radius: 20px;
 
-    overflow:hidden;
+    overflow: hidden;
 
     box-shadow:
         0 8px 25px
@@ -915,95 +1002,122 @@ body {
 
 .card-header {
 
-    background:#0d6efd;
+    background: #0d6efd;
 
-    color:white;
+    color: white;
 
-    padding:22px 25px;
+    padding: 25px;
 
 }
 
 
 .card-header h2 {
 
-    margin:0;
+    margin: 0;
 
-    font-weight:bold;
+    font-weight: bold;
 
 }
 
 
 .card-body {
 
-    padding:30px;
+    padding: 30px;
 
 }
 
 
 .form-label {
 
-    font-weight:bold;
+    font-weight: bold;
+
+    color: #333;
 
 }
 
 
-.form-control,
-.form-select {
+.form-control {
 
-    min-height:45px;
+    min-height: 45px;
 
-    border-radius:9px;
+    border-radius: 9px;
+
+}
+
+
+textarea.form-control {
+
+    min-height: 110px;
 
 }
 
 
 .cargos {
 
-    background:#f5f8fc;
+    background: #f5f8fc;
 
-    border-radius:12px;
+    border-radius: 12px;
 
-    padding:20px;
+    padding: 20px;
 
 }
 
 
 .cargo {
 
-    background:white;
+    background: white;
 
-    border:1px solid #dee2e6;
+    border: 1px solid #dee2e6;
 
-    border-radius:9px;
+    border-radius: 9px;
 
-    padding:12px 15px;
+    padding: 13px 15px;
 
-    margin-bottom:10px;
+    margin-bottom: 10px;
+
+    transition: .2s;
 
 }
 
 
 .cargo:hover {
 
-    background:#eef5ff;
+    background: #eef5ff;
+
+    border-color: #1473ed;
+
+}
+
+
+.cargo:last-child {
+
+    margin-bottom: 0;
 
 }
 
 
 .info {
 
-    background:#cff4fc;
+    background: #cff4fc;
 
-    border:1px solid #b6effb;
+    border: 1px solid #b6effb;
 
-    color:#055160;
+    color: #055160;
 
-    border-radius:10px;
+    border-radius: 10px;
 
-    padding:15px;
+    padding: 15px;
 
 }
 
+
+.btn {
+
+    border-radius: 9px;
+
+    font-weight: bold;
+
+}
 
 </style>
 
@@ -1037,7 +1151,7 @@ Editar Elección
 
 <p class="mb-0 mt-1">
 
-Modifica la información de esta elección.
+Modifica la información de la elección.
 
 </p>
 
@@ -1057,16 +1171,28 @@ Modifica la información de esta elección.
 ) { ?>
 
 
-<div class="alert alert-<?php echo htmlspecialchars(
+<div
+class="alert alert-<?php echo htmlspecialchars(
     $tipoMensaje
-); ?>">
+); ?> alert-dismissible fade show">
 
 
-<i class="bi bi-exclamation-triangle-fill"></i>
+<i class="bi bi-info-circle-fill"></i>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $mensaje
-); ?>
+);
+
+?>
+
+
+<button
+type="button"
+class="btn-close"
+data-bs-dismiss="alert">
+</button>
 
 
 </div>
@@ -1076,57 +1202,38 @@ Modifica la información de esta elección.
 
 
 <!-- =====================================================
-     AVISO SI YA HAY VOTOS
+     INFORMACIÓN
 ===================================================== -->
 
-<?php
-
-/* Obtener cantidad de votos */
-
-$stmtAviso =
-    $conn->prepare("
-
-        SELECT
-            COUNT(*) AS total
-
-        FROM votos v
-
-        INNER JOIN candidatos c
-            ON c.id = v.id_candidato
-
-        WHERE c.id_eleccion = ?
-
-    ");
+<div class="info mb-4">
 
 
-$stmtAviso->bind_param(
-    "i",
-    $id
-);
+<i class="bi bi-info-circle-fill"></i>
 
 
-$stmtAviso->execute();
+<strong>
+Importante:
+</strong>
 
 
-$resultadoAviso =
-    $stmtAviso->get_result();
+Desde esta pantalla se modifica la información
+de la elección.
 
 
-$datosAviso =
-    $resultadoAviso->fetch_assoc();
+El estado se controla mediante las acciones
+<strong>Abrir</strong> y <strong>Cerrar</strong>
+de Gestión de Elecciones.
 
 
-$totalVotosAviso =
-    (int)$datosAviso['total'];
+</div>
 
 
-$stmtAviso->close();
-
-?>
-
+<!-- =====================================================
+     AVISO DE VOTOS
+===================================================== -->
 
 <?php if (
-    $totalVotosAviso > 0
+    $totalVotos > 0
 ) { ?>
 
 
@@ -1139,7 +1246,7 @@ $stmtAviso->close();
 <strong>
 
 Esta elección ya tiene
-<?php echo $totalVotosAviso; ?>
+<?php echo $totalVotos; ?>
 voto(s).
 
 </strong>
@@ -1148,9 +1255,8 @@ voto(s).
 <br>
 
 
-Los cargos no pueden modificarse porque
-podrían afectar la relación con los votos
-existentes.
+Los cargos están bloqueados para proteger
+la integridad de los votos registrados.
 
 
 </div>
@@ -1182,7 +1288,7 @@ class="form-label">
 
 <i class="bi bi-card-heading"></i>
 
-Nombre
+Nombre de la elección
 
 
 </label>
@@ -1198,11 +1304,17 @@ name="nombre"
 
 class="form-control"
 
+maxlength="150"
+
 required
 
-value="<?php echo htmlspecialchars(
-    $eleccion['nombre']
-); ?>">
+value="<?php
+
+echo htmlspecialchars(
+    $nombre
+);
+
+?>">
 
 
 </div>
@@ -1236,9 +1348,15 @@ name="descripcion"
 
 class="form-control"
 
-rows="4"><?php echo htmlspecialchars(
-    $eleccion['descripcion']
-); ?></textarea>
+maxlength="500"
+
+placeholder="Descripción de la elección..."><?php
+
+echo htmlspecialchars(
+    $descripcion
+);
+
+?></textarea>
 
 
 </div>
@@ -1279,12 +1397,13 @@ class="form-control"
 
 required
 
-value="<?php echo date(
-    'Y-m-d\TH:i',
-    strtotime(
-        $eleccion['fecha_inicio']
-    )
-); ?>">
+value="<?php
+
+echo htmlspecialchars(
+    $fecha_inicio
+);
+
+?>">
 
 
 </div>
@@ -1319,12 +1438,13 @@ class="form-control"
 
 required
 
-value="<?php echo date(
-    'Y-m-d\TH:i',
-    strtotime(
-        $eleccion['fecha_fin']
-    )
-); ?>">
+value="<?php
+
+echo htmlspecialchars(
+    $fecha_fin
+);
+
+?>">
 
 
 </div>
@@ -1334,83 +1454,50 @@ value="<?php echo date(
 
 
 <!-- =====================================================
-     ESTADO
+     ESTADO ACTUAL
 ===================================================== -->
 
 <div class="mb-4">
 
 
-<label
-for="estado"
-class="form-label">
-
+<label class="form-label">
 
 <i class="bi bi-toggle-on"></i>
 
-Estado
-
+Estado actual
 
 </label>
 
 
-<select
-
-name="estado"
-
-id="estado"
-
-class="form-select">
+<div>
 
 
-<option
-
-value="cerrada"
-
-<?php
-
-if (
-    $eleccion['estado']
-    === 'cerrada'
-) {
-
-    echo 'selected';
-
-}
-
-?>
-
->
-
-🔴 Cerrada
-
-</option>
+<?php if (
+    $estadoActual === 'abierta'
+) { ?>
 
 
-<option
+<span class="badge bg-success p-2">
 
-value="abierta"
+🟢 Elección abierta
 
-<?php
-
-if (
-    $eleccion['estado']
-    === 'abierta'
-) {
-
-    echo 'selected';
-
-}
-
-?>
-
->
-
-🟢 Abierta
-
-</option>
+</span>
 
 
-</select>
+<?php } else { ?>
+
+
+<span class="badge bg-secondary p-2">
+
+⚪ Elección cerrada
+
+</span>
+
+
+<?php } ?>
+
+
+</div>
 
 
 </div>
@@ -1428,10 +1515,37 @@ if (
 
 <i class="bi bi-person-badge-fill"></i>
 
-Cargos
+Cargos de la elección
 
 
 </h4>
+
+
+<?php if (
+    $totalVotos > 0
+) { ?>
+
+
+<p class="text-muted">
+
+Los cargos están bloqueados porque ya existen
+votos registrados.
+
+</p>
+
+
+<?php } else { ?>
+
+
+<p class="text-muted">
+
+Selecciona los cargos que estarán disponibles
+en esta elección.
+
+</p>
+
+
+<?php } ?>
 
 
 <div class="cargos">
@@ -1445,7 +1559,11 @@ Cargos
 <div class="alert alert-warning mb-0">
 
 
+<i class="bi bi-exclamation-triangle-fill"></i>
+
+
 No existen cargos registrados.
+
 
 </div>
 
@@ -1473,16 +1591,25 @@ class="form-check-input"
 
 name="cargos[]"
 
-value="<?php echo (int)$cargo['id']; ?>"
+value="<?php
 
-id="cargo<?php echo (int)$cargo['id']; ?>"
+echo (int)$cargo['id'];
+
+?>"
+
+id="cargo_<?php
+
+echo (int)$cargo['id'];
+
+?>"
 
 <?php
 
 if (
     in_array(
         (int)$cargo['id'],
-        $seleccionados
+        $seleccionados,
+        true
     )
 ) {
 
@@ -1494,13 +1621,8 @@ if (
 
 <?php
 
-/*
- * Si existen votos, no permitimos
- * cambiar los cargos.
- */
-
 if (
-    $totalVotosAviso > 0
+    $totalVotos > 0
 ) {
 
     echo " disabled";
@@ -1516,14 +1638,22 @@ if (
 
 class="form-check-label"
 
-for="cargo<?php echo (int)$cargo['id']; ?>">
+for="cargo_<?php
+
+echo (int)$cargo['id'];
+
+?>">
 
 
 <strong>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $cargo['nombre_cargo']
-); ?>
+);
+
+?>
 
 </strong>
 

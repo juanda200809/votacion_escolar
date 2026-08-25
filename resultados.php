@@ -1,46 +1,22 @@
 <?php
 
-session_start();
+require_once "seguridad.php";
 
-include("config/conexion.php");
+evitarCache();
+verificarRol(['administrador', 'jurado']);
 
-
-/* =========================================================
-   VERIFICAR SESIÓN
-========================================================= */
-
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol'])
-) {
-    header("Location: login.php");
-    exit();
-}
+require_once "config/conexion.php";
 
 
 /* =========================================================
-   VERIFICAR ROL
-   ADMINISTRADOR Y JURADO PUEDEN VER RESULTADOS
+   USUARIO ACTUAL
 ========================================================= */
 
 $rol = strtolower(
     trim(
-        (string)$_SESSION['rol']
+        (string)($_SESSION['rol'] ?? '')
     )
 );
-
-if (
-    $rol !== "administrador" &&
-    $rol !== "jurado"
-) {
-    header("Location: login.php");
-    exit();
-}
-
-
-/* =========================================================
-   NOMBRE DEL USUARIO
-========================================================= */
 
 $nombreUsuario =
     $_SESSION['nombre'] ?? 'Usuario';
@@ -76,8 +52,7 @@ if ($resultadoElecciones) {
         $resultadoElecciones->fetch_assoc()
     ) {
 
-        $elecciones[] =
-            $fila;
+        $elecciones[] = $fila;
 
     }
 
@@ -95,8 +70,8 @@ $idEleccion =
 
 
 /* =========================================================
-   SI NO SE SELECCIONA ELECCIÓN,
-   TOMAR LA ÚLTIMA
+   SI NO SE SELECCIONÓ,
+   TOMAR LA ÚLTIMA ELECCIÓN
 ========================================================= */
 
 if (
@@ -119,25 +94,23 @@ $datosEleccion = null;
 
 if ($idEleccion > 0) {
 
-    $stmt =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            SELECT
-                id,
-                nombre,
-                descripcion,
-                fecha_inicio,
-                fecha_fin,
-                estado
+        SELECT
+            id,
+            nombre,
+            descripcion,
+            fecha_inicio,
+            fecha_fin,
+            estado
 
-            FROM elecciones
+        FROM elecciones
 
-            WHERE id = ?
+        WHERE id = ?
 
-            LIMIT 1
+        LIMIT 1
 
-        ");
-
+    ");
 
     if ($stmt) {
 
@@ -150,7 +123,6 @@ if ($idEleccion > 0) {
 
         $resultado =
             $stmt->get_result();
-
 
         if (
             $resultado->num_rows > 0
@@ -161,7 +133,6 @@ if ($idEleccion > 0) {
 
         }
 
-
         $stmt->close();
 
     }
@@ -170,35 +141,30 @@ if ($idEleccion > 0) {
 
 
 /* =========================================================
-   CARGOS DE LA ELECCIÓN
+   CARGOS
 ========================================================= */
 
 $cargos = [];
 
 
-if (
-    $datosEleccion
-) {
+if ($datosEleccion) {
 
-    $stmt =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            SELECT
-                c.id,
-                c.nombre_cargo
+        SELECT
+            c.id,
+            c.nombre_cargo
 
-            FROM cargos c
+        FROM cargos c
 
-            INNER JOIN eleccion_cargos ec
+        INNER JOIN eleccion_cargos ec
+            ON ec.id_cargo = c.id
 
-                ON ec.id_cargo = c.id
+        WHERE ec.id_eleccion = ?
 
-            WHERE ec.id_eleccion = ?
+        ORDER BY c.id ASC
 
-            ORDER BY c.id ASC
-
-        ");
-
+    ");
 
     if ($stmt) {
 
@@ -212,17 +178,14 @@ if (
         $resultado =
             $stmt->get_result();
 
-
         while (
             $cargo =
             $resultado->fetch_assoc()
         ) {
 
-            $cargos[] =
-                $cargo;
+            $cargos[] = $cargo;
 
         }
-
 
         $stmt->close();
 
@@ -247,22 +210,18 @@ $totalCargos =
    TOTAL CANDIDATOS
 ========================================================= */
 
-if (
-    $datosEleccion
-) {
+if ($datosEleccion) {
 
-    $stmt =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            SELECT
-                COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
-            FROM candidatos
+        FROM candidatos
 
-            WHERE id_eleccion = ?
+        WHERE id_eleccion = ?
 
-        ");
-
+    ");
 
     if ($stmt) {
 
@@ -291,38 +250,21 @@ if (
 
 /* =========================================================
    TOTAL VOTOS
-   IMPORTANTE:
-   votos NO TIENE id_eleccion.
-
-   Se relaciona así:
-
-   votos.id_candidato
-        ↓
-   candidatos.id
-        ↓
-   candidatos.id_eleccion
+   AHORA SE UTILIZA DIRECTAMENTE id_eleccion
 ========================================================= */
 
-if (
-    $datosEleccion
-) {
+if ($datosEleccion) {
 
-    $stmt =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            SELECT
-                COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
-            FROM votos v
+        FROM votos
 
-            INNER JOIN candidatos c
+        WHERE id_eleccion = ?
 
-                ON c.id = v.id_candidato
-
-            WHERE c.id_eleccion = ?
-
-        ");
-
+    ");
 
     if ($stmt) {
 
@@ -367,18 +309,10 @@ Resultados Oficiales
 </title>
 
 
-<!-- =====================================================
-     BOOTSTRAP
-===================================================== -->
-
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 rel="stylesheet">
 
-
-<!-- =====================================================
-     ICONOS
-===================================================== -->
 
 <link
 rel="stylesheet"
@@ -387,14 +321,9 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 
 <style>
 
-/* =========================================================
-   GENERAL
-========================================================= */
-
 * {
     box-sizing: border-box;
 }
-
 
 body {
 
@@ -451,9 +380,7 @@ body {
 
 
 .logo-icon {
-
     font-size: 48px;
-
 }
 
 
@@ -562,10 +489,6 @@ body {
 }
 
 
-/* =========================================================
-   TOPBAR
-========================================================= */
-
 .topbar {
 
     height: 70px;
@@ -597,10 +520,6 @@ body {
 
 }
 
-
-/* =========================================================
-   CONTENIDO
-========================================================= */
 
 .contenido {
 
@@ -664,7 +583,7 @@ body {
 
 
 /* =========================================================
-   INFORMACIÓN ELECCIÓN
+   INFORMACIÓN
 ========================================================= */
 
 .info-eleccion {
@@ -920,6 +839,27 @@ body {
 
 
 /* =========================================================
+   EMPATE
+========================================================= */
+
+.badge-empate {
+
+    background: #dc3545;
+
+    color: white;
+
+    padding: 7px 10px;
+
+    border-radius: 6px;
+
+    font-size: 12px;
+
+    font-weight: bold;
+
+}
+
+
+/* =========================================================
    RESPONSIVE
 ========================================================= */
 
@@ -980,16 +920,12 @@ body {
 <div class="logo">
 
 <div class="logo-icon">
-
 🗳️
-
 </div>
 
 
 <h1>
-
 VOTACIONES
-
 </h1>
 
 
@@ -997,9 +933,7 @@ VOTACIONES
 
 <?php
 
-if (
-    $rol === "jurado"
-) {
+if ($rol === "jurado") {
 
     echo "Panel del Jurado";
 
@@ -1019,13 +953,7 @@ if (
 <div class="menu">
 
 
-<!-- =====================================================
-     INICIO
-========================================================= -->
-
-<?php if (
-    $rol === "administrador"
-) { ?>
+<?php if ($rol === "administrador") { ?>
 
 <a href="admin.php">
 
@@ -1048,13 +976,7 @@ Inicio
 <?php } ?>
 
 
-<!-- =====================================================
-     INGRESAR ESTUDIANTE
-========================================================= -->
-
-<?php if (
-    $rol === "jurado"
-) { ?>
+<?php if ($rol === "jurado") { ?>
 
 <a href="ingresar_estudiante.php">
 
@@ -1067,10 +989,6 @@ Ingresar estudiante
 <?php } ?>
 
 
-<!-- =====================================================
-     RESULTADOS
-========================================================= -->
-
 <a
 href="resultados.php"
 class="activo">
@@ -1082,10 +1000,6 @@ Resultados
 </a>
 
 
-<!-- =====================================================
-     GRÁFICAS
-========================================================= -->
-
 <a href="graficas.php">
 
 <i class="bi bi-bar-chart-fill"></i>
@@ -1095,13 +1009,7 @@ Gráficas
 </a>
 
 
-<!-- =====================================================
-     JURADOS SOLO ADMINISTRADOR
-========================================================= -->
-
-<?php if (
-    $rol === "administrador"
-) { ?>
+<?php if ($rol === "administrador") { ?>
 
 <div class="separador"></div>
 
@@ -1119,11 +1027,7 @@ Jurados
 <div class="separador"></div>
 
 
-<!-- =====================================================
-     CERRAR SESIÓN
-========================================================= -->
-
-<a href="logout.php">
+<a href="cerrar_sesion.php">
 
 <i class="bi bi-box-arrow-right"></i>
 
@@ -1144,17 +1048,10 @@ Cerrar sesión
 <div class="main">
 
 
-<!-- =====================================================
-     TOPBAR
-========================================================= -->
-
 <div class="topbar">
 
-
 <h4>
-
 🗳️ Sistema de Votaciones Escolares
-
 </h4>
 
 
@@ -1162,19 +1059,18 @@ Cerrar sesión
 
 <i class="bi bi-person-circle"></i>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $nombreUsuario
-); ?>
+);
+
+?>
 
 </span>
 
-
 </div>
 
-
-<!-- =====================================================
-     CONTENIDO
-========================================================= -->
 
 <div class="contenido">
 
@@ -1210,7 +1106,6 @@ Consulta los resultados de las elecciones escolares.
 
 <div class="col-md-9">
 
-
 <label class="form-label fw-bold">
 
 <i class="bi bi-calendar-event"></i>
@@ -1239,7 +1134,6 @@ Seleccione...
 
 
 <option
-
 value="<?php echo (int)$e['id']; ?>"
 
 <?php
@@ -1257,9 +1151,13 @@ if (
 
 >
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $e['nombre']
-); ?>
+);
+
+?>
 
 </option>
 
@@ -1269,12 +1167,10 @@ if (
 
 </select>
 
-
 </div>
 
 
 <div class="col-md-3 mt-3 mt-md-0">
-
 
 <button
 type="submit"
@@ -1286,26 +1182,21 @@ Ver resultados
 
 </button>
 
-
 </div>
 
 
 </div>
-
 
 </form>
 
-
 </div>
 
 
-<?php if (
-    $datosEleccion
-) { ?>
+<?php if ($datosEleccion) { ?>
 
 
 <!-- =====================================================
-     INFORMACIÓN
+     INFORMACIÓN ELECCIÓN
 ========================================================= -->
 
 <div class="info-eleccion">
@@ -1313,9 +1204,13 @@ Ver resultados
 
 <h2>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $datosEleccion['nombre']
-); ?>
+);
+
+?>
 
 </h2>
 
@@ -1328,9 +1223,13 @@ Ver resultados
 
 <p>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $datosEleccion['descripcion']
-); ?>
+);
+
+?>
 
 </p>
 
@@ -1343,16 +1242,18 @@ Ver resultados
 <div class="col-md-4">
 
 <strong>
-
 Fecha de inicio
-
 </strong>
 
 <br>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $datosEleccion['fecha_inicio']
-); ?>
+);
+
+?>
 
 </div>
 
@@ -1360,16 +1261,18 @@ Fecha de inicio
 <div class="col-md-4">
 
 <strong>
-
 Fecha de finalización
-
 </strong>
 
 <br>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $datosEleccion['fecha_fin']
-); ?>
+);
+
+?>
 
 </div>
 
@@ -1377,9 +1280,7 @@ Fecha de finalización
 <div class="col-md-4">
 
 <strong>
-
 Estado
-
 </strong>
 
 <br>
@@ -1396,12 +1297,9 @@ $estado =
     );
 
 
-if (
-    $estado === "abierta"
-) {
+if ($estado === "abierta") {
 
 ?>
-
 
 <span class="badge bg-success">
 
@@ -1409,13 +1307,11 @@ if (
 
 </span>
 
-
 <?php
 
 } else {
 
 ?>
-
 
 <span class="badge bg-secondary">
 
@@ -1423,18 +1319,15 @@ if (
 
 </span>
 
-
 <?php
 
 }
 
 ?>
 
-
 </div>
 
 </div>
-
 
 </div>
 
@@ -1457,9 +1350,7 @@ if (
 </h2>
 
 <p>
-
 Votos registrados
-
 </p>
 
 </div>
@@ -1476,9 +1367,7 @@ Votos registrados
 </h2>
 
 <p>
-
 Candidatos
-
 </p>
 
 </div>
@@ -1495,9 +1384,7 @@ Candidatos
 </h2>
 
 <p>
-
 Cargos
-
 </p>
 
 </div>
@@ -1507,7 +1394,7 @@ Cargos
 
 
 <!-- =====================================================
-     CARGOS
+     RESULTADOS POR CARGO
 ========================================================= -->
 
 <?php
@@ -1516,18 +1403,16 @@ if (
     count($cargos) > 0
 ) {
 
-
     foreach (
         $cargos as $cargo
     ) {
-
 
         $idCargo =
             (int)$cargo['id'];
 
 
         /* =============================================
-           TOTAL VOTOS DEL CARGO
+           TOTAL DE VOTOS DEL CARGO
         ============================================= */
 
         $totalVotosCargo = 0;
@@ -1539,14 +1424,11 @@ if (
                 SELECT
                     COUNT(*) AS total
 
-                FROM votos v
+                FROM votos
 
-                INNER JOIN candidatos c
-                    ON c.id = v.id_candidato
+                WHERE id_eleccion = ?
 
-                WHERE c.id_eleccion = ?
-
-                AND c.id_cargo = ?
+                AND id_cargo = ?
 
             ");
 
@@ -1576,7 +1458,7 @@ if (
 
 
         /* =============================================
-           CANDIDATOS DEL CARGO
+           CANDIDATOS Y VOTOS
         ============================================= */
 
         $resultadosCargo = [];
@@ -1604,6 +1486,10 @@ if (
                 LEFT JOIN votos v
 
                     ON v.id_candidato = c.id
+
+                    AND v.id_eleccion = ?
+
+                    AND v.id_cargo = ?
 
                 WHERE c.id_eleccion = ?
 
@@ -1633,7 +1519,9 @@ if (
         if ($stmt) {
 
             $stmt->bind_param(
-                "ii",
+                "iiii",
+                $idEleccion,
+                $idCargo,
                 $idEleccion,
                 $idCargo
             );
@@ -1654,22 +1542,20 @@ if (
 
             }
 
-
             $stmt->close();
 
         }
 
 
         /* =============================================
-           MAYOR CANTIDAD DE VOTOS
+           MAYOR CANTIDAD
         ============================================= */
 
         $mayorCantidad = 0;
 
 
         foreach (
-            $resultadosCargo
-            as $fila
+            $resultadosCargo as $fila
         ) {
 
             $cantidad =
@@ -1688,29 +1574,57 @@ if (
 
         }
 
+
+        /* =============================================
+           CONTAR CUÁNTOS TIENEN EL MAYOR
+        ============================================= */
+
+        $cantidadEmpatados = 0;
+
+
+        if (
+            $mayorCantidad > 0
+        ) {
+
+            foreach (
+                $resultadosCargo as $fila
+            ) {
+
+                if (
+                    (int)$fila['total']
+                    ===
+                    $mayorCantidad
+                ) {
+
+                    $cantidadEmpatados++;
+
+                }
+
+            }
+
+        }
+
 ?>
 
-
-<!-- =====================================================
-     TARJETA CARGO
-========================================================= -->
 
 <div class="cargo-card">
 
 
 <div class="cargo-header">
 
-
 <h3>
 
 <i class="bi bi-award-fill"></i>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $cargo['nombre_cargo']
-); ?>
+);
+
+?>
 
 </h3>
-
 
 </div>
 
@@ -1726,33 +1640,23 @@ if (
 <tr>
 
 <th>
-
 Candidato
-
 </th>
 
 <th>
-
 Curso
-
 </th>
 
 <th>
-
 Votos
-
 </th>
 
 <th>
-
 Porcentaje
-
 </th>
 
 <th>
-
 Estado
-
 </th>
 
 </tr>
@@ -1769,8 +1673,7 @@ Estado
 
 
 <?php foreach (
-    $resultadosCargo
-    as $fila
+    $resultadosCargo as $fila
 ) {
 
 
@@ -1797,24 +1700,31 @@ Estado
     }
 
 
-    $esGanador =
+    $esMayor =
         (
             $mayorCantidad > 0 &&
             $votosCandidato ===
             $mayorCantidad
         );
 
+
+    $esEmpate =
+        (
+            $esMayor &&
+            $cantidadEmpatados > 1
+        );
+
 ?>
 
 
-<tr
-class="<?php echo $esGanador
+<tr class="<?php
+
+echo $esMayor
     ? 'ganador'
     : '';
+
 ?>">
 
-
-<!-- FOTO + NOMBRE -->
 
 <td>
 
@@ -1839,22 +1749,26 @@ $rutaFoto =
 
 if (
     $foto !== "" &&
-    file_exists($rutaFoto)
+    file_exists(
+        $rutaFoto
+    )
 ) {
 
 ?>
 
-
 <img
 
-src="<?php echo htmlspecialchars(
+src="<?php
+
+echo htmlspecialchars(
     $rutaFoto
-); ?>"
+);
+
+?>"
 
 class="foto"
 
 alt="Foto del candidato">
-
 
 <?php
 
@@ -1862,13 +1776,11 @@ alt="Foto del candidato">
 
 ?>
 
-
 <div class="sin-foto">
 
 <i class="bi bi-person-fill"></i>
 
 </div>
-
 
 <?php
 
@@ -1879,73 +1791,91 @@ alt="Foto del candidato">
 
 <strong>
 
-<?php echo htmlspecialchars(
-    $fila['nombre'] .
-    " " .
+<?php
+
+echo htmlspecialchars(
+    $fila['nombre']
+    .
+    " "
+    .
     $fila['apellido']
-); ?>
+);
+
+?>
 
 </strong>
 
 
 </div>
 
-
 </td>
 
-
-<!-- CURSO -->
 
 <td>
 
-<?php echo htmlspecialchars(
+<?php
+
+echo htmlspecialchars(
     $fila['curso']
-); ?>
+);
+
+?>
 
 </td>
 
-
-<!-- VOTOS -->
 
 <td>
 
 <span class="votos">
 
-<?php echo $votosCandidato; ?>
+<?php
+
+echo $votosCandidato;
+
+?>
 
 </span>
 
 </td>
 
 
-<!-- PORCENTAJE -->
-
 <td>
 
-<?php echo $porcentaje; ?>%
+<?php
+
+echo $porcentaje;
+
+?>%
 
 </td>
 
-
-<!-- ESTADO -->
 
 <td>
 
 
 <?php if (
-    $esGanador
+    $esEmpate
 ) { ?>
 
+<span class="badge-empate">
+
+⚠️ EMPATE
+
+</span>
+
+
+<?php } elseif (
+    $esMayor
+) { ?>
 
 <span class="badge-ganador">
 
-🏆 Mayor votación
+🏆 GANADOR
 
 </span>
 
 
 <?php } else { ?>
-
 
 <span class="text-muted">
 
@@ -1953,12 +1883,10 @@ Participante
 
 </span>
 
-
 <?php } ?>
 
 
 </td>
-
 
 </tr>
 
@@ -1975,7 +1903,9 @@ Participante
 colspan="5"
 class="text-center p-4">
 
+
 <i class="bi bi-person-x fs-2 text-muted"></i>
+
 
 <p class="mb-0 mt-2">
 
@@ -1983,6 +1913,7 @@ No hay candidatos registrados
 para este cargo.
 
 </p>
+
 
 </td>
 
@@ -1996,9 +1927,7 @@ para este cargo.
 
 </table>
 
-
 </div>
-
 
 </div>
 
@@ -2025,10 +1954,10 @@ Esta elección no tiene cargos configurados.
 
 }
 
-
-} else {
-
 ?>
+
+
+<?php } else { ?>
 
 
 <div class="alert alert-warning mt-4">

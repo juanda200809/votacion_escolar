@@ -1,6 +1,14 @@
 <?php
 
-session_start();
+require_once "seguridad.php";
+
+evitarCache();
+
+verificarRol(['jurado']);
+
+// AQUÍ CONTINÚA TODO TU CÓDIGO ACTUAL
+
+
 
 include("config/conexion.php");
 
@@ -12,10 +20,12 @@ include("config/conexion.php");
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'jurado'
+    strtolower(trim((string)$_SESSION['rol'])) !== 'jurado'
 ) {
+
     header("Location: login.php");
     exit();
+
 }
 
 
@@ -26,6 +36,7 @@ if (
 $eleccion = null;
 
 $stmt = $conn->prepare("
+
     SELECT
         id,
         nombre,
@@ -33,11 +44,17 @@ $stmt = $conn->prepare("
         fecha_inicio,
         fecha_fin,
         estado
+
     FROM elecciones
+
     WHERE estado = 'abierta'
+
     ORDER BY id DESC
+
     LIMIT 1
+
 ");
+
 
 if ($stmt) {
 
@@ -52,20 +69,20 @@ if ($stmt) {
     }
 
     $stmt->close();
+
 }
 
 
 /* =========================================================
-   SI NO HAY ELECCIÓN ABIERTA
+   VERIFICAR ELECCIÓN
 ========================================================= */
 
-if (!$eleccion) {
+$sinEleccion = ($eleccion === null);
 
-    $sinEleccion = true;
+$idEleccion = 0;
 
-} else {
 
-    $sinEleccion = false;
+if (!$sinEleccion) {
 
     $idEleccion = (int)$eleccion['id'];
 
@@ -77,7 +94,8 @@ if (!$eleccion) {
 ========================================================= */
 
 $mensaje = "";
-$tipoMensaje = "";
+
+$tipoMensaje = "danger";
 
 
 /* =========================================================
@@ -89,192 +107,295 @@ if (
     isset($_POST['seleccionar_estudiante'])
 ) {
 
-    if (!$eleccion) {
+
+    /* =====================================================
+       VERIFICAR NUEVAMENTE LA ELECCIÓN
+       Esto evita confiar solamente en la información
+       cargada anteriormente.
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+
+        SELECT
+            id,
+            estado
+
+        FROM elecciones
+
+        WHERE id = ?
+
+        LIMIT 1
+
+    ");
+
+
+    if (!$stmt) {
 
         $mensaje =
-            "No hay una elección abierta.";
-
-        $tipoMensaje =
-            "danger";
+            "No se pudo verificar la elección.";
 
     } else {
 
-        $idEstudiante =
-            isset($_POST['id_estudiante'])
-            ? (int)$_POST['id_estudiante']
-            : 0;
+        $stmt->bind_param(
+            "i",
+            $idEleccion
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
 
 
-        if ($idEstudiante <= 0) {
+        if (
+            $resultado->num_rows === 0
+        ) {
 
             $mensaje =
-                "Estudiante inválido.";
-
-            $tipoMensaje =
-                "danger";
+                "La elección no existe.";
 
         } else {
 
-
-            /* =============================================
-               BUSCAR ESTUDIANTE
-            ============================================= */
-
-            $stmt = $conn->prepare("
-                SELECT
-                    id,
-                    documento,
-                    nombre,
-                    apellido,
-                    curso
-                FROM usuarios
-                WHERE id = ?
-                AND LOWER(TRIM(rol)) = 'estudiante'
-                LIMIT 1
-            ");
+            $eleccionActual =
+                $resultado->fetch_assoc();
 
 
-            if (!$stmt) {
+            if (
+                strtolower(
+                    trim(
+                        (string)$eleccionActual['estado']
+                    )
+                ) !== 'abierta'
+            ) {
 
                 $mensaje =
-                    "Error al consultar el estudiante.";
-
-                $tipoMensaje =
-                    "danger";
+                    "La elección está cerrada.";
 
             } else {
 
-                $stmt->bind_param(
-                    "i",
-                    $idEstudiante
-                );
 
-                $stmt->execute();
+                /* =========================================
+                   OBTENER ID DEL ESTUDIANTE
+                ========================================= */
 
-                $resultado =
-                    $stmt->get_result();
+                $idEstudiante =
+                    isset($_POST['id_estudiante'])
+                    ? (int)$_POST['id_estudiante']
+                    : 0;
 
 
                 if (
-                    $resultado->num_rows === 0
+                    $idEstudiante <= 0
                 ) {
 
                     $mensaje =
-                        "El estudiante no existe.";
-
-                    $tipoMensaje =
-                        "danger";
-
-                    $stmt->close();
+                        "El estudiante seleccionado no es válido.";
 
                 } else {
 
-                    $estudiante =
-                        $resultado->fetch_assoc();
-
-                    $stmt->close();
-
 
                     /* =====================================
-                       COMPROBAR SI YA VOTÓ
+                       BUSCAR ESTUDIANTE
                     ===================================== */
 
-                    $stmt = $conn->prepare("
-                        SELECT
-                            id
-                        FROM votos
-                        WHERE id_usuario = ?
-                        AND id_eleccion = ?
-                        LIMIT 1
-                    ");
+                    $stmtEstudiante =
+                        $conn->prepare("
+
+                            SELECT
+                                id,
+                                documento,
+                                nombre,
+                                apellido,
+                                curso
+
+                            FROM usuarios
+
+                            WHERE id = ?
+
+                            AND LOWER(
+                                TRIM(rol)
+                            ) = 'estudiante'
+
+                            LIMIT 1
+
+                        ");
 
 
-                    if (!$stmt) {
+                    if (!$stmtEstudiante) {
 
                         $mensaje =
-                            "No se pudo comprobar la votación.";
-
-                        $tipoMensaje =
-                            "danger";
+                            "Error al consultar el estudiante.";
 
                     } else {
 
-                        $stmt->bind_param(
-                            "ii",
-                            $idEstudiante,
-                            $idEleccion
+                        $stmtEstudiante->bind_param(
+                            "i",
+                            $idEstudiante
                         );
 
-                        $stmt->execute();
+                        $stmtEstudiante->execute();
 
-                        $resultado =
-                            $stmt->get_result();
+                        $resultadoEstudiante =
+                            $stmtEstudiante->get_result();
 
 
                         if (
-                            $resultado->num_rows > 0
+                            $resultadoEstudiante->num_rows === 0
                         ) {
 
-                            /* =================================
-                               YA VOTÓ
-                            ================================= */
-
                             $mensaje =
-                                "Este estudiante ya realizó su votación en esta elección.";
-
-                            $tipoMensaje =
-                                "danger";
-
+                                "El estudiante no existe o no pertenece al rol de estudiante.";
 
                         } else {
 
+                            $estudiante =
+                                $resultadoEstudiante->fetch_assoc();
+
+
                             /* =================================
-                               GUARDAR EN SESIÓN
+                               COMPROBAR SI YA VOTÓ
                             ================================= */
 
-                            $_SESSION[
-                                'estudiante_votando_id'
-                            ] =
-                                (int)$estudiante['id'];
+                            $stmtVoto =
+                                $conn->prepare("
+
+                                    SELECT
+                                        id
+
+                                    FROM votos
+
+                                    WHERE id_usuario = ?
+
+                                    AND id_eleccion = ?
+
+                                    LIMIT 1
+
+                                ");
 
 
-                            $_SESSION[
-                                'estudiante_votando_documento'
-                            ] =
-                                $estudiante['documento'];
+                            if (!$stmtVoto) {
+
+                                $mensaje =
+                                    "No se pudo comprobar si el estudiante ya votó.";
+
+                            } else {
+
+                                $stmtVoto->bind_param(
+                                    "ii",
+                                    $idEstudiante,
+                                    $idEleccion
+                                );
+
+                                $stmtVoto->execute();
+
+                                $resultadoVoto =
+                                    $stmtVoto->get_result();
 
 
-                            $_SESSION[
-                                'estudiante_votando_nombre'
-                            ] =
-                                $estudiante['nombre']
-                                . " "
-                                .
-                                $estudiante['apellido'];
+                                if (
+                                    $resultadoVoto->num_rows > 0
+                                ) {
+
+                                    /*
+                                     * EL ESTUDIANTE YA VOTÓ.
+                                     */
+
+                                    $mensaje =
+                                        "Este estudiante ya realizó su votación en esta elección.";
+
+                                    $tipoMensaje =
+                                        "danger";
 
 
-                            $_SESSION[
-                                'estudiante_votando_curso'
-                            ] =
-                                $estudiante['curso'];
+                                    /*
+                                     * Limpiar cualquier selección
+                                     * anterior para evitar reutilizar
+                                     * una sesión vieja.
+                                     */
+
+                                    unset(
+                                        $_SESSION['estudiante_votando_id'],
+                                        $_SESSION['estudiante_votando_documento'],
+                                        $_SESSION['estudiante_votando_nombre'],
+                                        $_SESSION['estudiante_votando_curso'],
+                                        $_SESSION['eleccion_votante_id']
+                                    );
 
 
-                            $_SESSION[
-                                'eleccion_votante_id'
-                            ] =
-                                $idEleccion;
+                                } else {
 
 
-                            header(
-                                "Location: votar_por_jurado.php"
-                            );
+                                    /* =========================
+                                       LIMPIAR SELECCIÓN ANTERIOR
+                                    ========================= */
 
-                            exit();
+                                    unset(
+                                        $_SESSION['estudiante_votando_id'],
+                                        $_SESSION['estudiante_votando_documento'],
+                                        $_SESSION['estudiante_votando_nombre'],
+                                        $_SESSION['estudiante_votando_curso'],
+                                        $_SESSION['eleccion_votante_id']
+                                    );
+
+
+                                    /* =========================
+                                       GUARDAR ESTUDIANTE
+                                    ========================= */
+
+                                    $_SESSION[
+                                        'estudiante_votando_id'
+                                    ] =
+                                        (int)$estudiante['id'];
+
+
+                                    $_SESSION[
+                                        'estudiante_votando_documento'
+                                    ] =
+                                        $estudiante['documento'];
+
+
+                                    $_SESSION[
+                                        'estudiante_votando_nombre'
+                                    ] =
+                                        $estudiante['nombre']
+                                        . " "
+                                        .
+                                        $estudiante['apellido'];
+
+
+                                    $_SESSION[
+                                        'estudiante_votando_curso'
+                                    ] =
+                                        $estudiante['curso'];
+
+
+                                    $_SESSION[
+                                        'eleccion_votante_id'
+                                    ] =
+                                        $idEleccion;
+
+
+                                    /*
+                                     * Redirigir al proceso de votación.
+                                     */
+
+                                    header(
+                                        "Location: votar_por_jurado.php"
+                                    );
+
+                                    exit();
+
+                                }
+
+
+                                $stmtVoto->close();
+
+                            }
 
                         }
 
 
-                        $stmt->close();
+                        $stmtEstudiante->close();
 
                     }
 
@@ -283,6 +404,9 @@ if (
             }
 
         }
+
+
+        $stmt->close();
 
     }
 
@@ -303,10 +427,16 @@ if (
 ) {
 
     $busqueda =
-        trim($_GET['buscar']);
+        trim(
+            (string)$_GET['buscar']
+        );
 
 }
 
+
+/* =========================================================
+   REALIZAR BÚSQUEDA
+========================================================= */
 
 if (
     !$sinEleccion &&
@@ -317,12 +447,6 @@ if (
     $textoBusqueda =
         "%" . $busqueda . "%";
 
-
-    /* =====================================================
-       CONSULTAR ESTUDIANTES
-
-       YA_VOTO SE CALCULA DIRECTAMENTE DESDE votos
-    ===================================================== */
 
     $stmt = $conn->prepare("
 
@@ -356,7 +480,9 @@ if (
 
         FROM usuarios u
 
-        WHERE LOWER(TRIM(u.rol)) = 'estudiante'
+        WHERE LOWER(
+            TRIM(u.rol)
+        ) = 'estudiante'
 
         AND (
 
@@ -456,6 +582,13 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 /* =========================================================
    GENERAL
 ========================================================= */
+
+* {
+
+    box-sizing: border-box;
+
+}
+
 
 body {
 

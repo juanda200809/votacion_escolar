@@ -1,200 +1,550 @@
 <?php
-session_start();
 
-/* =========================================
-   VERIFICAR QUE SEA JURADO
-========================================= */
+require_once "seguridad.php";
 
-if (!isset($_SESSION['id']) || $_SESSION['rol'] != 'jurado') {
+evitarCache();
+verificarRol(['jurado']);
 
-    header("Location: login.php");
-    exit();
+require_once "config/conexion.php";
 
-}
 
-include("config/conexion.php");
-
-/* =========================================
+/* =========================================================
    VERIFICAR ESTUDIANTE
-========================================= */
-
-if (!isset($_SESSION['estudiante_jurado'])) {
-
-    header("Location: jurado.php");
-    exit();
-
-}
-
-/* =========================================
-   VERIFICAR DATOS RECIBIDOS
-========================================= */
+========================================================= */
 
 if (
-    !isset($_POST['id_eleccion']) ||
-    !isset($_POST['id_cargo']) ||
-    !isset($_POST['id_candidato'])
+    !isset($_SESSION['estudiante_votando_id']) ||
+    (int)$_SESSION['estudiante_votando_id'] <= 0
 ) {
-
-    header("Location: votar_jurado.php");
+    header("Location: ingresar_estudiante.php");
     exit();
-
 }
 
-/* =========================================
-   OBTENER DATOS
-========================================= */
+$idEstudiante = (int)$_SESSION['estudiante_votando_id'];
 
-$idUsuario = (int) $_SESSION['estudiante_jurado'];
 
-$idEleccion = (int) $_POST['id_eleccion'];
-
-$idCargo = (int) $_POST['id_cargo'];
-
-$idCandidato = (int) $_POST['id_candidato'];
-
-/* =========================================
-   VERIFICAR QUE EL ESTUDIANTE EXISTA
-========================================= */
-
-$consultaEstudiante = $conn->query("
-    SELECT id
-    FROM usuarios
-    WHERE id=$idUsuario
-    AND rol='estudiante'
-    LIMIT 1
-");
-
-if ($consultaEstudiante->num_rows == 0) {
-
-    die("El estudiante no existe.");
-
-}
-
-/* =========================================
+/* =========================================================
    VERIFICAR ELECCIÓN
-========================================= */
+========================================================= */
 
-$consultaEleccion = $conn->query("
-    SELECT *
-    FROM elecciones
-    WHERE id=$idEleccion
-    LIMIT 1
-");
-
-if ($consultaEleccion->num_rows == 0) {
-
-    die("La elección no existe.");
-
-}
-
-$eleccion = $consultaEleccion->fetch_assoc();
-
-/* =========================================
-   VERIFICAR QUE ESTÉ ABIERTA
-========================================= */
-
-if ($eleccion['estado'] != 'abierta') {
-
-    die("La elección está cerrada.");
-
-}
-
-/* =========================================
-   VERIFICAR CARGO
-========================================= */
-
-$consultaCargo = $conn->query("
-    SELECT *
-    FROM eleccion_cargos
-    WHERE id_eleccion=$idEleccion
-    AND id_cargo=$idCargo
-    LIMIT 1
-");
-
-if ($consultaCargo->num_rows == 0) {
-
-    die("El cargo no pertenece a esta elección.");
-
-}
-
-/* =========================================
-   VERIFICAR CANDIDATO
-========================================= */
-
-$consultaCandidato = $conn->query("
-    SELECT *
-    FROM candidatos
-    WHERE id=$idCandidato
-    AND id_eleccion=$idEleccion
-    AND id_cargo=$idCargo
-    LIMIT 1
-");
-
-if ($consultaCandidato->num_rows == 0) {
-
-    die("El candidato no pertenece a esta elección.");
-
-}
-
-/* =========================================
-   VERIFICAR SI YA VOTÓ
-========================================= */
-
-$verificar = $conn->query("
-    SELECT id
-    FROM votos
-    WHERE id_usuario=$idUsuario
-    AND id_eleccion=$idEleccion
-    AND id_cargo=$idCargo
-    LIMIT 1
-");
-
-if ($verificar->num_rows > 0) {
-
-    header("Location: votar_jurado.php?error=duplicado");
+if (
+    !isset($_SESSION['eleccion_votante_id']) ||
+    (int)$_SESSION['eleccion_votante_id'] <= 0
+) {
+    header("Location: ingresar_estudiante.php");
     exit();
-
 }
 
-/* =========================================
-   REGISTRAR VOTO
-========================================= */
+$idEleccion = (int)$_SESSION['eleccion_votante_id'];
 
-$fecha = date("Y-m-d H:i:s");
 
-$sql = "
-INSERT INTO votos
-(
-    id_usuario,
-    id_candidato,
-    id_eleccion,
-    fecha_voto,
-    id_cargo
-)
-VALUES
-(
-    $idUsuario,
-    $idCandidato,
-    $idEleccion,
-    '$fecha',
-    $idCargo
-)
-";
+/* =========================================================
+   SOLO POST
+========================================================= */
 
-if (!$conn->query($sql)) {
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header("Location: votar_por_jurado.php");
+    exit();
+}
 
-    die(
-        "Error al registrar el voto: "
-        . $conn->error
+
+/* =========================================================
+   RECIBIR CANDIDATOS
+========================================================= */
+
+$selecciones = $_POST['candidato'] ?? [];
+
+if (!is_array($selecciones) || count($selecciones) === 0) {
+
+    header(
+        "Location: votar_por_jurado.php?error=sin_seleccion"
     );
 
+    exit();
 }
 
-/* =========================================
-   VOLVER A LA PANTALLA DE VOTACIÓN
-========================================= */
 
-header("Location: votar_jurado.php?ok=1");
-exit();
+/* =========================================================
+   LIMPIAR SELECCIONES
+========================================================= */
+
+$seleccionesLimpias = [];
+
+foreach ($selecciones as $idCargo => $idCandidato) {
+
+    $idCargo = (int)$idCargo;
+    $idCandidato = (int)$idCandidato;
+
+    if (
+        $idCargo > 0 &&
+        $idCandidato > 0
+    ) {
+
+        $seleccionesLimpias[$idCargo] = $idCandidato;
+
+    }
+}
+
+
+if (count($seleccionesLimpias) === 0) {
+
+    header(
+        "Location: votar_por_jurado.php?error=sin_seleccion"
+    );
+
+    exit();
+}
+
+
+/* =========================================================
+   INICIAR TRANSACCIÓN
+========================================================= */
+
+$conn->begin_transaction();
+
+
+try {
+
+
+    /* =====================================================
+       1. VERIFICAR ESTUDIANTE
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM usuarios
+        WHERE id = ?
+        AND LOWER(TRIM(rol)) = 'estudiante'
+        LIMIT 1
+        FOR UPDATE
+    ");
+
+    if (!$stmt) {
+        throw new Exception(
+            "No se pudo verificar el estudiante."
+        );
+    }
+
+    $stmt->bind_param(
+        "i",
+        $idEstudiante
+    );
+
+    $stmt->execute();
+
+    $resultado = $stmt->get_result();
+
+    if ($resultado->num_rows === 0) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "El estudiante no existe."
+        );
+    }
+
+    $stmt->close();
+
+
+    /* =====================================================
+       2. VERIFICAR ELECCIÓN
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+        SELECT
+            id,
+            nombre,
+            estado
+        FROM elecciones
+        WHERE id = ?
+        LIMIT 1
+        FOR UPDATE
+    ");
+
+    if (!$stmt) {
+        throw new Exception(
+            "No se pudo verificar la elección."
+        );
+    }
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+    $stmt->execute();
+
+    $resultado = $stmt->get_result();
+
+    if ($resultado->num_rows === 0) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "La elección no existe."
+        );
+    }
+
+    $eleccion = $resultado->fetch_assoc();
+
+    $stmt->close();
+
+
+    /* =====================================================
+       3. VERIFICAR QUE ESTÉ ABIERTA
+    ===================================================== */
+
+    if (
+        strtolower(
+            trim(
+                (string)$eleccion['estado']
+            )
+        ) !== 'abierta'
+    ) {
+
+        throw new Exception(
+            "La elección está cerrada."
+        );
+    }
+
+
+    /* =====================================================
+       4. OBTENER CARGOS DE LA ELECCIÓN
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+        SELECT
+            c.id,
+            c.nombre_cargo
+
+        FROM cargos c
+
+        INNER JOIN eleccion_cargos ec
+            ON ec.id_cargo = c.id
+
+        WHERE ec.id_eleccion = ?
+
+        ORDER BY c.id ASC
+    ");
+
+    if (!$stmt) {
+        throw new Exception(
+            "No se pudieron consultar los cargos."
+        );
+    }
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+    $stmt->execute();
+
+    $resultadoCargos = $stmt->get_result();
+
+    $cargos = [];
+
+    while (
+        $cargo = $resultadoCargos->fetch_assoc()
+    ) {
+
+        $cargos[
+            (int)$cargo['id']
+        ] = $cargo['nombre_cargo'];
+
+    }
+
+    $stmt->close();
+
+
+    /* =====================================================
+       5. VERIFICAR QUE TODOS LOS CARGOS TENGAN VOTO
+    ===================================================== */
+
+    if (count($cargos) === 0) {
+
+        throw new Exception(
+            "La elección no tiene cargos configurados."
+        );
+    }
+
+
+    foreach (
+        $cargos as $idCargo => $nombreCargo
+    ) {
+
+        if (
+            !isset(
+                $seleccionesLimpias[$idCargo]
+            )
+        ) {
+
+            throw new Exception(
+                "Debe seleccionar un candidato para el cargo: "
+                . $nombreCargo
+            );
+        }
+    }
+
+
+    /* =====================================================
+       6. VERIFICAR QUE NO SOBREN CARGOS
+    ===================================================== */
+
+    foreach (
+        $seleccionesLimpias as $idCargo => $idCandidato
+    ) {
+
+        if (
+            !isset($cargos[$idCargo])
+        ) {
+
+            throw new Exception(
+                "Se recibió un cargo que no pertenece a esta elección."
+            );
+        }
+    }
+
+
+    /* =====================================================
+       7. VERIFICAR SI YA EXISTEN VOTOS
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM votos
+        WHERE id_usuario = ?
+        AND id_eleccion = ?
+        LIMIT 1
+        FOR UPDATE
+    ");
+
+    if (!$stmt) {
+        throw new Exception(
+            "No se pudo comprobar si el estudiante ya votó."
+        );
+    }
+
+    $stmt->bind_param(
+        "ii",
+        $idEstudiante,
+        $idEleccion
+    );
+
+    $stmt->execute();
+
+    $resultado = $stmt->get_result();
+
+    if ($resultado->num_rows > 0) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "Este estudiante ya realizó su votación en esta elección."
+        );
+    }
+
+    $stmt->close();
+
+
+    /* =====================================================
+       8. PREPARAR VALIDACIÓN DE CANDIDATOS
+    ===================================================== */
+
+    $stmtCandidato = $conn->prepare("
+        SELECT id
+        FROM candidatos
+
+        WHERE id = ?
+        AND id_eleccion = ?
+        AND id_cargo = ?
+
+        LIMIT 1
+    ");
+
+    if (!$stmtCandidato) {
+
+        throw new Exception(
+            "No se pudo preparar la validación del candidato."
+        );
+    }
+
+
+    /* =====================================================
+       9. PREPARAR INSERT
+    ===================================================== */
+
+    $stmtInsertar = $conn->prepare("
+        INSERT INTO votos
+        (
+            id_usuario,
+            id_candidato,
+            id_eleccion,
+            fecha_voto,
+            id_cargo
+        )
+
+        VALUES
+        (
+            ?,
+            ?,
+            ?,
+            NOW(),
+            ?
+        )
+    ");
+
+    if (!$stmtInsertar) {
+
+        $stmtCandidato->close();
+
+        throw new Exception(
+            "No se pudo preparar el registro del voto."
+        );
+    }
+
+
+    /* =====================================================
+       10. REGISTRAR TODOS LOS VOTOS
+    ===================================================== */
+
+    foreach (
+        $cargos as $idCargo => $nombreCargo
+    ) {
+
+        $idCandidato =
+            $seleccionesLimpias[$idCargo];
+
+
+        /* ================================================
+           VALIDAR CANDIDATO
+        ================================================ */
+
+        $stmtCandidato->bind_param(
+            "iii",
+            $idCandidato,
+            $idEleccion,
+            $idCargo
+        );
+
+        $stmtCandidato->execute();
+
+        $resultadoCandidato =
+            $stmtCandidato->get_result();
+
+
+        if (
+            $resultadoCandidato->num_rows === 0
+        ) {
+
+            throw new Exception(
+                "El candidato seleccionado para "
+                . $nombreCargo
+                . " no pertenece a esta elección."
+            );
+        }
+
+
+        /* ================================================
+           INSERTAR VOTO
+        ================================================ */
+
+        $stmtInsertar->bind_param(
+            "iiii",
+            $idEstudiante,
+            $idCandidato,
+            $idEleccion,
+            $idCargo
+        );
+
+
+        if (
+            !$stmtInsertar->execute()
+        ) {
+
+            throw new Exception(
+                "No se pudo registrar el voto para "
+                . $nombreCargo
+                . "."
+            );
+        }
+
+    }
+
+
+    /* =====================================================
+       11. CERRAR CONSULTAS
+    ===================================================== */
+
+    $stmtCandidato->close();
+
+    $stmtInsertar->close();
+
+
+    /* =====================================================
+       12. CONFIRMAR TODO
+    ===================================================== */
+
+    $conn->commit();
+
+
+    /* =====================================================
+       13. LIMPIAR ESTUDIANTE
+    ===================================================== */
+
+    unset(
+        $_SESSION['estudiante_votando_id'],
+        $_SESSION['estudiante_votando_documento'],
+        $_SESSION['estudiante_votando_nombre'],
+        $_SESSION['estudiante_votando_curso'],
+        $_SESSION['eleccion_votante_id']
+    );
+
+
+    /* =====================================================
+       14. REDIRIGIR
+    ===================================================== */
+
+    header(
+        "Location: ingresar_estudiante.php?ok=1"
+    );
+
+    exit();
+
+
+} catch (Throwable $e) {
+
+
+    /* =====================================================
+       CANCELAR TODO
+    ===================================================== */
+
+    $conn->rollback();
+
+
+    error_log(
+        "Error en registrar_voto_jurado.php: "
+        . $e->getMessage()
+    );
+
+
+    /* =====================================================
+       VOLVER CON ERROR
+    ===================================================== */
+
+    $mensaje =
+        urlencode(
+            $e->getMessage()
+        );
+
+
+    header(
+        "Location: votar_por_jurado.php?error="
+        . $mensaje
+    );
+
+    exit();
+
+}
 
 ?>

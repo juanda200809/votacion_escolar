@@ -1,24 +1,15 @@
 <?php
 
-session_start();
-
-include("config/conexion.php");
-
-
 /* =========================================================
-   VERIFICAR ADMINISTRADOR
+   SEGURIDAD
 ========================================================= */
 
-if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'administrador'
-) {
+require_once "seguridad.php";
 
-    header("Location: login.php");
-    exit();
+evitarCache();
+verificarRol(['administrador']);
 
-}
+require_once "config/conexion.php";
 
 
 /* =========================================================
@@ -27,176 +18,26 @@ if (
 
 if (
     !isset($_GET['id']) ||
-    (int)$_GET['id'] <= 0
+    !is_numeric($_GET['id'])
 ) {
 
-    header("Location: elecciones.php");
+    header(
+        "Location: elecciones.php?error=eleccion_invalida"
+    );
+
     exit();
 
 }
 
 
-$id =
+$idEleccion =
     (int)$_GET['id'];
 
 
-/* =========================================================
-   BUSCAR ELECCIÓN
-========================================================= */
-
-$stmt =
-    $conn->prepare("
-
-        SELECT
-            id,
-            nombre,
-            estado
-
-        FROM elecciones
-
-        WHERE id = ?
-
-        LIMIT 1
-
-    ");
-
-
-if (!$stmt) {
+if ($idEleccion <= 0) {
 
     header(
-        "Location: elecciones.php?error=eliminar"
-    );
-
-    exit();
-
-}
-
-
-$stmt->bind_param(
-    "i",
-    $id
-);
-
-
-$stmt->execute();
-
-
-$resultado =
-    $stmt->get_result();
-
-
-if (
-    $resultado->num_rows === 0
-) {
-
-    $stmt->close();
-
-    header(
-        "Location: elecciones.php?error=no_encontrada"
-    );
-
-    exit();
-
-}
-
-
-$eleccion =
-    $resultado->fetch_assoc();
-
-
-$stmt->close();
-
-
-/* =========================================================
-   NO PERMITIR ELIMINAR ELECCIÓN ABIERTA
-========================================================= */
-
-$estado =
-    strtolower(
-        trim(
-            (string)$eleccion['estado']
-        )
-    );
-
-
-if (
-    $estado === "abierta"
-) {
-
-    header(
-        "Location: elecciones.php?error=abierta"
-    );
-
-    exit();
-
-}
-
-
-/* =========================================================
-   COMPROBAR SI TIENE VOTOS
-========================================================= */
-
-$stmtVotos =
-    $conn->prepare("
-
-        SELECT
-            COUNT(*) AS total
-
-        FROM votos v
-
-        INNER JOIN candidatos c
-            ON c.id = v.id_candidato
-
-        WHERE c.id_eleccion = ?
-
-    ");
-
-
-if (!$stmtVotos) {
-
-    header(
-        "Location: elecciones.php?error=eliminar"
-    );
-
-    exit();
-
-}
-
-
-$stmtVotos->bind_param(
-    "i",
-    $id
-);
-
-
-$stmtVotos->execute();
-
-
-$resultadoVotos =
-    $stmtVotos->get_result();
-
-
-$datosVotos =
-    $resultadoVotos->fetch_assoc();
-
-
-$totalVotos =
-    (int)$datosVotos['total'];
-
-
-$stmtVotos->close();
-
-
-/* =========================================================
-   NO ELIMINAR SI TIENE VOTOS
-========================================================= */
-
-if (
-    $totalVotos > 0
-) {
-
-    header(
-        "Location: elecciones.php?error=tiene_votos"
+        "Location: elecciones.php?error=eleccion_invalida"
     );
 
     exit();
@@ -215,20 +56,175 @@ try {
 
 
     /* =====================================================
-       ELIMINAR RELACIONES ELECCIÓN - CARGOS
+       1. BUSCAR ELECCIÓN
     ===================================================== */
 
-    $stmtRelacion =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            DELETE FROM eleccion_cargos
+        SELECT
+            id,
+            nombre,
+            estado
 
-            WHERE id_eleccion = ?
+        FROM elecciones
 
-        ");
+        WHERE id = ?
+
+        LIMIT 1
+
+        FOR UPDATE
+
+    ");
 
 
-    if (!$stmtRelacion) {
+    if (!$stmt) {
+
+        throw new Exception(
+            "No se pudo consultar la elección."
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    if (
+        $resultado->num_rows === 0
+    ) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "La elección no existe."
+        );
+
+    }
+
+
+    $eleccion =
+        $resultado->fetch_assoc();
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       2. NO ELIMINAR ELECCIÓN ABIERTA
+    ===================================================== */
+
+    $estado =
+        strtolower(
+            trim(
+                (string)$eleccion['estado']
+            )
+        );
+
+
+    if (
+        $estado === 'abierta'
+    ) {
+
+        throw new Exception(
+            "No se puede eliminar una elección abierta."
+        );
+
+    }
+
+
+    /* =====================================================
+       3. VERIFICAR VOTOS
+       
+       IMPORTANTE:
+       Se utiliza directamente id_eleccion.
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+
+        SELECT
+            COUNT(*) AS total
+
+        FROM votos
+
+        WHERE id_eleccion = ?
+
+        FOR UPDATE
+
+    ");
+
+
+    if (!$stmt) {
+
+        throw new Exception(
+            "No se pudieron comprobar los votos."
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    $fila =
+        $resultado->fetch_assoc();
+
+
+    $totalVotos =
+        (int)$fila['total'];
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       4. NO ELIMINAR SI TIENE VOTOS
+    ===================================================== */
+
+    if (
+        $totalVotos > 0
+    ) {
+
+        throw new Exception(
+            "No se puede eliminar la elección porque tiene votos registrados."
+        );
+
+    }
+
+
+    /* =====================================================
+       5. ELIMINAR RELACIÓN CON CARGOS
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+
+        DELETE FROM eleccion_cargos
+
+        WHERE id_eleccion = ?
+
+    ");
+
+
+    if (!$stmt) {
 
         throw new Exception(
             "No se pudieron eliminar los cargos relacionados."
@@ -237,15 +233,17 @@ try {
     }
 
 
-    $stmtRelacion->bind_param(
+    $stmt->bind_param(
         "i",
-        $id
+        $idEleccion
     );
 
 
     if (
-        !$stmtRelacion->execute()
+        !$stmt->execute()
     ) {
+
+        $stmt->close();
 
         throw new Exception(
             "No se pudieron eliminar las relaciones de cargos."
@@ -254,24 +252,42 @@ try {
     }
 
 
-    $stmtRelacion->close();
+    $stmt->close();
 
 
     /* =====================================================
-       ELIMINAR CANDIDATOS DE LA ELECCIÓN
+       6. ELIMINAR CANDIDATOS
     ===================================================== */
 
-    $stmtCandidatos =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            DELETE FROM candidatos
+        DELETE FROM candidatos
 
-            WHERE id_eleccion = ?
+        WHERE id_eleccion = ?
 
-        ");
+    ");
 
 
-    if (!$stmtCandidatos) {
+    if (!$stmt) {
+
+        throw new Exception(
+            "No se pudo preparar la eliminación de candidatos."
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    if (
+        !$stmt->execute()
+    ) {
+
+        $stmt->close();
 
         throw new Exception(
             "No se pudieron eliminar los candidatos."
@@ -280,58 +296,42 @@ try {
     }
 
 
-    $stmtCandidatos->bind_param(
-        "i",
-        $id
-    );
-
-
-    if (
-        !$stmtCandidatos->execute()
-    ) {
-
-        throw new Exception(
-            "No se pudieron eliminar los candidatos."
-        );
-
-    }
-
-
-    $stmtCandidatos->close();
+    $stmt->close();
 
 
     /* =====================================================
-       ELIMINAR ELECCIÓN
+       7. ELIMINAR ELECCIÓN
     ===================================================== */
 
-    $stmtEleccion =
-        $conn->prepare("
+    $stmt = $conn->prepare("
 
-            DELETE FROM elecciones
+        DELETE FROM elecciones
 
-            WHERE id = ?
+        WHERE id = ?
 
-        ");
+    ");
 
 
-    if (!$stmtEleccion) {
+    if (!$stmt) {
 
         throw new Exception(
-            "No se pudo eliminar la elección."
+            "No se pudo preparar la eliminación de la elección."
         );
 
     }
 
 
-    $stmtEleccion->bind_param(
+    $stmt->bind_param(
         "i",
-        $id
+        $idEleccion
     );
 
 
     if (
-        !$stmtEleccion->execute()
+        !$stmt->execute()
     ) {
+
+        $stmt->close();
 
         throw new Exception(
             "No se pudo eliminar la elección."
@@ -340,15 +340,19 @@ try {
     }
 
 
-    $stmtEleccion->close();
+    $stmt->close();
 
 
     /* =====================================================
-       CONFIRMAR
+       8. CONFIRMAR
     ===================================================== */
 
     $conn->commit();
 
+
+    /* =====================================================
+       9. VOLVER
+    ===================================================== */
 
     header(
         "Location: elecciones.php?eliminada=1"
@@ -357,12 +361,61 @@ try {
     exit();
 
 
-} catch (
-    Exception $e
-) {
+} catch (Throwable $e) {
 
+
+    /* =====================================================
+       DESHACER CAMBIOS
+    ===================================================== */
 
     $conn->rollback();
+
+
+    error_log(
+        "Error al eliminar elección: "
+        .
+        $e->getMessage()
+    );
+
+
+    /* =====================================================
+       MENSAJE DE ERROR
+    ===================================================== */
+
+    $mensaje =
+        $e->getMessage();
+
+
+    if (
+        str_contains(
+            $mensaje,
+            "tiene votos"
+        )
+    ) {
+
+        header(
+            "Location: elecciones.php?error=tiene_votos"
+        );
+
+        exit();
+
+    }
+
+
+    if (
+        str_contains(
+            $mensaje,
+            "elección abierta"
+        )
+    ) {
+
+        header(
+            "Location: elecciones.php?error=abierta"
+        );
+
+        exit();
+
+    }
 
 
     header(

@@ -1,99 +1,43 @@
 <?php
 
-session_start();
+/* =========================================================
+   SEGURIDAD
+========================================================= */
 
-include("config/conexion.php");
+require_once "seguridad.php";
+
+evitarCache();
+verificarRol(['administrador']);
+
+require_once "config/conexion.php";
 
 
 /* =========================================================
-   SOLO ADMINISTRADOR
+   VERIFICAR ID
 ========================================================= */
 
 if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol'])
-) {
-    header("Location: login.php");
-    exit();
-}
-
-
-$rol = strtolower(
-    trim(
-        (string)$_SESSION['rol']
-    )
-);
-
-
-if ($rol !== "administrador") {
-
-    if ($rol === "jurado") {
-        header("Location: jurado.php");
-        exit();
-    }
-
-    header("Location: login.php");
-    exit();
-
-}
-
-
-/* =========================================================
-   BUSCAR ELECCIÓN
-========================================================= */
-
-$consulta = $conn->query("
-
-    SELECT
-        id,
-        nombre,
-        estado
-
-    FROM elecciones
-
-    ORDER BY id DESC
-
-    LIMIT 1
-
-");
-
-
-if (
-    !$consulta ||
-    $consulta->num_rows === 0
+    !isset($_GET['id']) ||
+    !is_numeric($_GET['id'])
 ) {
 
     header(
-        "Location: admin.php?error=no_eleccion"
+        "Location: elecciones.php?error=eleccion_invalida"
     );
 
     exit();
 
 }
-
-
-$eleccion =
-    $consulta->fetch_assoc();
 
 
 $idEleccion =
-    (int)$eleccion['id'];
+    (int)$_GET['id'];
 
 
-/* =========================================================
-   SI YA ESTÁ CERRADA
-========================================================= */
-
-if (
-    strtolower(
-        trim(
-            (string)$eleccion['estado']
-        )
-    ) === "cerrada"
-) {
+if ($idEleccion <= 0) {
 
     header(
-        "Location: admin.php?cerrada=1"
+        "Location: elecciones.php?error=eleccion_invalida"
     );
 
     exit();
@@ -102,57 +46,194 @@ if (
 
 
 /* =========================================================
-   CERRAR ELECCIÓN
+   INICIAR TRANSACCIÓN
 ========================================================= */
 
-$stmt = $conn->prepare("
-
-    UPDATE elecciones
-
-    SET estado = 'cerrada'
-
-    WHERE id = ?
-
-");
+$conn->begin_transaction();
 
 
-if (!$stmt) {
+try {
+
+
+    /* =====================================================
+       1. BUSCAR ELECCIÓN
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+
+        SELECT
+            id,
+            nombre,
+            estado
+
+        FROM elecciones
+
+        WHERE id = ?
+
+        LIMIT 1
+
+        FOR UPDATE
+
+    ");
+
+
+    if (!$stmt) {
+
+        throw new Exception(
+            "No se pudo consultar la elección."
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    if (
+        $resultado->num_rows === 0
+    ) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "La elección no existe."
+        );
+
+    }
+
+
+    $eleccion =
+        $resultado->fetch_assoc();
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       2. VERIFICAR ESTADO
+    ===================================================== */
+
+    $estado =
+        strtolower(
+            trim(
+                (string)$eleccion['estado']
+            )
+        );
+
+
+    if (
+        $estado === 'cerrada'
+    ) {
+
+        $conn->rollback();
+
+
+        header(
+            "Location: elecciones.php?cerrada=1"
+        );
+
+        exit();
+
+    }
+
+
+    /* =====================================================
+       3. CERRAR ELECCIÓN
+    ===================================================== */
+
+    $stmt = $conn->prepare("
+
+        UPDATE elecciones
+
+        SET estado = 'cerrada'
+
+        WHERE id = ?
+
+    ");
+
+
+    if (!$stmt) {
+
+        throw new Exception(
+            "No se pudo preparar el cierre de la elección."
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
+
+
+    if (
+        !$stmt->execute()
+    ) {
+
+        $stmt->close();
+
+        throw new Exception(
+            "No se pudo cerrar la elección."
+        );
+
+    }
+
+
+    $stmt->close();
+
+
+    /* =====================================================
+       4. CONFIRMAR
+    ===================================================== */
+
+    $conn->commit();
+
+
+    /* =====================================================
+       5. VOLVER
+    ===================================================== */
 
     header(
-        "Location: admin.php?error=cerrar"
+        "Location: elecciones.php?cerrada=1"
+    );
+
+    exit();
+
+
+} catch (Throwable $e) {
+
+
+    /* =====================================================
+       CANCELAR
+    ===================================================== */
+
+    $conn->rollback();
+
+
+    error_log(
+        "Error al cerrar elección: "
+        .
+        $e->getMessage()
+    );
+
+
+    header(
+        "Location: elecciones.php?error=cerrar"
     );
 
     exit();
 
 }
-
-
-$stmt->bind_param(
-    "i",
-    $idEleccion
-);
-
-
-if (
-    $stmt->execute()
-) {
-
-    header(
-        "Location: admin.php?cerrada=1"
-    );
-
-    exit();
-
-}
-
-
-$stmt->close();
-
-
-header(
-    "Location: admin.php?error=cerrar"
-);
-
-exit();
 
 ?>

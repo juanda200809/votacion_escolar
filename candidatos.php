@@ -1,5 +1,9 @@
 <?php
-session_start();
+
+require_once "seguridad.php";
+
+evitarCache();
+verificarRol(['administrador']);
 
 /*=========================================
 =           VALIDAR SESIÓN
