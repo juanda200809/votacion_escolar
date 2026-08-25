@@ -1,22 +1,12 @@
 <?php
 
-require_once "seguridad.php";
-
-evitarCache();
-
-verificarRol(['jurado']);
-
-
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+session_start();
 
 include("config/conexion.php");
 
 
 /* =========================================================
-   VERIFICAR SESIÓN
+   SEGURIDAD
 ========================================================= */
 
 if (
@@ -29,10 +19,6 @@ if (
 
 }
 
-
-/* =========================================================
-   VERIFICAR ROL
-========================================================= */
 
 $rol = strtolower(
     trim(
@@ -50,16 +36,6 @@ if ($rol !== "jurado") {
 
     }
 
-    if ($rol === "estudiante") {
-
-        header("Location: votar.php");
-        exit();
-
-    }
-
-    session_unset();
-    session_destroy();
-
     header("Location: login.php");
     exit();
 
@@ -74,74 +50,217 @@ $nombreJurado =
     $_SESSION['nombre'] ?? "Jurado";
 
 
+$idJurado =
+    (int)$_SESSION['id'];
+
+
 /* =========================================================
-   ELECCIÓN ACTUAL
+   FECHA Y HORA
 ========================================================= */
 
-$eleccion = null;
+date_default_timezone_set(
+    "America/Bogota"
+);
 
 
-$consultaEleccion = $conn->query("
+$fechaActual =
+    date("d/m/Y");
 
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
+$horaActual =
+    date("h:i A");
 
-    FROM elecciones
 
-    ORDER BY id DESC
+/* =========================================================
+   BUSCADOR
+========================================================= */
 
-    LIMIT 1
+$busqueda = "";
 
-");
+$resultadosBusqueda = [];
 
 
 if (
-    $consultaEleccion &&
-    $consultaEleccion->num_rows > 0
+    isset($_GET['buscar']) &&
+    trim($_GET['buscar']) !== ""
 ) {
 
-    $eleccion =
-        $consultaEleccion->fetch_assoc();
+    $busqueda =
+        trim($_GET['buscar']);
+
+
+    $termino =
+        "%" . $busqueda . "%";
+
+
+    $stmt =
+        $conn->prepare("
+
+            SELECT
+
+                id,
+                documento,
+                nombre,
+                apellido,
+                curso
+
+            FROM usuarios
+
+            WHERE
+
+                LOWER(TRIM(rol))
+                = 'estudiante'
+
+                AND (
+
+                    nombre LIKE ?
+
+                    OR apellido LIKE ?
+
+                    OR documento LIKE ?
+
+                    OR curso LIKE ?
+
+                )
+
+            ORDER BY
+                nombre ASC,
+                apellido ASC
+
+            LIMIT 20
+
+        ");
+
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "ssss",
+            $termino,
+            $termino,
+            $termino,
+            $termino
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+
+        while (
+            $fila =
+            $resultado->fetch_assoc()
+        ) {
+
+            $resultadosBusqueda[] =
+                $fila;
+
+        }
+
+
+        $stmt->close();
+
+    }
 
 }
 
 
 /* =========================================================
-   ESTADÍSTICAS
+   ELECCIÓN ABIERTA
+========================================================= */
+
+$eleccion = null;
+
+
+$resultado =
+    $conn->query("
+
+        SELECT
+
+            id,
+            nombre,
+            descripcion,
+            fecha_inicio,
+            fecha_fin,
+            estado
+
+        FROM elecciones
+
+        WHERE estado = 'abierta'
+
+        ORDER BY id DESC
+
+        LIMIT 1
+
+    ");
+
+
+if (
+    $resultado &&
+    $resultado->num_rows > 0
+) {
+
+    $eleccion =
+        $resultado->fetch_assoc();
+
+}
+
+
+/* =========================================================
+   DATOS ELECCIÓN
+========================================================= */
+
+$idEleccion = 0;
+
+$nombreEleccion =
+    "No hay elección abierta";
+
+$descripcionEleccion =
+    "Actualmente no existe una elección abierta.";
+
+$fechaInicio = "";
+
+$fechaFin = "";
+
+
+if ($eleccion) {
+
+    $idEleccion =
+        (int)$eleccion['id'];
+
+    $nombreEleccion =
+        $eleccion['nombre'];
+
+    $descripcionEleccion =
+        $eleccion['descripcion'];
+
+    $fechaInicio =
+        $eleccion['fecha_inicio'];
+
+    $fechaFin =
+        $eleccion['fecha_fin'];
+
+}
+
+
+/* =========================================================
+   TOTAL ESTUDIANTES
 ========================================================= */
 
 $totalEstudiantes = 0;
 
-$totalCandidatos = 0;
 
-$totalVotos = 0;
+$resultado =
+    $conn->query("
 
-$totalEstudiantesVotaron = 0;
+        SELECT COUNT(*) AS total
 
-$totalEstudiantesPendientes = 0;
+        FROM usuarios
 
+        WHERE LOWER(TRIM(rol))
+        = 'estudiante'
 
-/* =========================================================
-   TOTAL DE ESTUDIANTES
-========================================================= */
-
-$resultado = $conn->query("
-
-    SELECT
-        COUNT(*) AS total
-
-    FROM usuarios
-
-    WHERE LOWER(
-        TRIM(rol)
-    ) = 'estudiante'
-
-");
+    ");
 
 
 if ($resultado) {
@@ -156,68 +275,24 @@ if ($resultado) {
 
 
 /* =========================================================
-   ESTADÍSTICAS DE LA ELECCIÓN
+   TOTAL VOTOS
 ========================================================= */
 
-if ($eleccion) {
-
-    $idEleccion =
-        (int)$eleccion['id'];
+$totalVotos = 0;
 
 
-    /* =====================================================
-       TOTAL DE CANDIDATOS
-    ===================================================== */
+if ($idEleccion > 0) {
 
-    $stmt = $conn->prepare("
+    $stmt =
+        $conn->prepare("
 
-        SELECT
-            COUNT(*) AS total
+            SELECT COUNT(*) AS total
 
-        FROM candidatos
+            FROM votos
 
-        WHERE id_eleccion = ?
+            WHERE id_eleccion = ?
 
-    ");
-
-
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
-
-        $stmt->execute();
-
-        $resultado =
-            $stmt->get_result();
-
-        $fila =
-            $resultado->fetch_assoc();
-
-        $totalCandidatos =
-            (int)$fila['total'];
-
-        $stmt->close();
-
-    }
-
-
-    /* =====================================================
-       TOTAL DE VOTOS
-    ===================================================== */
-
-    $stmt = $conn->prepare("
-
-        SELECT
-            COUNT(*) AS total
-
-        FROM votos
-
-        WHERE id_eleccion = ?
-
-    ");
+        ");
 
 
     if ($stmt) {
@@ -242,21 +317,32 @@ if ($eleccion) {
 
     }
 
+}
 
-    /* =====================================================
-       ESTUDIANTES QUE YA VOTARON
-    ===================================================== */
 
-    $stmt = $conn->prepare("
+/* =========================================================
+   TOTAL VOTANTES
+========================================================= */
 
-        SELECT
-            COUNT(DISTINCT id_usuario) AS total
+$totalVotantes = 0;
 
-        FROM votos
 
-        WHERE id_eleccion = ?
+if ($idEleccion > 0) {
 
-    ");
+    $stmt =
+        $conn->prepare("
+
+            SELECT
+
+                COUNT(
+                    DISTINCT id_usuario
+                ) AS total
+
+            FROM votos
+
+            WHERE id_eleccion = ?
+
+        ");
 
 
     if ($stmt) {
@@ -274,56 +360,96 @@ if ($eleccion) {
         $fila =
             $resultado->fetch_assoc();
 
-        $totalEstudiantesVotaron =
+        $totalVotantes =
             (int)$fila['total'];
 
         $stmt->close();
 
     }
 
-
-    /* =====================================================
-       ESTUDIANTES PENDIENTES
-    ===================================================== */
-
-    $totalEstudiantesPendientes =
-        $totalEstudiantes -
-        $totalEstudiantesVotaron;
-
-
-    if (
-        $totalEstudiantesPendientes < 0
-    ) {
-
-        $totalEstudiantesPendientes = 0;
-
-    }
-
 }
 
 
 /* =========================================================
-   ESTADO DE LA ELECCIÓN
+   PARTICIPACIÓN
 ========================================================= */
 
-$eleccionAbierta = false;
+$participacion = 0;
 
 
-if ($eleccion) {
+if ($totalEstudiantes > 0) {
 
-    $estado =
-        strtolower(
-            trim(
-                (string)$eleccion['estado']
-            )
+    $participacion =
+        round(
+            (
+                $totalVotantes /
+                $totalEstudiantes
+            ) * 100,
+            1
         );
 
+}
 
-    if (
-        $estado === "abierta"
-    ) {
 
-        $eleccionAbierta = true;
+if ($participacion > 100) {
+
+    $participacion = 100;
+
+}
+
+
+$totalPendientes =
+    $totalEstudiantes -
+    $totalVotantes;
+
+
+if ($totalPendientes < 0) {
+
+    $totalPendientes = 0;
+
+}
+
+
+/* =========================================================
+   TOTAL CANDIDATOS
+========================================================= */
+
+$totalCandidatos = 0;
+
+
+if ($idEleccion > 0) {
+
+    $stmt =
+        $conn->prepare("
+
+            SELECT COUNT(*) AS total
+
+            FROM candidatos
+
+            WHERE id_eleccion = ?
+
+        ");
+
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "i",
+            $idEleccion
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+        $fila =
+            $resultado->fetch_assoc();
+
+        $totalCandidatos =
+            (int)$fila['total'];
+
+        $stmt->close();
 
     }
 
@@ -331,23 +457,74 @@ if ($eleccion) {
 
 
 /* =========================================================
-   MENSAJE DEL JURADO
+   VERIFICAR SI EL JURADO TIENE ESTUDIANTE SELECCIONADO
 ========================================================= */
 
-$mensajeJurado =
-    $_SESSION['mensaje_jurado'] ?? "";
+$estudianteSeleccionado = null;
 
 
-$tipoMensajeJurado =
-    $_SESSION['tipo_mensaje_jurado'] ?? "success";
+if (
+    isset($_SESSION['estudiante_jurado'])
+) {
+
+    $idEstudiante =
+        (int)$_SESSION['estudiante_jurado'];
 
 
-unset(
-    $_SESSION['mensaje_jurado'],
-    $_SESSION['tipo_mensaje_jurado']
-);
+    $stmt =
+        $conn->prepare("
+
+            SELECT
+
+                id,
+                documento,
+                nombre,
+                apellido,
+                curso
+
+            FROM usuarios
+
+            WHERE
+                id = ?
+
+                AND LOWER(TRIM(rol))
+                = 'estudiante'
+
+            LIMIT 1
+
+        ");
+
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "i",
+            $idEstudiante
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+
+        if (
+            $resultado->num_rows > 0
+        ) {
+
+            $estudianteSeleccionado =
+                $resultado->fetch_assoc();
+
+        }
+
+        $stmt->close();
+
+    }
+
+}
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -358,32 +535,26 @@ unset(
 <meta charset="UTF-8">
 
 <meta
-name="viewport"
-content="width=device-width, initial-scale=1">
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
 
 <title>
-
-Panel del Jurado
-
+Panel del Jurado | Votaciones Escolares
 </title>
 
 
-<!-- =====================================================
-     BOOTSTRAP
-===================================================== -->
-
 <link
+rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
+>
 
-
-<!-- =====================================================
-     BOOTSTRAP ICONS
-===================================================== -->
 
 <link
 rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+>
 
 
 <style>
@@ -393,9 +564,7 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 ========================================================= */
 
 * {
-
     box-sizing: border-box;
-
 }
 
 
@@ -403,13 +572,14 @@ body {
 
     margin: 0;
 
-    background: #eef3f9;
-
     font-family:
         Arial,
         Helvetica,
         sans-serif;
 
+    background: #eef3f9;
+
+    color: #26374a;
 }
 
 
@@ -425,16 +595,21 @@ body {
 
     top: 0;
 
-    width: 250px;
+    bottom: 0;
 
-    height: 100vh;
+    width: 250px;
 
     background: #1453a3;
 
     color: white;
 
+    overflow-y: auto;
+
     z-index: 1000;
 
+    box-shadow:
+        3px 0 15px
+        rgba(0,0,0,.12);
 }
 
 
@@ -442,46 +617,50 @@ body {
 
     text-align: center;
 
-    padding: 28px 15px;
+    padding:
+        28px 15px 25px;
 
     border-bottom:
         1px solid
-        rgba(255,255,255,.20);
-
+        rgba(255,255,255,.18);
 }
 
 
 .logo-icon {
 
-    font-size: 55px;
+    font-size: 58px;
 
+    margin-bottom: 5px;
 }
 
 
-.logo h2 {
+.logo h1 {
 
-    margin: 8px 0 0;
+    margin: 0;
 
-    font-weight: bold;
+    font-size: 31px;
 
+    font-weight: 800;
 }
 
 
 .logo p {
 
-    margin: 5px 0 0;
-
-    opacity: .75;
+    margin-top: 5px;
 
     font-size: 13px;
 
+    opacity: .85;
 }
 
 
+/* =========================================================
+   MENÚ
+========================================================= */
+
 .menu {
 
-    padding: 18px 15px;
-
+    padding-top: 12px;
 }
 
 
@@ -497,24 +676,20 @@ body {
 
     text-decoration: none;
 
-    padding: 14px;
+    padding:
+        15px 25px;
 
-    border-radius: 9px;
+    font-size: 15px;
 
-    margin-bottom: 8px;
-
-    font-size: 16px;
-
-    transition: .2s;
-
+    transition: .2s ease;
 }
 
 
 .menu a:hover {
 
-    background:
-        rgba(255,255,255,.12);
+    background: #0d4388;
 
+    padding-left: 30px;
 }
 
 
@@ -523,27 +698,34 @@ body {
     background:
         rgba(255,255,255,.18);
 
+    border-radius: 8px;
+
+    margin:
+        4px 15px;
+
+    padding-left: 20px;
 }
 
 
-.menu i {
-
-    font-size: 20px;
+.menu a i {
 
     width: 25px;
 
+    text-align: center;
+
+    font-size: 19px;
 }
 
 
-.separador {
+.menu-separador {
 
     height: 1px;
 
     background:
-        rgba(255,255,255,.22);
+        rgba(255,255,255,.20);
 
-    margin: 15px 5px;
-
+    margin:
+        15px 20px;
 }
 
 
@@ -551,26 +733,24 @@ body {
    CONTENIDO
 ========================================================= */
 
-.contenido {
+.main {
 
     margin-left: 250px;
 
     min-height: 100vh;
-
 }
 
 
-/* =========================================================
-   HEADER
-========================================================= */
+.topbar {
 
-.header {
-
-    height: 70px;
+    min-height: 70px;
 
     background: #1473ed;
 
     color: white;
+
+    padding:
+        0 32px;
 
     display: flex;
 
@@ -578,60 +758,51 @@ body {
 
     justify-content: space-between;
 
-    padding: 0 30px;
-
     box-shadow:
-        0 3px 10px
+        0 3px 12px
         rgba(0,0,0,.15);
-
 }
 
 
-.header h3 {
+.topbar h4 {
 
     margin: 0;
 
-    font-size: 24px;
-
+    font-size: 23px;
 }
 
 
-.usuario {
+.topbar-user {
 
-    font-size: 15px;
-
+    font-weight: 600;
 }
 
 
-/* =========================================================
-   CONTENEDOR
-========================================================= */
-
-.contenedor {
+.contenido {
 
     padding: 35px;
-
-    max-width: 1350px;
-
-    margin: auto;
-
 }
 
 
-/* =========================================================
-   MENSAJES
-========================================================= */
+.titulo {
 
-.mensaje-jurado {
+    color: #1453a3;
 
-    border-radius: 12px;
+    font-size: 40px;
 
-    padding: 15px 18px;
+    font-weight: 700;
 
-    margin-bottom: 25px;
+    margin: 0;
+}
 
-    font-weight: 500;
 
+.subtitulo {
+
+    color: #64748b;
+
+    font-size: 17px;
+
+    margin-top: 7px;
 }
 
 
@@ -639,106 +810,90 @@ body {
    BIENVENIDA
 ========================================================= */
 
-.bienvenida h1 {
+.bienvenida {
 
-    color: #1559a6;
+    margin-top: 25px;
 
-    font-weight: bold;
+    margin-bottom: 25px;
+}
 
+
+.bienvenida h2 {
+
+    color: #1453a3;
+
+    font-size: 40px;
+
+    margin-bottom: 7px;
 }
 
 
 .bienvenida p {
 
-    color: #6c757d;
+    color: #64748b;
 
-    font-size: 17px;
-
+    font-size: 16px;
 }
 
 
 /* =========================================================
-   BUSCADOR DE ESTUDIANTES
+   BUSCADOR
 ========================================================= */
 
-.ingresar-estudiante {
+.buscar-card {
 
     background:
         linear-gradient(
             135deg,
-            #0d6efd,
-            #084298
+            #176df0,
+            #06479f
         );
 
     color: white;
 
-    border-radius: 20px;
-
     padding: 30px;
 
+    border-radius: 20px;
+
     box-shadow:
-        0 8px 25px
-        rgba(0,0,0,.15);
-
-    margin-bottom: 30px;
-
+        0 10px 25px
+        rgba(0,70,160,.25);
 }
 
 
-.ingresar-estudiante h2 {
+.buscar-titulo {
+
+    font-size: 32px;
 
     font-weight: bold;
 
+    margin-bottom: 7px;
 }
 
 
-.ingresar-estudiante > p {
+.buscar-descripcion {
 
     margin-bottom: 22px;
 
+    font-size: 15px;
 }
 
 
-.buscador-jurado {
-
-    margin-top: 20px;
-
-}
-
-
-.campo-busqueda {
+.buscar-form {
 
     display: flex;
-
-    align-items: center;
 
     background: white;
 
     border-radius: 12px;
 
-    padding: 5px;
+    padding: 6px;
 
-    max-width: 850px;
-
-    box-shadow:
-        0 4px 12px
-        rgba(0,0,0,.12);
-
+    overflow: hidden;
 }
 
 
-.campo-busqueda > i {
-
-    color: #6c757d;
-
-    font-size: 20px;
-
-    margin-left: 15px;
-
-}
-
-
-.campo-busqueda input {
+.buscar-form input {
 
     flex: 1;
 
@@ -746,16 +901,14 @@ body {
 
     outline: none;
 
-    padding: 14px;
+    padding:
+        13px 15px;
 
     font-size: 15px;
-
-    min-width: 0;
-
 }
 
 
-.btn-buscar {
+.buscar-form button {
 
     border: none;
 
@@ -763,39 +916,31 @@ body {
 
     color: white;
 
-    padding: 12px 24px;
+    padding:
+        0 25px;
 
-    border-radius: 9px;
+    border-radius: 10px;
 
-    font-weight: 600;
-
-    cursor: pointer;
-
-    transition: .2s;
-
+    font-weight: bold;
 }
 
 
-.btn-buscar:hover {
+.buscar-form button:hover {
 
-    background: #0d4285;
-
+    background: #0d4388;
 }
 
 
-.resultados-estudiantes {
+/* =========================================================
+   RESULTADOS
+========================================================= */
 
-    max-width: 850px;
+.resultados {
 
-    margin-top: 15px;
-
-}
-
-
-.mensaje-busqueda {
+    margin-top: 20px;
 
     background:
-        rgba(255,255,255,.12);
+        rgba(255,255,255,.15);
 
     border:
         1px solid
@@ -803,297 +948,124 @@ body {
 
     border-radius: 12px;
 
-    padding: 18px;
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 12px;
-
-}
-
-
-.mensaje-busqueda i {
-
-    font-size: 22px;
-
-}
-
-
-.lista-estudiantes {
-
-    display: flex;
-
-    flex-direction: column;
-
-    gap: 12px;
-
+    overflow: hidden;
 }
 
 
 .resultado-estudiante {
 
-    background: white;
-
-    color: #212529;
-
-    border-radius: 14px;
-
-    padding: 18px;
-
     display: flex;
+
+    align-items: center;
 
     justify-content: space-between;
 
-    align-items: center;
+    gap: 15px;
 
-    gap: 20px;
+    padding:
+        16px 18px;
 
-    box-shadow:
-        0 4px 15px
-        rgba(0,0,0,.10);
-
+    border-bottom:
+        1px solid
+        rgba(255,255,255,.20);
 }
 
 
-.informacion-estudiante {
+.resultado-estudiante:last-child {
+
+    border-bottom: none;
+}
+
+
+.estudiante-info {
 
     display: flex;
 
     align-items: center;
 
-    gap: 15px;
-
+    gap: 14px;
 }
 
 
-.avatar-estudiante {
+.estudiante-icon {
 
-    width: 50px;
+    width: 45px;
 
-    height: 50px;
+    height: 45px;
 
     border-radius: 50%;
-
-    background: #e8f1ff;
-
-    color: #1453a3;
-
-    display: flex;
-
-    align-items: center;
-
-    justify-content: center;
-
-    font-size: 24px;
-
-    flex-shrink: 0;
-
-}
-
-
-.informacion-estudiante h5 {
-
-    margin: 0 0 8px;
-
-    color: #1559a6;
-
-    font-weight: 700;
-
-}
-
-
-.datos-estudiante {
-
-    display: flex;
-
-    flex-wrap: wrap;
-
-    gap: 15px;
-
-    color: #6c757d;
-
-    font-size: 13px;
-
-}
-
-
-.datos-estudiante i {
-
-    color: #1453a3;
-
-}
-
-
-.estado-estudiante {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 15px;
-
-    flex-shrink: 0;
-
-}
-
-
-.estado-disponible,
-.estado-bloqueado {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 9px;
-
-    padding: 9px 13px;
-
-    border-radius: 10px;
-
-    font-size: 13px;
-
-}
-
-
-.estado-disponible {
-
-    background: #d1fae5;
-
-    color: #047857;
-
-}
-
-
-.estado-bloqueado {
-
-    background: #f1f5f9;
-
-    color: #64748b;
-
-}
-
-
-.estado-disponible > i,
-.estado-bloqueado > i {
-
-    font-size: 19px;
-
-}
-
-
-.estado-estudiante strong {
-
-    display: block;
-
-}
-
-
-.estado-estudiante small {
-
-    display: block;
-
-    margin-top: 2px;
-
-    opacity: .85;
-
-}
-
-
-.btn-iniciar-votacion {
-
-    background: #1453a3;
-
-    color: white;
-
-    text-decoration: none;
-
-    padding: 11px 16px;
-
-    border-radius: 9px;
-
-    font-weight: 600;
-
-    white-space: nowrap;
-
-    transition: .2s;
-
-}
-
-
-.btn-iniciar-votacion:hover {
-
-    background: #0d4285;
-
-    color: white;
-
-}
-
-
-.resultado-vacio {
 
     background: white;
 
-    color: #495057;
-
-    border-radius: 14px;
-
-    padding: 20px;
+    color: #1473ed;
 
     display: flex;
-
-    align-items: center;
-
-    gap: 15px;
-
-}
-
-
-.resultado-icono {
-
-    width: 48px;
-
-    height: 48px;
-
-    border-radius: 50%;
-
-    background: #f1f5f9;
-
-    color: #64748b;
-
-    display: flex;
-
-    align-items: center;
 
     justify-content: center;
 
+    align-items: center;
+
     font-size: 22px;
-
 }
 
 
-.resultado-vacio h5 {
+.estudiante-info strong {
 
-    margin: 0 0 5px;
+    display: block;
 
+    font-size: 16px;
 }
 
 
-.resultado-vacio p {
+.estudiante-info small {
 
-    margin: 0;
+    opacity: .85;
+}
 
-    color: #6c757d;
 
+.btn-votar {
+
+    background: white;
+
+    color: #1453a3;
+
+    border: none;
+
+    border-radius: 8px;
+
+    padding:
+        10px 17px;
+
+    font-weight: bold;
+
+    text-decoration: none;
+}
+
+
+.btn-votar:hover {
+
+    background: #eaf2ff;
+
+    color: #0d4388;
+}
+
+
+.sin-resultados {
+
+    padding: 17px;
+
+    background:
+        rgba(255,255,255,.10);
+
+    border-radius: 10px;
 }
 
 
 /* =========================================================
-   TARJETAS
+   ESTADÍSTICAS
 ========================================================= */
 
-.tarjetas {
+.estadisticas {
 
     display: grid;
 
@@ -1102,78 +1074,71 @@ body {
 
     gap: 18px;
 
-    margin-bottom: 30px;
-
+    margin-top: 30px;
 }
 
 
-.tarjeta {
+.stat {
 
     background: white;
 
     border-radius: 18px;
 
-    padding: 25px 15px;
+    padding:
+        23px 12px;
 
     text-align: center;
 
     box-shadow:
-        0 6px 20px
-        rgba(0,0,0,.10);
+        0 6px 18px
+        rgba(0,0,0,.09);
 
-    transition: .2s;
-
+    transition: .2s ease;
 }
 
 
-.tarjeta:hover {
+.stat:hover {
 
     transform:
-        translateY(-3px);
-
+        translateY(-4px);
 }
 
 
-.tarjeta-icono {
+.stat i {
 
     font-size: 40px;
 
     color: #1473ed;
-
-    margin-bottom: 8px;
-
 }
 
 
-.tarjeta h3 {
+.stat-numero {
 
-    color: #1559a6;
-
-    font-weight: bold;
+    color: #1453a3;
 
     font-size: 32px;
 
-    margin: 5px 0;
+    font-weight: bold;
 
+    margin-top: 5px;
 }
 
 
-.tarjeta p {
+.stat-texto {
 
-    color: #6c757d;
-
-    margin: 0;
+    color: #64748b;
 
     font-size: 14px;
 
+    font-weight: 600;
 }
 
 
 /* =========================================================
-   ELECCIÓN
+   TARJETAS
 ========================================================= */
 
-.eleccion {
+.card-custom {
 
     background: white;
 
@@ -1181,21 +1146,111 @@ body {
 
     padding: 28px;
 
+    margin-top: 25px;
+
     box-shadow:
-        0 6px 20px
-        rgba(0,0,0,.10);
-
-    margin-bottom: 30px;
-
+        0 6px 18px
+        rgba(0,0,0,.09);
 }
 
 
-.eleccion h3 {
+.card-title {
 
-    color: #1559a6;
+    color: #1453a3;
+
+    font-size: 26px;
 
     font-weight: bold;
 
+    margin-bottom: 18px;
+}
+
+
+/* =========================================================
+   ESTUDIANTE SELECCIONADO
+========================================================= */
+
+.seleccionado {
+
+    border:
+        2px solid #198754;
+
+    background:
+        #f0fff7;
+}
+
+
+.seleccionado-contenido {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 20px;
+}
+
+
+.seleccionado-info h4 {
+
+    color: #1453a3;
+
+    margin-bottom: 5px;
+}
+
+
+.seleccionado-info p {
+
+    margin: 0;
+
+    color: #64748b;
+}
+
+
+/* =========================================================
+   ELECCIÓN
+========================================================= */
+
+.eleccion-box {
+
+    background: #f7faff;
+
+    border:
+        1px solid #d7e4f7;
+
+    border-radius: 15px;
+
+    padding: 23px;
+}
+
+
+.eleccion-box h3 {
+
+    color: #1453a3;
+
+    font-size: 24px;
+
+    font-weight: bold;
+}
+
+
+.eleccion-box p {
+
+    color: #64748b;
+}
+
+
+.estado {
+
+    display: inline-block;
+
+    padding:
+        7px 15px;
+
+    border-radius: 8px;
+
+    font-weight: bold;
 }
 
 
@@ -1204,13 +1259,6 @@ body {
     background: #198754;
 
     color: white;
-
-    padding: 8px 16px;
-
-    border-radius: 7px;
-
-    font-weight: bold;
-
 }
 
 
@@ -1219,195 +1267,224 @@ body {
     background: #dc3545;
 
     color: white;
-
-    padding: 8px 16px;
-
-    border-radius: 7px;
-
-    font-weight: bold;
-
 }
 
 
 /* =========================================================
-   RESUMEN DE ESTADO
+   PARTICIPACIÓN
 ========================================================= */
 
-.estado-resumen {
+.participacion {
+
+    margin-top: 20px;
+}
+
+
+.participacion-header {
 
     display: flex;
 
-    flex-wrap: wrap;
+    justify-content: space-between;
 
-    gap: 10px;
-
-    margin-top: 20px;
-
+    align-items: center;
 }
 
 
-.estado-pill {
+.participacion-header h3 {
 
-    display: inline-flex;
+    color: #1453a3;
 
-    align-items: center;
+    font-size: 25px;
 
-    gap: 7px;
+    margin: 0;
+}
 
-    padding: 8px 14px;
+
+.porcentaje {
+
+    color: #1473ed;
+
+    font-size: 30px;
+
+    font-weight: bold;
+}
+
+
+.barra {
+
+    width: 100%;
+
+    height: 17px;
+
+    background: #e7edf5;
 
     border-radius: 20px;
 
+    overflow: hidden;
+
+    margin-top: 17px;
+}
+
+
+.progreso {
+
+    height: 100%;
+
+    background:
+        linear-gradient(
+            90deg,
+            #1473ed,
+            #198754
+        );
+
+    border-radius: 20px;
+}
+
+
+.datos-participacion {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    color: #64748b;
+
     font-size: 14px;
 
-    font-weight: 600;
-
-}
-
-
-.estado-pill.verde {
-
-    background: #d1fae5;
-
-    color: #047857;
-
-}
-
-
-.estado-pill.amarillo {
-
-    background: #fef3c7;
-
-    color: #92400e;
-
+    margin-top: 10px;
 }
 
 
 /* =========================================================
-   ACCIONES
+   ACCESOS
 ========================================================= */
 
-.acciones {
+.accesos {
 
     display: grid;
 
     grid-template-columns:
-        repeat(2, 1fr);
+        repeat(3, 1fr);
 
-    gap: 20px;
-
+    gap: 18px;
 }
 
 
-.accion {
-
-    background: white;
-
-    border-radius: 18px;
-
-    padding: 28px;
+.acceso {
 
     text-decoration: none;
 
-    color: #212529;
+    color: white;
 
-    box-shadow:
-        0 6px 20px
-        rgba(0,0,0,.10);
+    padding:
+        25px;
 
-    transition: .2s;
+    min-height: 145px;
 
+    border-radius: 15px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    align-items: center;
+
+    text-align: center;
+
+    transition: .2s ease;
 }
 
 
-.accion:hover {
+.acceso:hover {
 
     transform:
         translateY(-4px);
 
+    color: white;
+
     box-shadow:
-        0 10px 25px
+        0 8px 18px
         rgba(0,0,0,.15);
-
-    color: #212529;
-
 }
 
 
-.accion i {
+.acceso i {
 
-    font-size: 42px;
+    font-size: 38px;
 
-    color: #1473ed;
-
+    margin-bottom: 10px;
 }
 
 
-.accion h4 {
+.azul {
 
-    color: #1559a6;
-
-    font-weight: bold;
-
-    margin-top: 12px;
-
+    background: #1473ed;
 }
 
 
-.accion p {
+.verde {
 
-    color: #6c757d;
+    background: #198754;
+}
 
-    margin-bottom: 0;
 
+.celeste {
+
+    background: #16a8d8;
 }
 
 
 /* =========================================================
-   ELECCIÓN CERRADA
-========================================================= */
-
-.eleccion-cerrada {
-
-    background: #fff3cd;
-
-    border:
-        1px solid #ffecb5;
-
-    color: #664d03;
-
-    border-radius: 12px;
-
-    padding: 18px;
-
-    margin-top: 20px;
-
-}
-
-
-/* =========================================================
-   PIE DE PÁGINA
+   FOOTER
 ========================================================= */
 
 .footer {
 
+    margin-top: 45px;
+
+    padding:
+        30px 20px;
+
+    background: white;
+
+    border-top:
+        1px solid #d9e1eb;
+
     text-align: center;
 
-    color: #7a8795;
+    color: #64748b;
 
     font-size: 13px;
-
-    padding: 30px 15px 20px;
-
-    margin-top: 35px;
-
 }
 
 
-.footer strong {
+.footer-principal {
 
-    color: #5d6b7a;
+    color: #1453a3;
 
+    font-size: 15px;
+
+    font-weight: bold;
+
+    margin-bottom: 7px;
+}
+
+
+.footer-autor strong {
+
+    color: #1453a3;
+}
+
+
+.footer-secundario {
+
+    margin-top: 7px;
+
+    color: #94a3b8;
+
+    font-size: 11px;
 }
 
 
@@ -1415,70 +1492,18 @@ body {
    RESPONSIVE
 ========================================================= */
 
-@media(max-width:1100px) {
+@media(max-width:1200px) {
 
-    .tarjetas {
+    .estadisticas {
 
         grid-template-columns:
             repeat(3, 1fr);
-
     }
 
 }
 
 
-@media(max-width:900px) {
-
-    .sidebar {
-
-        width: 210px;
-
-    }
-
-
-    .contenido {
-
-        margin-left: 210px;
-
-    }
-
-
-    .tarjetas {
-
-        grid-template-columns:
-            repeat(2, 1fr);
-
-    }
-
-
-    .resultado-estudiante {
-
-        flex-direction: column;
-
-        align-items: stretch;
-
-    }
-
-
-    .estado-estudiante {
-
-        flex-direction: column;
-
-        align-items: stretch;
-
-    }
-
-
-    .btn-iniciar-votacion {
-
-        text-align: center;
-
-    }
-
-}
-
-
-@media(max-width:650px) {
+@media(max-width:850px) {
 
     .sidebar {
 
@@ -1487,101 +1512,117 @@ body {
         width: 100%;
 
         height: auto;
+    }
 
+
+    .main {
+
+        margin-left: 0;
     }
 
 
     .contenido {
 
-        margin-left: 0;
-
+        padding: 20px;
     }
 
 
-    .tarjetas {
+    .estadisticas {
+
+        grid-template-columns:
+            repeat(2, 1fr);
+    }
+
+
+    .accesos {
 
         grid-template-columns:
             1fr;
-
     }
 
 
-    .acciones {
-
-        grid-template-columns:
-            1fr;
-
-    }
-
-
-    .header {
-
-        padding: 0 15px;
-
-    }
-
-
-    .header h3 {
-
-        font-size: 18px;
-
-    }
-
-
-    .usuario {
+    .topbar-user {
 
         display: none;
-
     }
 
 
-    .contenedor {
-
-        padding: 20px;
-
-    }
-
-
-    .campo-busqueda {
-
-        flex-wrap: wrap;
-
-        padding: 8px;
-
-    }
-
-
-    .campo-busqueda > i {
-
-        margin-left: 10px;
-
-    }
-
-
-    .campo-busqueda input {
-
-        width: calc(100% - 45px);
-
-        flex: none;
-
-    }
-
-
-    .btn-buscar {
-
-        width: 100%;
-
-        margin-top: 5px;
-
-    }
-
-
-    .datos-estudiante {
+    .buscar-form {
 
         flex-direction: column;
 
-        gap: 5px;
+        background: transparent;
 
+        gap: 8px;
+    }
+
+
+    .buscar-form input {
+
+        border-radius: 10px;
+
+        min-height: 48px;
+    }
+
+
+    .buscar-form button {
+
+        min-height: 48px;
+
+        border-radius: 10px;
+    }
+
+
+    .resultado-estudiante {
+
+        flex-direction: column;
+
+        align-items: flex-start;
+    }
+
+
+    .btn-votar {
+
+        width: 100%;
+
+        text-align: center;
+    }
+
+
+    .seleccionado-contenido {
+
+        flex-direction: column;
+
+        align-items: flex-start;
+    }
+
+}
+
+
+@media(max-width:550px) {
+
+    .estadisticas {
+
+        grid-template-columns:
+            1fr;
+    }
+
+
+    .titulo {
+
+        font-size: 30px;
+    }
+
+
+    .bienvenida h2 {
+
+        font-size: 30px;
+    }
+
+
+    .buscar-titulo {
+
+        font-size: 25px;
     }
 
 }
@@ -1596,1137 +1637,931 @@ body {
 
 <!-- =====================================================
      SIDEBAR
-========================================================= -->
+===================================================== -->
 
-<div class="sidebar">
-
-
-    <div class="logo">
-
-        <div class="logo-icon">
-
-            ⚖️
-
-        </div>
+<aside class="sidebar">
 
 
-        <h2>
-
-            JURADO
-
-        </h2>
+<div class="logo">
 
 
-        <p>
-
-            Panel de votaciones
-
-        </p>
-
-    </div>
+<div class="logo-icon">
+⚖️
+</div>
 
 
-    <div class="menu">
+<h1>
+JURADO
+</h1>
 
 
-        <a
-        href="jurado.php"
-        class="activo">
+<p>
+Panel de votaciones
+</p>
 
-            <i class="bi bi-house-fill"></i>
-
-            <span>
-
-                Inicio
-
-            </span>
-
-        </a>
-
-
-        <a
-        href="ingresar_estudiante.php">
-
-            <i class="bi bi-person-vcard-fill"></i>
-
-            <span>
-
-                Ingresar estudiante
-
-            </span>
-
-        </a>
-
-
-        <a
-        href="resultados.php">
-
-            <i class="bi bi-trophy-fill"></i>
-
-            <span>
-
-                Resultados
-
-            </span>
-
-        </a>
-
-
-        <a
-        href="graficas.php">
-
-            <i class="bi bi-bar-chart-fill"></i>
-
-            <span>
-
-                Gráficas
-
-            </span>
-
-        </a>
-
-
-        <div class="separador"></div>
-
-
-        <a
-        href="logout.php">
-
-            <i class="bi bi-box-arrow-right"></i>
-
-            <span>
-
-                Cerrar sesión
-
-            </span>
-
-        </a>
-
-
-    </div>
 
 </div>
 
 
+<nav class="menu">
+
+
+<a
+href="jurado.php"
+class="activo"
+>
+
+<i class="bi bi-house-fill"></i>
+
+Inicio
+
+</a>
+
+
+<a href="buscar_estudiante_jurado.php">
+
+<i class="bi bi-person-vcard-fill"></i>
+
+Ingresar estudiante
+
+</a>
+
+
+<a href="resultados.php">
+
+<i class="bi bi-trophy-fill"></i>
+
+Resultados
+
+</a>
+
+
+<a href="graficas.php">
+
+<i class="bi bi-bar-chart-fill"></i>
+
+Gráficas
+
+</a>
+
+
+<div class="menu-separador"></div>
+
+
+<a
+href="logout.php"
+onclick="
+return confirm(
+'¿Desea cerrar sesión?'
+);
+"
+>
+
+<i class="bi bi-box-arrow-right"></i>
+
+Cerrar sesión
+
+</a>
+
+
+</nav>
+
+
+</aside>
+
+
 <!-- =====================================================
-     CONTENIDO
-========================================================= -->
+     PRINCIPAL
+===================================================== -->
 
-<div class="contenido">
+<div class="main">
 
 
-    <!-- =================================================
-         HEADER
-    ================================================== -->
+<header class="topbar">
 
-    <div class="header">
 
+<h4>
 
-        <h3>
+⚖️ Sistema de Votaciones Escolares
 
-            ⚖️ Sistema de Votaciones Escolares
+</h4>
 
-        </h3>
 
+<div class="topbar-user">
 
-        <div class="usuario">
+<i class="bi bi-person-badge-fill"></i>
 
-            <i class="bi bi-person-badge-fill"></i>
+Jurado:
 
-            Jurado:
+<strong>
 
-            <strong>
+<?php
 
-                <?php
+echo htmlspecialchars(
+    $nombreJurado
+);
 
-                echo htmlspecialchars(
-                    $nombreJurado
-                );
+?>
 
-                ?>
+</strong>
 
-            </strong>
+</div>
 
-        </div>
 
+</header>
 
-    </div>
 
+<main class="contenido">
 
-    <!-- =================================================
-         CONTENEDOR
-    ================================================== -->
 
-    <div class="contenedor">
+<!-- =====================================================
+     BIENVENIDA
+===================================================== -->
 
+<div class="bienvenida">
 
-        <!-- =============================================
-             MENSAJE
-        ============================================== -->
 
-        <?php if (
-            $mensajeJurado !== ""
-        ) { ?>
+<h2>
 
+Bienvenido,
 
-            <div class="alert alert-<?php
+<?php
 
-                echo htmlspecialchars(
-                    $tipoMensajeJurado
-                );
+echo htmlspecialchars(
+    $nombreJurado
+);
 
-            ?> mensaje-jurado">
+?>
 
+👋
 
-                <?php if (
-                    $tipoMensajeJurado === "success"
-                ) { ?>
+</h2>
 
-                    <i class="bi bi-check-circle-fill"></i>
 
-                <?php } else { ?>
+<p>
 
-                    <i class="bi bi-info-circle-fill"></i>
+Desde este panel puede habilitar la votación
+de los estudiantes y consultar los resultados.
 
-                <?php } ?>
-
-
-                <?php
-
-                echo htmlspecialchars(
-                    $mensajeJurado
-                );
-
-                ?>
-
-
-            </div>
-
-
-        <?php } ?>
-
-
-        <!-- =============================================
-             BIENVENIDA
-        ============================================== -->
-
-        <div class="bienvenida mb-4">
-
-
-            <h1>
-
-                Bienvenido,
-
-                <?php
-
-                echo htmlspecialchars(
-                    $nombreJurado
-                );
-
-                ?>
-
-                👋
-
-            </h1>
-
-
-            <p>
-
-                Desde este panel puede habilitar la votación
-                de los estudiantes y consultar los resultados.
-
-            </p>
-
-
-        </div>
-
-
-        <!-- =============================================
-             BUSCADOR DE ESTUDIANTES
-        ============================================== -->
-
-        <div class="ingresar-estudiante">
-
-
-            <h2>
-
-                <i class="bi bi-search"></i>
-
-                Buscar estudiante
-
-            </h2>
-
-
-            <p>
-
-                Busque al estudiante por su nombre o número
-                de documento para iniciar su proceso de votación.
-
-            </p>
-
-
-            <?php if (
-                $eleccionAbierta
-            ) { ?>
-
-
-                <div class="buscador-jurado">
-
-
-                    <div class="campo-busqueda">
-
-
-                        <i class="bi bi-search"></i>
-
-
-                        <input
-
-                            type="text"
-
-                            id="buscarEstudiante"
-
-                            placeholder="Nombre o número de documento..."
-
-                            autocomplete="off"
-
-                        >
-
-
-                        <button
-
-                            type="button"
-
-                            id="btnBuscarEstudiante"
-
-                            class="btn-buscar"
-
-                        >
-
-                            Buscar
-
-                        </button>
-
-
-                    </div>
-
-
-                    <div
-
-                        id="resultadosEstudiantes"
-
-                        class="resultados-estudiantes"
-
-                    >
-
-
-                        <div class="mensaje-busqueda">
-
-
-                            <i class="bi bi-person-search"></i>
-
-
-                            <span>
-
-                                Escriba un nombre o documento
-                                para buscar un estudiante.
-
-                            </span>
-
-
-                        </div>
-
-
-                    </div>
-
-
-                </div>
-
-
-            <?php } else { ?>
-
-
-                <button
-
-                    type="button"
-
-                    class="btn btn-secondary"
-
-                    disabled
-
-                >
-
-                    <i class="bi bi-lock-fill"></i>
-
-                    Elección cerrada
-
-                </button>
-
-
-            <?php } ?>
-
-
-        </div>
-
-
-        <!-- =============================================
-             TARJETAS DE ESTADÍSTICAS
-        ============================================== -->
-
-        <div class="tarjetas">
-
-
-            <!-- ESTUDIANTES -->
-
-            <div class="tarjeta">
-
-
-                <div class="tarjeta-icono">
-
-                    <i class="bi bi-people-fill"></i>
-
-                </div>
-
-
-                <h3>
-
-                    <?php
-
-                    echo $totalEstudiantes;
-
-                    ?>
-
-                </h3>
-
-
-                <p>
-
-                    Estudiantes registrados
-
-                </p>
-
-
-            </div>
-
-
-            <!-- YA VOTARON -->
-
-            <div class="tarjeta">
-
-
-                <div class="tarjeta-icono">
-
-                    <i class="bi bi-person-check-fill"></i>
-
-                </div>
-
-
-                <h3>
-
-                    <?php
-
-                    echo $totalEstudiantesVotaron;
-
-                    ?>
-
-                </h3>
-
-
-                <p>
-
-                    Estudiantes que votaron
-
-                </p>
-
-
-            </div>
-
-
-            <!-- PENDIENTES -->
-
-            <div class="tarjeta">
-
-
-                <div class="tarjeta-icono">
-
-                    <i class="bi bi-person-exclamation"></i>
-
-                </div>
-
-
-                <h3>
-
-                    <?php
-
-                    echo $totalEstudiantesPendientes;
-
-                    ?>
-
-                </h3>
-
-
-                <p>
-
-                    Estudiantes pendientes
-
-                </p>
-
-
-            </div>
-
-
-            <!-- CANDIDATOS -->
-
-            <div class="tarjeta">
-
-
-                <div class="tarjeta-icono">
-
-                    <i class="bi bi-person-vcard-fill"></i>
-
-                </div>
-
-
-                <h3>
-
-                    <?php
-
-                    echo $totalCandidatos;
-
-                    ?>
-
-                </h3>
-
-
-                <p>
-
-                    Candidatos de la elección
-
-                </p>
-
-
-            </div>
-
-
-            <!-- VOTOS -->
-
-            <div class="tarjeta">
-
-
-                <div class="tarjeta-icono">
-
-                    <i class="bi bi-check2-square"></i>
-
-                </div>
-
-
-                <h3>
-
-                    <?php
-
-                    echo $totalVotos;
-
-                    ?>
-
-                </h3>
-
-
-                <p>
-
-                    Votos registrados
-
-                </p>
-
-
-            </div>
-
-
-        </div>
-
-
-        <!-- =============================================
-             ELECCIÓN ACTUAL
-        ============================================== -->
-
-        <div class="eleccion">
-
-
-            <h3>
-
-                <i class="bi bi-calendar-event-fill"></i>
-
-                Elección actual
-
-            </h3>
-
-
-            <hr>
-
-
-            <?php if (
-                $eleccion
-            ) { ?>
-
-
-                <h4>
-
-                    <?php
-
-                    echo htmlspecialchars(
-                        $eleccion['nombre']
-                    );
-
-                    ?>
-
-                </h4>
-
-
-                <?php if (
-                    !empty(
-                        $eleccion['descripcion']
-                    )
-                ) { ?>
-
-
-                    <p class="text-muted">
-
-                        <?php
-
-                        echo htmlspecialchars(
-                            $eleccion['descripcion']
-                        );
-
-                        ?>
-
-                    </p>
-
-
-                <?php } ?>
-
-
-                <div class="row mt-4">
-
-
-                    <div class="col-md-4 mb-3">
-
-
-                        <strong>
-
-                            Fecha de inicio
-
-                        </strong>
-
-
-                        <br>
-
-
-                        <span class="text-muted">
-
-                            <?php
-
-                            echo htmlspecialchars(
-                                $eleccion['fecha_inicio']
-                            );
-
-                            ?>
-
-                        </span>
-
-
-                    </div>
-
-
-                    <div class="col-md-4 mb-3">
-
-
-                        <strong>
-
-                            Fecha de finalización
-
-                        </strong>
-
-
-                        <br>
-
-
-                        <span class="text-muted">
-
-                            <?php
-
-                            echo htmlspecialchars(
-                                $eleccion['fecha_fin']
-                            );
-
-                            ?>
-
-                        </span>
-
-
-                    </div>
-
-
-                    <div class="col-md-4 mb-3">
-
-
-                        <strong>
-
-                            Estado
-
-                        </strong>
-
-
-                        <br><br>
-
-
-                        <?php if (
-                            $eleccionAbierta
-                        ) { ?>
-
-
-                            <span class="estado-abierta">
-
-                                🟢 Elección abierta
-
-                            </span>
-
-
-                        <?php } else { ?>
-
-
-                            <span class="estado-cerrada">
-
-                                🔴 Elección cerrada
-
-                            </span>
-
-
-                        <?php } ?>
-
-
-                    </div>
-
-
-                </div>
-
-
-                <!-- =====================================
-                     RESUMEN DE PARTICIPACIÓN
-                ====================================== -->
-
-                <div class="estado-resumen">
-
-
-                    <span class="estado-pill verde">
-
-                        <i class="bi bi-person-check-fill"></i>
-
-                        <?php
-
-                        echo $totalEstudiantesVotaron;
-
-                        ?>
-
-                        ya votaron
-
-                    </span>
-
-
-                    <span class="estado-pill amarillo">
-
-                        <i class="bi bi-person-exclamation"></i>
-
-                        <?php
-
-                        echo $totalEstudiantesPendientes;
-
-                        ?>
-
-                        pendientes
-
-                    </span>
-
-
-                </div>
-
-
-                <?php if (
-                    !$eleccionAbierta
-                ) { ?>
-
-
-                    <div class="eleccion-cerrada">
-
-
-                        <i class="bi bi-exclamation-triangle-fill"></i>
-
-
-                        <strong>
-
-                            La elección está cerrada.
-
-                        </strong>
-
-
-                        El jurado no puede iniciar nuevas
-                        votaciones hasta que el administrador
-                        abra la elección.
-
-
-                    </div>
-
-
-                <?php } ?>
-
-
-            <?php } else { ?>
-
-
-                <div class="alert alert-warning mb-0">
-
-
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-
-
-                    No hay ninguna elección registrada.
-
-
-                </div>
-
-
-            <?php } ?>
-
-
-        </div>
-
-
-        <!-- =============================================
-             ACCIONES
-        ============================================== -->
-
-        <div class="acciones">
-
-
-            <a
-            href="resultados.php"
-            class="accion">
-
-
-                <i class="bi bi-trophy-fill"></i>
-
-
-                <h4>
-
-                    Resultados
-
-                </h4>
-
-
-                <p>
-
-                    Consulta los resultados oficiales
-                    de la elección.
-
-                </p>
-
-
-                <span class="btn btn-outline-primary mt-3">
-
-                    Ver resultados
-
-                </span>
-
-
-            </a>
-
-
-            <a
-            href="graficas.php"
-            class="accion">
-
-
-                <i class="bi bi-bar-chart-fill"></i>
-
-
-                <h4>
-
-                    Gráficas
-
-                </h4>
-
-
-                <p>
-
-                    Consulta las estadísticas y gráficas
-                    de las votaciones.
-
-                </p>
-
-
-                <span class="btn btn-outline-primary mt-3">
-
-                    Ver gráficas
-
-                </span>
-
-
-            </a>
-
-
-        </div>
-
-
-        <!-- =============================================
-             PIE DE PÁGINA
-        ============================================== -->
-
-        <footer class="footer">
-
-
-            <div>
-
-                ©
-
-                <?php
-
-                echo date("Y");
-
-                ?>
-
-
-                <strong>
-
-                    Sistema de Votaciones Escolares
-
-                </strong>
-
-
-            </div>
-
-
-            <div>
-
-                Elaborado por
-
-                <strong>
-
-                    Juan David Otero Cantor
-
-                </strong>
-
-
-            </div>
-
-
-            <div>
-
-                Todos los derechos reservados.
-
-            </div>
-
-
-        </footer>
-
-
-    </div>
+</p>
 
 
 </div>
 
 
 <!-- =====================================================
-     JAVASCRIPT DEL BUSCADOR
-========================================================= -->
+     BUSCAR ESTUDIANTE
+===================================================== -->
 
-<script>
-
-const campoBusqueda =
-    document.getElementById(
-        "buscarEstudiante"
-    );
+<section class="buscar-card">
 
 
-const btnBuscar =
-    document.getElementById(
-        "btnBuscarEstudiante"
-    );
+<div class="buscar-titulo">
+
+<i class="bi bi-search"></i>
+
+Buscar estudiante
+
+</div>
 
 
-const resultados =
-    document.getElementById(
-        "resultadosEstudiantes"
-    );
+<div class="buscar-descripcion">
+
+Busque al estudiante por su nombre,
+apellido, documento o curso para iniciar
+su proceso de votación.
+
+</div>
 
 
-/* =========================================================
-   FUNCIÓN DE BÚSQUEDA
-========================================================= */
-
-function buscarEstudiante() {
-
-    const texto =
-        campoBusqueda.value.trim();
+<form
+method="GET"
+action="jurado.php"
+class="buscar-form"
+>
 
 
-    if (
-        texto.length < 2
-    ) {
+<input
+type="text"
+name="buscar"
+value="<?php
 
-        resultados.innerHTML = `
+echo htmlspecialchars(
+    $busqueda
+);
 
-            <div class="mensaje-busqueda">
-
-                <i class="bi bi-info-circle"></i>
-
-                <span>
-
-                    Escriba al menos 2 caracteres
-                    para realizar la búsqueda.
-
-                </span>
-
-            </div>
-
-        `;
-
-        return;
-
-    }
+?>"
+placeholder="Nombre o número de documento..."
+autocomplete="off"
+>
 
 
-    resultados.innerHTML = `
+<button
+type="submit"
+>
 
-        <div class="mensaje-busqueda">
+<i class="bi bi-search"></i>
 
-            <i class="bi bi-hourglass-split"></i>
+&nbsp;
 
-            <span>
+Buscar
 
-                Buscando estudiante...
-
-            </span>
-
-        </div>
-
-    `;
+</button>
 
 
-    fetch(
-        "buscar_estudiante_jurado.php?buscar="
-        +
-        encodeURIComponent(texto)
+</form>
+
+
+<?php if (
+    $busqueda !== ""
+) { ?>
+
+
+<div class="resultados">
+
+
+<?php if (
+    count($resultadosBusqueda) > 0
+) { ?>
+
+
+<?php foreach (
+    $resultadosBusqueda
+    as $estudiante
+) { ?>
+
+
+<div class="resultado-estudiante">
+
+
+<div class="estudiante-info">
+
+
+<div class="estudiante-icon">
+
+<i class="bi bi-person-fill"></i>
+
+</div>
+
+
+<div>
+
+<strong>
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['nombre']
+    . " "
+    . $estudiante['apellido']
+);
+
+?>
+
+</strong>
+
+
+<small>
+
+Documento:
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['documento']
+);
+
+?>
+
+
+&nbsp; | &nbsp;
+
+Curso:
+
+<?php
+
+echo htmlspecialchars(
+    $estudiante['curso']
+);
+
+?>
+
+</small>
+
+</div>
+
+
+</div>
+
+
+<a
+href="buscar_estudiante_jurado.php?id=<?php
+echo (int)$estudiante['id'];
+?>"
+class="btn-votar"
+>
+
+<i class="bi bi-arrow-right-circle"></i>
+
+Ingresar
+
+</a>
+
+
+</div>
+
+
+<?php } ?>
+
+
+<?php } else { ?>
+
+
+<div class="sin-resultados">
+
+<i class="bi bi-info-circle"></i>
+
+No se encontró ningún estudiante
+con esa información.
+
+</div>
+
+
+<?php } ?>
+
+
+</div>
+
+
+<?php } else { ?>
+
+
+<div class="resultados">
+
+<div class="sin-resultados">
+
+Escriba un nombre, apellido o documento
+para buscar un estudiante.
+
+</div>
+
+</div>
+
+
+<?php } ?>
+
+
+</section>
+
+
+<!-- =====================================================
+     ESTADÍSTICAS
+===================================================== -->
+
+<section class="estadisticas">
+
+
+<div class="stat">
+
+<i class="bi bi-people-fill"></i>
+
+<div class="stat-numero">
+
+<?php
+
+echo $totalEstudiantes;
+
+?>
+
+</div>
+
+<div class="stat-texto">
+
+Estudiantes
+
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<i class="bi bi-person-check-fill"></i>
+
+<div class="stat-numero">
+
+<?php
+
+echo $totalVotantes;
+
+?>
+
+</div>
+
+<div class="stat-texto">
+
+Han votado
+
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<i class="bi bi-person-exclamation"></i>
+
+<div class="stat-numero">
+
+<?php
+
+echo $totalPendientes;
+
+?>
+
+</div>
+
+<div class="stat-texto">
+
+Pendientes
+
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<i class="bi bi-person-vcard-fill"></i>
+
+<div class="stat-numero">
+
+<?php
+
+echo $totalCandidatos;
+
+?>
+
+</div>
+
+<div class="stat-texto">
+
+Candidatos
+
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<i class="bi bi-check2-square"></i>
+
+<div class="stat-numero">
+
+<?php
+
+echo $totalVotos;
+
+?>
+
+</div>
+
+<div class="stat-texto">
+
+Votos registrados
+
+</div>
+
+</div>
+
+
+</section>
+
+
+<!-- =====================================================
+     ESTUDIANTE SELECCIONADO
+===================================================== -->
+
+<?php if (
+    $estudianteSeleccionado
+) { ?>
+
+
+<section class="card-custom seleccionado">
+
+
+<div class="card-title">
+
+<i class="bi bi-person-check-fill"></i>
+
+Estudiante seleccionado
+
+</div>
+
+
+<div class="seleccionado-contenido">
+
+
+<div class="seleccionado-info">
+
+
+<h4>
+
+<?php
+
+echo htmlspecialchars(
+    $estudianteSeleccionado['nombre']
+    . " "
+    . $estudianteSeleccionado['apellido']
+);
+
+?>
+
+</h4>
+
+
+<p>
+
+Documento:
+
+<?php
+
+echo htmlspecialchars(
+    $estudianteSeleccionado['documento']
+);
+
+?>
+
+
+&nbsp;&nbsp;|&nbsp;&nbsp;
+
+Curso:
+
+<?php
+
+echo htmlspecialchars(
+    $estudianteSeleccionado['curso']
+);
+
+?>
+
+</p>
+
+
+</div>
+
+
+<a
+href="votar_por_jurado.php"
+class="btn btn-success"
+>
+
+<i class="bi bi-check-circle"></i>
+
+Continuar con la votación
+
+</a>
+
+
+</div>
+
+
+</section>
+
+
+<?php } ?>
+
+
+<!-- =====================================================
+     ELECCIÓN ACTUAL
+===================================================== -->
+
+<section class="card-custom">
+
+
+<div class="card-title">
+
+<i class="bi bi-calendar-check-fill"></i>
+
+Elección actual
+
+</div>
+
+
+<div class="eleccion-box">
+
+
+<h3>
+
+<?php
+
+echo htmlspecialchars(
+    $nombreEleccion
+);
+
+?>
+
+</h3>
+
+
+<p>
+
+<?php
+
+echo htmlspecialchars(
+    $descripcionEleccion
+);
+
+?>
+
+</p>
+
+
+<?php if (
+    $idEleccion > 0
+) { ?>
+
+
+<span class="estado estado-abierta">
+
+🟢 Elección abierta
+
+</span>
+
+
+<?php if (
+    $fechaInicio !== ""
+) { ?>
+
+&nbsp;
+
+Inicio:
+
+<strong>
+
+<?php
+
+echo htmlspecialchars(
+    date(
+        "d/m/Y h:i A",
+        strtotime(
+            $fechaInicio
+        )
     )
+);
 
-    .then(
-        response => {
+?>
 
-            if (
-                !response.ok
-            ) {
+</strong>
 
-                throw new Error(
-                    "Error en la búsqueda."
-                );
+<?php } ?>
 
-            }
 
-            return response.text();
+&nbsp;&nbsp;
 
-        }
+
+<?php if (
+    $fechaFin !== ""
+) { ?>
+
+Finalización:
+
+<strong>
+
+<?php
+
+echo htmlspecialchars(
+    date(
+        "d/m/Y h:i A",
+        strtotime(
+            $fechaFin
+        )
     )
+);
 
-    .then(
-        html => {
+?>
 
-            resultados.innerHTML =
-                html;
+</strong>
 
-        }
-    )
-
-    .catch(
-        error => {
-
-            resultados.innerHTML = `
-
-                <div class="resultado-vacio">
-
-                    <div class="resultado-icono">
-
-                        <i class="bi bi-exclamation-triangle"></i>
-
-                    </div>
-
-                    <div>
-
-                        <h5>
-
-                            No se pudo realizar la búsqueda
-
-                        </h5>
-
-                        <p>
-
-                            Intente nuevamente.
-
-                        </p>
-
-                    </div>
-
-                </div>
-
-            `;
-
-            console.error(error);
-
-        }
-    );
-
-}
+<?php } ?>
 
 
-/* =========================================================
-   BOTÓN BUSCAR
-========================================================= */
-
-if (
-    btnBuscar
-) {
-
-    btnBuscar.addEventListener(
-        "click",
-        buscarEstudiante
-    );
-
-}
+<?php } else { ?>
 
 
-/* =========================================================
-   ENTER EN EL CAMPO
-========================================================= */
+<span class="estado estado-cerrada">
 
-if (
-    campoBusqueda
-) {
+🔴 No hay elección abierta
 
-    campoBusqueda.addEventListener(
-        "keydown",
-        function(event) {
+</span>
 
-            if (
-                event.key === "Enter"
-            ) {
 
-                event.preventDefault();
+<?php } ?>
 
-                buscarEstudiante();
 
-            }
+</div>
 
-        }
-    );
 
-}
+</section>
 
-</script>
+
+<!-- =====================================================
+     PARTICIPACIÓN
+===================================================== -->
+
+<section class="card-custom">
+
+
+<div class="participacion-header">
+
+
+<h3>
+
+<i class="bi bi-pie-chart-fill"></i>
+
+Participación electoral
+
+</h3>
+
+
+<div class="porcentaje">
+
+<?php
+
+echo $participacion;
+
+?>%
+
+</div>
+
+
+</div>
+
+
+<div class="barra">
+
+<div
+class="progreso"
+style="
+width:
+<?php
+echo $participacion;
+?>%;
+"
+></div>
+
+</div>
+
+
+<div class="datos-participacion">
+
+
+<span>
+
+<i class="bi bi-person-check-fill"></i>
+
+<?php
+
+echo $totalVotantes;
+
+?>
+
+estudiantes han votado
+
+</span>
+
+
+<span>
+
+<i class="bi bi-person-exclamation"></i>
+
+<?php
+
+echo $totalPendientes;
+
+?>
+
+pendientes
+
+</span>
+
+
+</div>
+
+
+</section>
+
+
+<!-- =====================================================
+     ACCESOS
+===================================================== -->
+
+<section class="card-custom">
+
+
+<div class="card-title">
+
+<i class="bi bi-grid-fill"></i>
+
+Accesos rápidos
+
+</div>
+
+
+<div class="accesos">
+
+
+<a
+href="buscar_estudiante_jurado.php"
+class="acceso azul"
+>
+
+<i class="bi bi-person-vcard-fill"></i>
+
+Ingresar estudiante
+
+</a>
+
+
+<a
+href="resultados.php"
+class="acceso verde"
+>
+
+<i class="bi bi-trophy-fill"></i>
+
+Ver resultados
+
+</a>
+
+
+<a
+href="graficas.php"
+class="acceso celeste"
+>
+
+<i class="bi bi-bar-chart-fill"></i>
+
+Ver gráficas
+
+</a>
+
+
+</div>
+
+
+</section>
+
+
+<!-- =====================================================
+     FOOTER
+===================================================== -->
+
+<footer class="footer">
+
+
+<div class="footer-principal">
+
+© <?php echo date("Y"); ?>
+
+Sistema de Votaciones Escolares
+
+</div>
+
+
+<div class="footer-autor">
+
+Elaborado por
+
+<strong>
+Juan David Otero Cantor
+</strong>
+
+</div>
+
+
+<div class="footer-secundario">
+
+Todos los derechos reservados
+
+<br>
+
+Proyecto de grado
+
+<br>
+
+Sistema de Votaciones Escolares
+
+</div>
+
+
+</footer>
+
+
+</main>
+
+</div>
 
 
 </body>

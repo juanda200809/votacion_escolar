@@ -1,307 +1,436 @@
 <?php
 
+/* =========================================================
+   SEGURIDAD
+========================================================= */
+
 require_once "seguridad.php";
 
 evitarCache();
-verificarRol(['administrador', 'jurado']);
+verificarRol(['administrador']);
+
+require_once "config/conexion.php";
+
+require_once "fpdf/fpdf.php";
 
 
 /* =========================================================
-   VERIFICAR ADMINISTRADOR
+   FUNCIÓN PARA TEXTO DEL PDF
+========================================================= */
+
+function textoPDF($texto)
+{
+    return utf8_decode(
+        (string)$texto
+    );
+}
+
+
+/* =========================================================
+   SI NO SE HA ENVIADO EL FORMULARIO
 ========================================================= */
 
 if (
-    !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    $_SESSION['rol'] !== 'administrador'
-) {
-    header("Location: login.php");
-    exit();
-}
-
-
-/* =========================================================
-   CONEXIÓN
-========================================================= */
-
-include("config/conexion.php");
-
-
-/* =========================================================
-   FPDF
-========================================================= */
-
-require_once("fpdf/fpdf.php");
-
-
-/* =========================================================
-   SI NO SE HA SELECCIONADO ELECCIÓN
-========================================================= */
-
-if (!isset($_POST['generar'])) {
-
-    $elecciones = $conn->query("
-        SELECT *
-        FROM elecciones
-        ORDER BY fecha_inicio DESC
-    ");
-
-    ?>
-
-    <!DOCTYPE html>
-
-    <html lang="es">
-
-    <head>
-
-        <meta charset="UTF-8">
-
-        <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1">
-
-        <title>
-            Generar PDF
-        </title>
-
-
-        <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-        rel="stylesheet">
-
-
-        <link
-        rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-
-
-        <style>
-
-            body {
-
-                background:#eef2f7;
-
-            }
-
-
-            .card {
-
-                max-width:700px;
-
-                margin:80px auto;
-
-                box-shadow:
-                    0 5px 20px
-                    rgba(0,0,0,.15);
-
-                border:0;
-
-                border-radius:15px;
-
-            }
-
-
-            .card-header {
-
-                border-radius:
-                    15px 15px 0 0 !important;
-
-            }
-
-        </style>
-
-    </head>
-
-
-    <body>
-
-
-        <div class="container">
-
-
-            <div class="card">
-
-
-                <div class="card-header bg-danger text-white">
-
-                    <h3 class="mb-0">
-
-                        <i class="bi bi-file-earmark-pdf-fill"></i>
-
-                        Generar PDF de Resultados
-
-                    </h3>
-
-                </div>
-
-
-                <div class="card-body p-4">
-
-
-                    <?php
-
-                    if (
-                        $elecciones &&
-                        $elecciones->num_rows > 0
-                    ) {
-
-                    ?>
-
-                        <form method="POST">
-
-
-                            <div class="mb-3">
-
-                                <label
-                                class="form-label fw-bold">
-
-                                    Seleccione la elección
-
-                                </label>
-
-
-                                <select
-                                name="id_eleccion"
-                                class="form-select"
-                                required>
-
-
-                                    <option value="">
-
-                                        Seleccione...
-
-                                    </option>
-
-
-                                    <?php
-
-                                    while (
-                                        $e =
-                                        $elecciones->fetch_assoc()
-                                    ) {
-
-                                    ?>
-
-                                        <option
-                                        value="<?php echo (int)$e['id']; ?>">
-
-                                            <?php
-
-                                            echo htmlspecialchars(
-                                                $e['nombre']
-                                            );
-
-                                            ?>
-
-                                        </option>
-
-                                    <?php
-
-                                    }
-
-                                    ?>
-
-                                </select>
-
-                            </div>
-
-
-                            <button
-                            type="submit"
-                            name="generar"
-                            class="btn btn-danger w-100">
-
-                                <i class="bi bi-file-earmark-pdf-fill"></i>
-
-                                Generar PDF
-
-                            </button>
-
-
-                        </form>
-
-
-                    <?php
-
-                    } else {
-
-                    ?>
-
-                        <div class="alert alert-warning">
-
-                            <i class="bi bi-info-circle-fill"></i>
-
-                            No hay elecciones registradas.
-
-                        </div>
-
-                    <?php
-
-                    }
-
-                    ?>
-
-
-                    <div class="mt-3">
-
-                        <a
-                        href="admin.php"
-                        class="btn btn-secondary w-100">
-
-                            <i class="bi bi-arrow-left"></i>
-
-                            Volver al Panel
-
-                        </a>
-
-                    </div>
-
-
-                </div>
-
-            </div>
-
-        </div>
-
-
-    </body>
-
-    </html>
-
-    <?php
-
-    exit();
-
-}
-
-
-/* =========================================================
-   VALIDAR ELECCIÓN
-========================================================= */
-
-if (
-    !isset($_POST['id_eleccion']) ||
-    !is_numeric($_POST['id_eleccion'])
+    $_SERVER['REQUEST_METHOD'] !== 'POST' ||
+    !isset($_POST['generar'])
 ) {
 
-    die("Debe seleccionar una elección.");
+
+    /* =====================================================
+       OBTENER ELECCIONES
+    ===================================================== */
+
+    $elecciones =
+        $conn->query("
+
+            SELECT
+                id,
+                nombre,
+                descripcion,
+                fecha_inicio,
+                fecha_fin,
+                estado
+
+            FROM elecciones
+
+            ORDER BY id DESC
+
+        ");
+
+
+    if (!$elecciones) {
+
+        die(
+            "No se pudieron consultar las elecciones."
+        );
+
+    }
+
+?>
+
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
+
+<title>
+Generar PDF de resultados
+</title>
+
+
+<link
+href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+rel="stylesheet">
+
+
+<link
+rel="stylesheet"
+href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+
+<style>
+
+body {
+
+    margin: 0;
+
+    background: #eef3f9;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
 
 }
 
+
+.contenedor {
+
+    max-width: 800px;
+
+    margin: auto;
+
+    padding: 50px 20px;
+
+}
+
+
+.card-principal {
+
+    border: none;
+
+    border-radius: 20px;
+
+    overflow: hidden;
+
+    box-shadow:
+        0 8px 25px
+        rgba(0,0,0,.10);
+
+}
+
+
+.encabezado {
+
+    background:
+        linear-gradient(
+            135deg,
+            #1453a3,
+            #0d6efd
+        );
+
+    color: white;
+
+    padding: 30px;
+
+}
+
+
+.encabezado h1 {
+
+    margin: 0;
+
+    font-weight: bold;
+
+}
+
+
+.cuerpo {
+
+    background: white;
+
+    padding: 35px;
+
+}
+
+
+.form-label {
+
+    font-weight: bold;
+
+    color: #334155;
+
+}
+
+
+.form-select {
+
+    min-height: 48px;
+
+    border-radius: 10px;
+
+}
+
+
+.btn {
+
+    border-radius: 10px;
+
+    font-weight: bold;
+
+    padding: 12px 20px;
+
+}
+
+
+.info {
+
+    background: #e8f1ff;
+
+    border: 1px solid #b6d4fe;
+
+    color: #084298;
+
+    border-radius: 12px;
+
+    padding: 18px;
+
+}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div class="contenedor">
+
+
+<div class="card-principal">
+
+
+<div class="encabezado">
+
+<h1>
+
+<i class="bi bi-file-earmark-pdf-fill"></i>
+
+Generar PDF de resultados
+
+</h1>
+
+
+<p class="mb-0 mt-2">
+
+Genera un documento oficial con los resultados
+de una elección.
+
+</p>
+
+</div>
+
+
+<div class="cuerpo">
+
+
+<div class="info mb-4">
+
+<i class="bi bi-info-circle-fill"></i>
+
+
+<strong>
+Información:
+</strong>
+
+
+El documento incluirá candidatos,
+votos, porcentajes, ganadores,
+estadísticas generales y participación.
+
+</div>
+
+
+<form
+method="POST">
+
+
+<div class="mb-4">
+
+
+<label
+for="id_eleccion"
+class="form-label">
+
+
+<i class="bi bi-calendar-event-fill"></i>
+
+Seleccione la elección
+
+
+</label>
+
+
+<select
+
+name="id_eleccion"
+
+id="id_eleccion"
+
+class="form-select"
+
+required>
+
+
+<option value="">
+
+Seleccione una elección...
+
+</option>
+
+
+<?php while (
+    $eleccion =
+    $elecciones->fetch_assoc()
+) { ?>
+
+
+<option
+
+value="<?php
+
+echo (int)$eleccion['id'];
+
+?>">
+
+
+<?php
+
+echo htmlspecialchars(
+    $eleccion['nombre']
+);
+
+?>
+
+
+</option>
+
+
+<?php } ?>
+
+
+</select>
+
+
+</div>
+
+
+<div class="d-flex
+            justify-content-between
+            gap-2
+            flex-wrap">
+
+
+<a
+href="admin.php"
+class="btn btn-outline-secondary">
+
+
+<i class="bi bi-arrow-left"></i>
+
+Volver al panel
+
+
+</a>
+
+
+<button
+
+type="submit"
+
+name="generar"
+
+class="btn btn-danger">
+
+
+<i class="bi bi-file-earmark-pdf-fill"></i>
+
+Generar PDF
+
+
+</button>
+
+
+</div>
+
+
+</form>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+</body>
+
+</html>
+
+<?php
+
+exit();
+
+}
+
+
+/* =========================================================
+   VALIDAR ELECCIÓN RECIBIDA
+========================================================= */
 
 $idEleccion =
-    (int)$_POST['id_eleccion'];
+    filter_var(
+        $_POST['id_eleccion'] ?? 0,
+        FILTER_VALIDATE_INT
+    );
 
 
-if ($idEleccion <= 0) {
+if (
+    $idEleccion === false ||
+    $idEleccion <= 0
+) {
 
-    die("Elección no válida.");
+    die(
+        "La elección seleccionada no es válida."
+    );
 
 }
 
 
 /* =========================================================
-   BUSCAR ELECCIÓN
+   OBTENER ELECCIÓN
 ========================================================= */
 
 $stmt =
@@ -324,6 +453,15 @@ $stmt =
     ");
 
 
+if (!$stmt) {
+
+    die(
+        "No se pudo preparar la consulta de la elección."
+    );
+
+}
+
+
 $stmt->bind_param(
     "i",
     $idEleccion
@@ -343,7 +481,9 @@ if (
 
     $stmt->close();
 
-    die("La elección no existe.");
+    die(
+        "La elección seleccionada no existe."
+    );
 
 }
 
@@ -384,7 +524,9 @@ $pdf->AddPage();
 ========================================================= */
 
 if (
-    file_exists("img/logo.png")
+    file_exists(
+        "img/logo.png"
+    )
 ) {
 
     $pdf->Image(
@@ -401,6 +543,13 @@ if (
    TÍTULO
 ========================================================= */
 
+$pdf->SetTextColor(
+    20,
+    83,
+    163
+);
+
+
 $pdf->SetFont(
     'Arial',
     'B',
@@ -411,7 +560,7 @@ $pdf->SetFont(
 $pdf->Cell(
     190,
     10,
-    utf8_decode(
+    textoPDF(
         "SISTEMA DE VOTACIONES ESCOLARES"
     ),
     0,
@@ -430,7 +579,7 @@ $pdf->SetFont(
 $pdf->Cell(
     190,
     8,
-    utf8_decode(
+    textoPDF(
         $eleccion['nombre']
     ),
     0,
@@ -446,6 +595,13 @@ $pdf->Ln(5);
    INFORMACIÓN DE LA ELECCIÓN
 ========================================================= */
 
+$pdf->SetTextColor(
+    0,
+    0,
+    0
+);
+
+
 $pdf->SetFont(
     'Arial',
     'B',
@@ -455,8 +611,8 @@ $pdf->SetFont(
 
 $pdf->SetFillColor(
     230,
-    230,
-    230
+    238,
+    249
 );
 
 
@@ -471,28 +627,16 @@ $pdf->Cell(
 );
 
 
-$pdf->SetFont(
-    'Arial',
-    '',
-    10
-);
-
-
 $pdf->Cell(
     145,
     8,
-    utf8_decode(
-        ucfirst($eleccion['estado'])
+    textoPDF(
+        ucfirst(
+            $eleccion['estado']
+        )
     ),
     1,
     1
-);
-
-
-$pdf->SetFont(
-    'Arial',
-    'B',
-    10
 );
 
 
@@ -507,26 +651,12 @@ $pdf->Cell(
 );
 
 
-$pdf->SetFont(
-    'Arial',
-    '',
-    10
-);
-
-
 $pdf->Cell(
     145,
     8,
     $eleccion['fecha_inicio'],
     1,
     1
-);
-
-
-$pdf->SetFont(
-    'Arial',
-    'B',
-    10
 );
 
 
@@ -541,26 +671,12 @@ $pdf->Cell(
 );
 
 
-$pdf->SetFont(
-    'Arial',
-    '',
-    10
-);
-
-
 $pdf->Cell(
     145,
     8,
     $eleccion['fecha_fin'],
     1,
     1
-);
-
-
-$pdf->SetFont(
-    'Arial',
-    'B',
-    10
 );
 
 
@@ -575,43 +691,33 @@ $pdf->Cell(
 );
 
 
-$pdf->SetFont(
-    'Arial',
-    '',
-    10
-);
-
-
 $pdf->Cell(
     145,
     8,
-    date("d/m/Y H:i"),
+    date(
+        "d/m/Y H:i"
+    ),
     1,
     1
 );
 
 
-$pdf->Ln(10);
+$pdf->Ln(8);
 
 
 /* =========================================================
    TOTAL DE VOTOS
-   IMPORTANTE:
-   votos NO usa id_eleccion.
-   Se relaciona con candidatos.
 ========================================================= */
 
 $stmt =
     $conn->prepare("
 
-        SELECT COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
-        FROM votos v
+        FROM votos
 
-        INNER JOIN candidatos c
-            ON v.id_candidato = c.id
-
-        WHERE c.id_eleccion = ?
+        WHERE id_eleccion = ?
 
     ");
 
@@ -625,10 +731,16 @@ $stmt->bind_param(
 $stmt->execute();
 
 
+$resultado =
+    $stmt->get_result();
+
+
+$fila =
+    $resultado->fetch_assoc();
+
+
 $totalVotos =
-    (int)$stmt
-        ->get_result()
-        ->fetch_assoc()['total'];
+    (int)$fila['total'];
 
 
 $stmt->close();
@@ -644,9 +756,10 @@ $pdf->SetFont(
 $pdf->Cell(
     190,
     8,
-    utf8_decode(
+    textoPDF(
         "Total de votos registrados: "
-        . $totalVotos
+        .
+        $totalVotos
     ),
     0,
     1
@@ -664,18 +777,18 @@ $stmt =
     $conn->prepare("
 
         SELECT
-            cargos.id,
-            cargos.nombre_cargo
+            c.id,
+            c.nombre_cargo
 
-        FROM cargos
+        FROM cargos c
 
-        INNER JOIN eleccion_cargos
-            ON cargos.id =
-               eleccion_cargos.id_cargo
+        INNER JOIN eleccion_cargos ec
 
-        WHERE eleccion_cargos.id_eleccion = ?
+            ON ec.id_cargo = c.id
 
-        ORDER BY cargos.id
+        WHERE ec.id_eleccion = ?
+
+        ORDER BY c.id ASC
 
     ");
 
@@ -693,6 +806,9 @@ $cargos =
     $stmt->get_result();
 
 
+$stmt->close();
+
+
 /* =========================================================
    RECORRER CARGOS
 ========================================================= */
@@ -708,13 +824,139 @@ while (
 
 
     /* =====================================================
+       TOTAL VOTOS DEL CARGO
+    ===================================================== */
+
+    $stmtTotal =
+        $conn->prepare("
+
+            SELECT
+                COUNT(*) AS total
+
+            FROM votos
+
+            WHERE id_eleccion = ?
+
+            AND id_cargo = ?
+
+        ");
+
+
+    $stmtTotal->bind_param(
+        "ii",
+        $idEleccion,
+        $idCargo
+    );
+
+
+    $stmtTotal->execute();
+
+
+    $resultadoTotal =
+        $stmtTotal->get_result();
+
+
+    $filaTotal =
+        $resultadoTotal->fetch_assoc();
+
+
+    $totalCargo =
+        (int)$filaTotal['total'];
+
+
+    $stmtTotal->close();
+
+
+    /* =====================================================
+       CANDIDATOS DEL CARGO
+    ===================================================== */
+
+    $stmtCandidatos =
+        $conn->prepare("
+
+            SELECT
+
+                c.id,
+                c.nombre,
+                c.apellido,
+                c.curso,
+                c.foto,
+
+                COUNT(v.id) AS total
+
+            FROM candidatos c
+
+            LEFT JOIN votos v
+
+                ON v.id_candidato = c.id
+
+                AND v.id_eleccion = ?
+
+                AND v.id_cargo = ?
+
+            WHERE c.id_eleccion = ?
+
+            AND c.id_cargo = ?
+
+            GROUP BY
+
+                c.id,
+                c.nombre,
+                c.apellido,
+                c.curso,
+                c.foto
+
+            ORDER BY
+
+                total DESC,
+                c.apellido ASC,
+                c.nombre ASC,
+                c.id ASC
+
+        ");
+
+
+    $stmtCandidatos->bind_param(
+        "iiii",
+        $idEleccion,
+        $idCargo,
+        $idEleccion,
+        $idCargo
+    );
+
+
+    $stmtCandidatos->execute();
+
+
+    $resultadoCandidatos =
+        $stmtCandidatos->get_result();
+
+
+    $listaCandidatos = [];
+
+
+    while (
+        $candidato =
+        $resultadoCandidatos->fetch_assoc()
+    ) {
+
+        $listaCandidatos[] =
+            $candidato;
+
+    }
+
+
+    $stmtCandidatos->close();
+
+
+    /* =====================================================
        TÍTULO DEL CARGO
     ===================================================== */
 
     $pdf->SetFillColor(
-        13,
-        110,
-        253
+        20,
+        83,
+        163
     );
 
 
@@ -735,7 +977,7 @@ while (
     $pdf->Cell(
         190,
         9,
-        utf8_decode(
+        textoPDF(
             $cargo['nombre_cargo']
         ),
         1,
@@ -746,7 +988,7 @@ while (
 
 
     /* =====================================================
-       ENCABEZADO TABLA
+       ENCABEZADO
     ===================================================== */
 
     $pdf->SetTextColor(
@@ -770,10 +1012,17 @@ while (
     );
 
 
+    /*
+     * Ahora "No." es simplemente
+     * una numeración automática.
+     *
+     * Ya NO depende de numero_tarjeton.
+     */
+
     $pdf->Cell(
-        20,
+        15,
         8,
-        "Tarjeton",
+        "No.",
         1,
         0,
         'C',
@@ -815,7 +1064,7 @@ while (
 
 
     $pdf->Cell(
-        35,
+        40,
         8,
         "%",
         1,
@@ -826,131 +1075,56 @@ while (
 
 
     /* =====================================================
-       TOTAL VOTOS DEL CARGO
+       MAYOR VOTACIÓN
     ===================================================== */
 
-    $stmtTotalCargo =
-        $conn->prepare("
-
-            SELECT COUNT(*) AS total
-
-            FROM votos v
-
-            INNER JOIN candidatos c
-                ON v.id_candidato = c.id
-
-            WHERE c.id_eleccion = ?
-
-            AND c.id_cargo = ?
-
-        ");
+    $mayorCantidad =
+        0;
 
 
-    $stmtTotalCargo->bind_param(
-        "ii",
-        $idEleccion,
-        $idCargo
-    );
+    foreach (
+        $listaCandidatos
+        as $candidato
+    ) {
+
+        $cantidad =
+            (int)$candidato['total'];
 
 
-    $stmtTotalCargo->execute();
+        if (
+            $cantidad >
+            $mayorCantidad
+        ) {
 
+            $mayorCantidad =
+                $cantidad;
 
-    $totalCargo =
-        (int)$stmtTotalCargo
-            ->get_result()
-            ->fetch_assoc()['total'];
+        }
 
-
-    $stmtTotalCargo->close();
-
-
-    /* =====================================================
-       CANDIDATOS
-    ===================================================== */
-
-    $stmtCandidatos =
-        $conn->prepare("
-
-            SELECT
-
-                c.id,
-
-                c.nombre,
-
-                c.apellido,
-
-                c.curso,
-
-                c.numero_tarjeton,
-
-                COUNT(v.id) AS total
-
-            FROM candidatos c
-
-            LEFT JOIN votos v
-                ON c.id = v.id_candidato
-
-            WHERE c.id_eleccion = ?
-
-            AND c.id_cargo = ?
-
-            GROUP BY
-                c.id,
-                c.nombre,
-                c.apellido,
-                c.curso,
-                c.numero_tarjeton
-
-            ORDER BY
-                total DESC,
-                c.numero_tarjeton ASC
-
-        ");
-
-
-    $stmtCandidatos->bind_param(
-        "ii",
-        $idEleccion,
-        $idCargo
-    );
-
-
-    $stmtCandidatos->execute();
-
-
-    $candidatos =
-        $stmtCandidatos->get_result();
-
-
-    /* =====================================================
-       VARIABLES GANADOR
-    ===================================================== */
-
-    $nombreGanador = "";
-
-    $votosGanador = 0;
-
-    $hayGanador = false;
+    }
 
 
     /* =====================================================
        IMPRIMIR CANDIDATOS
     ===================================================== */
 
-    while (
-        $candidato =
-        $candidatos->fetch_assoc()
+    $numero =
+        1;
+
+
+    foreach (
+        $listaCandidatos
+        as $candidato
     ) {
 
 
-        $votos =
+        $votosCandidato =
             (int)$candidato['total'];
 
 
-        /* ===============================================
-           PORCENTAJE
-        =============================================== */
+        $porcentaje =
+            0;
+
 
         if (
             $totalCargo > 0
@@ -958,56 +1132,30 @@ while (
 
             $porcentaje =
                 round(
-                    ($votos / $totalCargo) * 100,
+                    (
+                        $votosCandidato /
+                        $totalCargo
+                    ) * 100,
                     2
                 );
 
-        } else {
-
-            $porcentaje = 0;
-
         }
 
 
-        /* ===============================================
-           GANADOR
-        =============================================== */
-
-        if (
-            !$hayGanador &&
-            $votos > 0
-        ) {
-
-            $nombreGanador =
-                $candidato['nombre']
-                . " "
-                .
-                $candidato['apellido'];
-
-
-            $votosGanador =
-                $votos;
-
-
-            $hayGanador = true;
-
-        }
-
-
-        /* ===============================================
-           COLOR FILA
-        =============================================== */
-
-        if (
-            $hayGanador &&
-            $nombreGanador ===
+        $esGanador =
             (
-                $candidato['nombre']
-                . " "
-                .
-                $candidato['apellido']
-            ) &&
-            $votos === $votosGanador
+                $mayorCantidad > 0 &&
+                $votosCandidato ===
+                $mayorCantidad
+            );
+
+
+        /* =================================================
+           COLOR DEL GANADOR
+        ================================================= */
+
+        if (
+            $esGanador
         ) {
 
             $pdf->SetFillColor(
@@ -1030,16 +1178,18 @@ while (
         $pdf->SetFont(
             'Arial',
             '',
-            10
+            9
         );
 
 
-        /* TARJETÓN */
+        /* =================================================
+           NÚMERO
+        ================================================= */
 
         $pdf->Cell(
-            20,
+            15,
             8,
-            $candidato['numero_tarjeton'],
+            $numero,
             1,
             0,
             'C',
@@ -1047,16 +1197,23 @@ while (
         );
 
 
-        /* NOMBRE */
+        /* =================================================
+           NOMBRE
+        ================================================= */
+
+        $nombreCompleto =
+            $candidato['nombre']
+            .
+            " "
+            .
+            $candidato['apellido'];
+
 
         $pdf->Cell(
             80,
             8,
-            utf8_decode(
-                $candidato['nombre']
-                . " "
-                .
-                $candidato['apellido']
+            textoPDF(
+                $nombreCompleto
             ),
             1,
             0,
@@ -1065,12 +1222,14 @@ while (
         );
 
 
-        /* CURSO */
+        /* =================================================
+           CURSO
+        ================================================= */
 
         $pdf->Cell(
             30,
             8,
-            utf8_decode(
+            textoPDF(
                 $candidato['curso']
             ),
             1,
@@ -1080,12 +1239,14 @@ while (
         );
 
 
-        /* VOTOS */
+        /* =================================================
+           VOTOS
+        ================================================= */
 
         $pdf->Cell(
             25,
             8,
-            $votos,
+            $votosCandidato,
             1,
             0,
             'C',
@@ -1093,10 +1254,12 @@ while (
         );
 
 
-        /* PORCENTAJE */
+        /* =================================================
+           PORCENTAJE
+        ================================================= */
 
         $pdf->Cell(
-            35,
+            40,
             8,
             $porcentaje . " %",
             1,
@@ -1105,14 +1268,14 @@ while (
             true
         );
 
+
+        $numero++;
+
     }
 
 
-    $stmtCandidatos->close();
-
-
     /* =====================================================
-       MOSTRAR GANADOR
+       GANADOR
     ===================================================== */
 
     $pdf->SetFont(
@@ -1129,23 +1292,87 @@ while (
     );
 
 
-    if ($hayGanador) {
+    if (
+        count($listaCandidatos) === 0
+    ) {
 
         $textoGanador =
-            "Ganador: "
-            .
-            $nombreGanador
-            .
-            " | "
-            .
-            $votosGanador
-            .
-            " votos";
+            "No hay candidatos registrados.";
 
-    } else {
+    }
+
+
+    elseif (
+        $mayorCantidad <= 0
+    ) {
 
         $textoGanador =
-            "Ganador: No hay ganador. No se han registrado votos.";
+            "Sin ganador: no se han registrado votos.";
+
+    }
+
+
+    else {
+
+
+        $ganadores = [];
+
+
+        foreach (
+            $listaCandidatos
+            as $candidato
+        ) {
+
+            if (
+                (int)$candidato['total']
+                ===
+                $mayorCantidad
+            ) {
+
+                $ganadores[] =
+                    $candidato['nombre']
+                    .
+                    " "
+                    .
+                    $candidato['apellido'];
+
+            }
+
+        }
+
+
+        if (
+            count($ganadores) === 1
+        ) {
+
+            $textoGanador =
+                "Ganador: "
+                .
+                $ganadores[0]
+                .
+                " | "
+                .
+                $mayorCantidad
+                .
+                " votos";
+
+        } else {
+
+            $textoGanador =
+                "Empate entre: "
+                .
+                implode(
+                    ", ",
+                    $ganadores
+                )
+                .
+                " | "
+                .
+                $mayorCantidad
+                .
+                " votos";
+
+        }
 
     }
 
@@ -1153,7 +1380,7 @@ while (
     $pdf->Cell(
         190,
         8,
-        utf8_decode(
+        textoPDF(
             $textoGanador
         ),
         1,
@@ -1168,12 +1395,16 @@ while (
 }
 
 
-$stmt->close();
-
-
 /* =========================================================
    RESUMEN GENERAL
 ========================================================= */
+
+$pdf->SetTextColor(
+    0,
+    0,
+    0
+);
+
 
 $pdf->SetFont(
     'Arial',
@@ -1192,7 +1423,7 @@ $pdf->SetFillColor(
 $pdf->Cell(
     190,
     10,
-    utf8_decode(
+    textoPDF(
         "RESUMEN GENERAL DE LA ELECCIÓN"
     ),
     1,
@@ -1209,7 +1440,8 @@ $pdf->Cell(
 $stmt =
     $conn->prepare("
 
-        SELECT COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
         FROM candidatos
 
@@ -1227,9 +1459,12 @@ $stmt->bind_param(
 $stmt->execute();
 
 
+$resultado =
+    $stmt->get_result();
+
+
 $totalCandidatos =
-    (int)$stmt
-        ->get_result()
+    (int)$resultado
         ->fetch_assoc()['total'];
 
 
@@ -1243,7 +1478,8 @@ $stmt->close();
 $stmt =
     $conn->prepare("
 
-        SELECT COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
         FROM eleccion_cargos
 
@@ -1261,9 +1497,12 @@ $stmt->bind_param(
 $stmt->execute();
 
 
+$resultado =
+    $stmt->get_result();
+
+
 $totalCargos =
-    (int)$stmt
-        ->get_result()
+    (int)$resultado
         ->fetch_assoc()['total'];
 
 
@@ -1277,7 +1516,8 @@ $stmt->close();
 $resultado =
     $conn->query("
 
-        SELECT COUNT(*) AS total
+        SELECT
+            COUNT(*) AS total
 
         FROM usuarios
 
@@ -1292,7 +1532,31 @@ $totalEstudiantes =
 
 
 /* =========================================================
-   RESUMEN
+   PARTICIPACIÓN
+========================================================= */
+
+$participacion =
+    0;
+
+
+if (
+    $totalEstudiantes > 0
+) {
+
+    $participacion =
+        round(
+            (
+                $totalVotos /
+                $totalEstudiantes
+            ) * 100,
+            2
+        );
+
+}
+
+
+/* =========================================================
+   TABLA RESUMEN
 ========================================================= */
 
 $pdf->SetFont(
@@ -1374,34 +1638,10 @@ $pdf->Cell(
 );
 
 
-/* =========================================================
-   PARTICIPACIÓN
-========================================================= */
-
-$participacion = 0;
-
-
-if (
-    $totalEstudiantes > 0
-) {
-
-    $participacion =
-        round(
-            (
-                $totalVotos
-                /
-                $totalEstudiantes
-            ) * 100,
-            2
-        );
-
-}
-
-
 $pdf->Cell(
     95,
     8,
-    utf8_decode(
+    textoPDF(
         "Participación"
     ),
     1,
@@ -1435,7 +1675,7 @@ $pdf->SetFont(
 $pdf->Cell(
     190,
     8,
-    utf8_decode(
+    textoPDF(
         "Observaciones"
     ),
     0,
@@ -1453,8 +1693,14 @@ $pdf->SetFont(
 $pdf->MultiCell(
     190,
     6,
-    utf8_decode(
-        "Este documento fue generado automáticamente por el Sistema de Votaciones Escolares y contiene los resultados registrados en la plataforma."
+    textoPDF(
+        "Este documento fue generado automáticamente "
+        .
+        "por el Sistema de Votaciones Escolares y "
+        .
+        "contiene los resultados registrados en la "
+        .
+        "plataforma para la elección seleccionada."
     )
 );
 
@@ -1505,7 +1751,9 @@ $pdf->Cell(
 $pdf->Cell(
     80,
     6,
-    utf8_decode("Rector(a)"),
+    textoPDF(
+        "Rector(a)"
+    ),
     0,
     0,
     'C'
@@ -1524,7 +1772,9 @@ $pdf->Cell(
 $pdf->Cell(
     80,
     6,
-    utf8_decode("Comité Electoral"),
+    textoPDF(
+        "Comité Electoral"
+    ),
     0,
     1,
     'C'
@@ -1538,13 +1788,22 @@ $pdf->Ln(15);
    PIE
 ========================================================= */
 
+$pdf->SetFont(
+    'Arial',
+    '',
+    9
+);
+
+
 $pdf->Cell(
     190,
     6,
-    utf8_decode(
+    textoPDF(
         "Fecha de generación: "
         .
-        date("d/m/Y H:i:s")
+        date(
+            "d/m/Y H:i:s"
+        )
     ),
     0,
     1,
@@ -1555,7 +1814,7 @@ $pdf->Cell(
 $pdf->Cell(
     190,
     6,
-    utf8_decode(
+    textoPDF(
         "Sistema de Votaciones Escolares"
     ),
     0,
