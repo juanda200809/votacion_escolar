@@ -48,125 +48,20 @@ $nombreJurado =
 
 
 /* =========================================================
-   INICIAR VOTACIÓN
+   VARIABLES DE MESA
 ========================================================= */
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['comenzar_votacion'])
-) {
+$mesaExiste = false;
 
-    $idEleccionPost =
-        isset($_POST['id_eleccion'])
-        ? (int)$_POST['id_eleccion']
-        : 0;
+$idMesa = 0;
 
+$nombreMesa = "Mesa no asignada";
 
-    if ($idEleccionPost <= 0) {
-        die("Elección no válida.");
-    }
+$estadoMesa = "cerrada";
 
+$mesaAbierta = false;
 
-    /* -----------------------------------------------------
-       COMPROBAR ELECCIÓN
-    ----------------------------------------------------- */
-
-    $stmt = $conn->prepare("
-        SELECT
-            id,
-            estado
-        FROM elecciones
-        WHERE id = ?
-        LIMIT 1
-    ");
-
-
-    if (!$stmt) {
-        die(
-            "Error al comprobar la elección: "
-            . $conn->error
-        );
-    }
-
-
-    $stmt->bind_param(
-        "i",
-        $idEleccionPost
-    );
-
-
-    $stmt->execute();
-
-
-    $resultado =
-        $stmt->get_result();
-
-
-    $eleccionPost =
-        $resultado->fetch_assoc();
-
-
-    $stmt->close();
-
-
-    if (!$eleccionPost) {
-        die(
-            "La elección seleccionada no existe."
-        );
-    }
-
-
-    if (
-        strtolower(
-            trim(
-                (string)$eleccionPost['estado']
-            )
-        ) !== "abierta"
-    ) {
-        die(
-            "La elección está cerrada."
-        );
-    }
-
-
-    /* -----------------------------------------------------
-       GUARDAR ELECCIÓN EN SESIÓN
-    ----------------------------------------------------- */
-
-    $_SESSION['eleccion_votante_id'] =
-        $idEleccionPost;
-
-    $_SESSION['eleccion_votando_id'] =
-        $idEleccionPost;
-
-    $_SESSION['id_eleccion_jurado'] =
-        $idEleccionPost;
-
-
-    /* -----------------------------------------------------
-       LIMPIAR DATOS DEL ESTUDIANTE ANTERIOR
-    ----------------------------------------------------- */
-
-    unset(
-        $_SESSION['estudiante_votando_id'],
-        $_SESSION['estudiante_votando_documento'],
-        $_SESSION['estudiante_votando_nombre'],
-        $_SESSION['estudiante_votando_curso'],
-        $_SESSION['estudiante_jurado'],
-        $_SESSION['votacion_en_curso']
-    );
-
-
-    /* -----------------------------------------------------
-       IR A INGRESAR ESTUDIANTE
-    ----------------------------------------------------- */
-
-    header(
-        "Location: ingresar_estudiante.php"
-    );
-
-    exit();
-}
+$fechaCierreMesa = null;
 
 
 /* =========================================================
@@ -277,6 +172,500 @@ if ($eleccion) {
 
 $eleccionAbierta =
     ($estadoEleccion === "abierta");
+
+
+/* =========================================================
+   OBTENER MESA DEL JURADO
+========================================================= */
+
+if ($idEleccion > 0) {
+
+    $stmtMesa = $conn->prepare("
+        SELECT
+            id,
+            id_eleccion,
+            id_jurado,
+            nombre_mesa,
+            estado,
+            fecha_cierre
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+          AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    if ($stmtMesa) {
+
+        $stmtMesa->bind_param(
+            "ii",
+            $idEleccion,
+            $idJurado
+        );
+
+
+        $stmtMesa->execute();
+
+
+        $resultadoMesa =
+            $stmtMesa->get_result();
+
+
+        if (
+            $resultadoMesa->num_rows > 0
+        ) {
+
+            $mesa =
+                $resultadoMesa->fetch_assoc();
+
+
+            $mesaExiste = true;
+
+
+            $idMesa =
+                (int)$mesa['id'];
+
+
+            $nombreMesa =
+                $mesa['nombre_mesa']
+                ??
+                "Mesa de votación";
+
+
+            $estadoMesa =
+                strtolower(
+                    trim(
+                        (string)(
+                            $mesa['estado']
+                            ??
+                            'cerrada'
+                        )
+                    )
+                );
+
+
+            $fechaCierreMesa =
+                $mesa['fecha_cierre']
+                ??
+                null;
+
+
+            $mesaAbierta =
+                ($estadoMesa === "abierta");
+
+        }
+
+
+        $stmtMesa->close();
+
+    }
+
+}
+
+
+/* =========================================================
+   CERRAR MESA DE VOTACIÓN
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['cerrar_mesa'])
+) {
+
+    $idEleccionCerrar =
+        isset($_POST['id_eleccion'])
+        ? (int)$_POST['id_eleccion']
+        : 0;
+
+
+    if ($idEleccionCerrar <= 0) {
+
+        $_SESSION['mensaje_jurado'] =
+            "No se pudo identificar la elección.";
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+        header("Location: jurado.php");
+
+        exit();
+
+    }
+
+
+    /*
+     * MUY IMPORTANTE:
+     * Aquí NO modificamos la tabla elecciones.
+     * Solamente buscamos la mesa perteneciente
+     * a ESTE jurado.
+     */
+
+    $stmtMesaCerrar = $conn->prepare("
+        SELECT
+            id,
+            nombre_mesa,
+            estado
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+          AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    if (!$stmtMesaCerrar) {
+
+        $_SESSION['mensaje_jurado'] =
+            "Error al buscar la mesa: "
+            . $conn->error;
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+        header("Location: jurado.php");
+
+        exit();
+
+    }
+
+
+    $stmtMesaCerrar->bind_param(
+        "ii",
+        $idEleccionCerrar,
+        $idJurado
+    );
+
+
+    $stmtMesaCerrar->execute();
+
+
+    $resultadoMesaCerrar =
+        $stmtMesaCerrar->get_result();
+
+
+    $mesaCerrar =
+        $resultadoMesaCerrar->fetch_assoc();
+
+
+    $stmtMesaCerrar->close();
+
+
+    if (!$mesaCerrar) {
+
+        $_SESSION['mensaje_jurado'] =
+            "No existe una mesa asignada a este jurado para esta elección.";
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+        header("Location: jurado.php");
+
+        exit();
+
+    }
+
+
+    $idMesaCerrar =
+        (int)$mesaCerrar['id'];
+
+
+    $estadoMesaCerrar =
+        strtolower(
+            trim(
+                (string)(
+                    $mesaCerrar['estado']
+                    ??
+                    ''
+                )
+            )
+        );
+
+
+    if ($estadoMesaCerrar === "cerrada") {
+
+        $_SESSION['mensaje_jurado'] =
+            "La mesa ya se encuentra cerrada.";
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+        header("Location: jurado.php");
+
+        exit();
+
+    }
+
+
+    /* -----------------------------------------------------
+       CERRAR SOLAMENTE ESTA MESA
+    ----------------------------------------------------- */
+
+    $stmtCerrar = $conn->prepare("
+        UPDATE mesas_votacion
+        SET
+            estado = 'cerrada',
+            fecha_cierre = NOW()
+        WHERE id = ?
+          AND id_eleccion = ?
+          AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    if (!$stmtCerrar) {
+
+        $_SESSION['mensaje_jurado'] =
+            "Error al preparar el cierre de la mesa: "
+            . $conn->error;
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+        header("Location: jurado.php");
+
+        exit();
+
+    }
+
+
+    $stmtCerrar->bind_param(
+        "iii",
+        $idMesaCerrar,
+        $idEleccionCerrar,
+        $idJurado
+    );
+
+
+    if ($stmtCerrar->execute()) {
+
+        $_SESSION['mensaje_jurado'] =
+            "La mesa de votación ha sido cerrada correctamente. La elección general continúa abierta.";
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "success";
+
+    } else {
+
+        $_SESSION['mensaje_jurado'] =
+            "No se pudo cerrar la mesa: "
+            . $stmtCerrar->error;
+
+        $_SESSION['tipo_mensaje_jurado'] =
+            "error";
+
+    }
+
+
+    $stmtCerrar->close();
+
+
+    header("Location: jurado.php");
+
+    exit();
+}
+
+
+/* =========================================================
+   INICIAR VOTACIÓN
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['comenzar_votacion'])
+) {
+
+    $idEleccionPost =
+        isset($_POST['id_eleccion'])
+        ? (int)$_POST['id_eleccion']
+        : 0;
+
+
+    if ($idEleccionPost <= 0) {
+
+        die("Elección no válida.");
+
+    }
+
+
+    /* -----------------------------------------------------
+       COMPROBAR ELECCIÓN
+    ----------------------------------------------------- */
+
+    $stmt = $conn->prepare("
+        SELECT
+            id,
+            estado
+        FROM elecciones
+        WHERE id = ?
+        LIMIT 1
+    ");
+
+
+    if (!$stmt) {
+
+        die(
+            "Error al comprobar la elección: "
+            . $conn->error
+        );
+
+    }
+
+
+    $stmt->bind_param(
+        "i",
+        $idEleccionPost
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    $eleccionPost =
+        $resultado->fetch_assoc();
+
+
+    $stmt->close();
+
+
+    if (!$eleccionPost) {
+
+        die(
+            "La elección seleccionada no existe."
+        );
+
+    }
+
+
+    if (
+        strtolower(
+            trim(
+                (string)$eleccionPost['estado']
+            )
+        ) !== "abierta"
+    ) {
+
+        die(
+            "La elección está cerrada."
+        );
+
+    }
+
+
+    /* -----------------------------------------------------
+       COMPROBAR MESA DEL JURADO
+    ----------------------------------------------------- */
+
+    $stmtMesaInicio = $conn->prepare("
+        SELECT
+            id,
+            estado
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+          AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    if (!$stmtMesaInicio) {
+
+        die(
+            "Error al comprobar la mesa: "
+            . $conn->error
+        );
+
+    }
+
+
+    $stmtMesaInicio->bind_param(
+        "ii",
+        $idEleccionPost,
+        $idJurado
+    );
+
+
+    $stmtMesaInicio->execute();
+
+
+    $resultadoMesaInicio =
+        $stmtMesaInicio->get_result();
+
+
+    $mesaInicio =
+        $resultadoMesaInicio->fetch_assoc();
+
+
+    $stmtMesaInicio->close();
+
+
+    if (!$mesaInicio) {
+
+        die(
+            "Este jurado no tiene una mesa de votación asignada para esta elección."
+        );
+
+    }
+
+
+    if (
+        strtolower(
+            trim(
+                (string)$mesaInicio['estado']
+            )
+        ) !== "abierta"
+    ) {
+
+        die(
+            "La mesa de votación está cerrada. No se pueden registrar más votos en esta mesa."
+        );
+
+    }
+
+
+    /* -----------------------------------------------------
+       GUARDAR ELECCIÓN EN SESIÓN
+    ----------------------------------------------------- */
+
+    $_SESSION['eleccion_votante_id'] =
+        $idEleccionPost;
+
+    $_SESSION['eleccion_votando_id'] =
+        $idEleccionPost;
+
+    $_SESSION['id_eleccion_jurado'] =
+        $idEleccionPost;
+
+
+    $_SESSION['id_mesa_jurado'] =
+        (int)$mesaInicio['id'];
+
+
+    /* -----------------------------------------------------
+       LIMPIAR DATOS DEL ESTUDIANTE ANTERIOR
+    ----------------------------------------------------- */
+
+    unset(
+        $_SESSION['estudiante_votando_id'],
+        $_SESSION['estudiante_votando_documento'],
+        $_SESSION['estudiante_votando_nombre'],
+        $_SESSION['estudiante_votando_curso'],
+        $_SESSION['estudiante_jurado'],
+        $_SESSION['votacion_en_curso']
+    );
+
+
+    /* -----------------------------------------------------
+       IR A INGRESAR ESTUDIANTE
+    ----------------------------------------------------- */
+
+    header(
+        "Location: ingresar_estudiante.php"
+    );
+
+    exit();
+}
 
 
 /* =========================================================
@@ -504,7 +893,9 @@ if ($totalEstudiantes > 0) {
 
 
 if ($participacion > 100) {
+
     $participacion = 100;
+
 }
 
 
@@ -977,6 +1368,150 @@ body {
 
 
 /* =========================================================
+   MESA
+========================================================= */
+
+.mesa-box {
+
+    margin: 0 25px 25px;
+
+    padding: 20px;
+
+    border-radius: 14px;
+
+    border: 1px solid #d5e3f3;
+
+    background: #f8fbff;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 20px;
+}
+
+
+.mesa-info h3 {
+
+    color: #1453a3;
+
+    font-size: 21px;
+
+    margin-bottom: 7px;
+}
+
+
+.mesa-info p {
+
+    color: #64748b;
+
+    font-size: 14px;
+}
+
+
+.mesa-status {
+
+    padding: 9px 15px;
+
+    border-radius: 25px;
+
+    font-weight: bold;
+
+    white-space: nowrap;
+}
+
+
+.mesa-status.abierta {
+
+    background: #198754;
+
+    color: white;
+}
+
+
+.mesa-status.cerrada {
+
+    background: #6c757d;
+
+    color: white;
+}
+
+
+/* =========================================================
+   BOTÓN CERRAR MESA
+========================================================= */
+
+.btn-cerrar-mesa {
+
+    border: none;
+
+    background:
+        linear-gradient(
+            135deg,
+            #dc3545,
+            #b52a37
+        );
+
+    color: white;
+
+    padding: 13px 20px;
+
+    border-radius: 10px;
+
+    font-size: 15px;
+
+    font-weight: bold;
+
+    cursor: pointer;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 9px;
+
+    box-shadow:
+        0 5px 14px
+        rgba(220,53,69,.22);
+
+    transition: .2s;
+}
+
+
+.btn-cerrar-mesa:hover {
+
+    transform:
+        translateY(-2px);
+
+    box-shadow:
+        0 8px 18px
+        rgba(220,53,69,.30);
+}
+
+
+.btn-mesa-cerrada {
+
+    padding: 13px 20px;
+
+    border-radius: 10px;
+
+    background: #e9ecef;
+
+    color: #6c757d;
+
+    font-weight: bold;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 9px;
+}
+
+
+/* =========================================================
    ACCIONES
 ========================================================= */
 
@@ -1165,34 +1700,56 @@ body {
 
     transform:
         translateY(-1px);
-
-    box-shadow:
-        0 5px 12px
-        rgba(23,105,209,.25);
 }
 
 
 .btn-comenzar i {
 
     font-size: 29px;
-
-    transition:
-        transform .2s ease;
 }
 
 
-.btn-comenzar:hover i {
+/* =========================================================
+   BOTÓN COMENZAR BLOQUEADO
+========================================================= */
 
-    transform:
-        scale(1.12);
+.btn-comenzar-bloqueado {
+
+    width: 100%;
+
+    min-height: 78px;
+
+    padding: 0 30px;
+
+    border: none;
+
+    border-radius: 14px;
+
+    background: #adb5bd;
+
+    color: #f8f9fa;
+
+    font-size: 19px;
+
+    font-weight: 700;
+
+    cursor: not-allowed;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 12px;
+
+    box-shadow: none;
 }
 
 
-.btn-comenzar span {
+.btn-comenzar-bloqueado i {
 
-    position: relative;
-
-    z-index: 2;
+    font-size: 27px;
 }
 
 
@@ -1422,6 +1979,10 @@ body {
     padding: 15px 20px;
 
     margin-bottom: 20px;
+
+    box-shadow:
+        0 3px 10px
+        rgba(0,0,0,.05);
 }
 
 
@@ -1504,6 +2065,14 @@ body {
 
         grid-template-columns:
             1fr;
+    }
+
+
+    .mesa-box {
+
+        flex-direction: column;
+
+        align-items: flex-start;
     }
 
 
@@ -1608,6 +2177,11 @@ Inicio
 </a>
 
 
+<?php if (
+    $mesaAbierta &&
+    $eleccionAbierta
+) { ?>
+
 <a
     href="ingresar_estudiante.php?token=<?php echo urlencode($tokenVotacion); ?>"
     target="_blank"
@@ -1621,6 +2195,27 @@ Comenzar votación
 </span>
 
 </a>
+
+<?php } else { ?>
+
+<a
+    href="javascript:void(0);"
+    style="
+        opacity:.45;
+        cursor:not-allowed;
+        pointer-events:none;
+    "
+>
+
+<i class="bi bi-lock-fill"></i>
+
+<span>
+Mesa cerrada
+</span>
+
+</a>
+
+<?php } ?>
 
 
 <a
@@ -1908,6 +2503,131 @@ echo $fechaFin !== ""
 </div>
 
 
+<!-- =====================================================
+     INFORMACIÓN DE LA MESA
+===================================================== -->
+
+<div class="mesa-box">
+
+
+<div class="mesa-info">
+
+<h3>
+
+<i class="bi bi-archive-fill"></i>
+
+<?php
+
+echo htmlspecialchars(
+    $nombreMesa
+);
+
+?>
+
+</h3>
+
+
+<?php if (
+    $mesaExiste
+) { ?>
+
+<p>
+
+Mesa asignada al jurado
+<strong>
+<?php echo htmlspecialchars($nombreJurado); ?>
+</strong>
+
+</p>
+
+<?php } else { ?>
+
+<p>
+Este jurado no tiene una mesa asignada.
+</p>
+
+<?php } ?>
+
+
+</div>
+
+
+<?php if (
+    $mesaAbierta
+) { ?>
+
+<div
+    style="
+        display:flex;
+        align-items:center;
+        gap:12px;
+        flex-wrap:wrap;
+    "
+>
+
+
+<span class="mesa-status abierta">
+
+● MESA ABIERTA
+
+</span>
+
+
+<form
+    method="POST"
+    onsubmit="
+        return confirm(
+            '¿Está seguro de cerrar esta mesa de votación?\\n\\nLa elección general continuará abierta, pero esta mesa ya no podrá registrar nuevos votos.'
+        );
+    "
+    style="margin:0;"
+>
+
+
+<input
+    type="hidden"
+    name="id_eleccion"
+    value="<?php echo $idEleccion; ?>"
+>
+
+
+<button
+    type="submit"
+    name="cerrar_mesa"
+    class="btn-cerrar-mesa"
+>
+
+<i class="bi bi-lock-fill"></i>
+
+Cerrar mesa de votación
+
+</button>
+
+
+</form>
+
+
+</div>
+
+
+<?php } else { ?>
+
+
+<div class="mesa-status cerrada">
+
+<i class="bi bi-lock-fill"></i>
+
+MESA CERRADA
+
+</div>
+
+
+<?php } ?>
+
+
+</div>
+
+
 </div>
 
 
@@ -1923,7 +2643,8 @@ echo $fechaFin !== ""
 ===================================================== -->
 
 <?php if (
-    $eleccionAbierta
+    $eleccionAbierta &&
+    $mesaAbierta
 ) { ?>
 
 
@@ -1969,22 +2690,18 @@ Comenzar votaciones
 
 
 <div
-    class="action"
-    style="opacity:.6;"
+    class="btn-comenzar-bloqueado"
 >
 
 
 <i class="bi bi-lock-fill"></i>
 
 
-<h4>
-Comenzar votaciones
-</h4>
+<span>
 
+Mesa de votación cerrada
 
-<p>
-La elección está cerrada.
-</p>
+</span>
 
 
 </div>
@@ -2253,17 +2970,15 @@ echo htmlspecialchars(
 <div class="info-row">
 
 <strong>
-Estado
+Estado de la elección
 </strong>
 
 
 <span>
 
-
 <?php if (
     $eleccionAbierta
 ) { ?>
-
 
 <span class="estado-abierta">
 
@@ -2271,9 +2986,7 @@ Estado
 
 </span>
 
-
 <?php } else { ?>
-
 
 <span class="estado-cerrada">
 
@@ -2281,9 +2994,49 @@ Estado
 
 </span>
 
-
 <?php } ?>
 
+</span>
+
+</div>
+
+
+<div class="info-row">
+
+<strong>
+Estado de la mesa
+</strong>
+
+
+<span>
+
+<?php if (
+    $mesaAbierta
+) { ?>
+
+<span class="estado-abierta">
+
+🟢 Mesa abierta
+
+</span>
+
+<?php } else { ?>
+
+<span
+    style="
+        background:#6c757d;
+        color:white;
+        padding:7px 12px;
+        border-radius:7px;
+        font-weight:bold;
+    "
+>
+
+🔒 Mesa cerrada
+
+</span>
+
+<?php } ?>
 
 </span>
 
@@ -2414,7 +3167,8 @@ Accesos rápidos
 
 
 <?php if (
-    $eleccionAbierta
+    $eleccionAbierta &&
+    $mesaAbierta
 ) { ?>
 
 
@@ -2454,6 +3208,25 @@ Comenzar votación
 
 
 </form>
+
+
+<?php } else { ?>
+
+
+<div
+    class="btn-comenzar-bloqueado"
+>
+
+
+<i class="bi bi-lock-fill"></i>
+
+
+<span>
+Mesa de votación cerrada
+</span>
+
+
+</div>
 
 
 <?php } ?>
