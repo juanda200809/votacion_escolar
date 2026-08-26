@@ -15,6 +15,10 @@ verificarRol([
 
 require_once "config/conexion.php";
 
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+$conn->set_charset("utf8mb4");
+
 
 /* =========================================================
    USUARIO ACTUAL
@@ -31,38 +35,21 @@ $nombreUsuario =
     $_SESSION['nombre'] ?? 'Usuario';
 
 
+$idUsuario =
+    (int)($_SESSION['id'] ?? 0);
+
+
 /* =========================================================
-   BLOQUEAR RESULTADOS DURANTE UNA VOTACIÓN
+   IMPORTANTE
+   NO BLOQUEAR RESULTADOS PARA EL JURADO
 ========================================================= */
 
 /*
- * El jurado puede consultar resultados normalmente.
+ * El jurado puede consultar resultados aunque su mesa
+ * esté cerrada.
  *
- * Sin embargo, cuando existe un estudiante en proceso
- * de votación, se bloquea el acceso a resultados.
- *
- * Esto evita que se pueda escribir directamente:
- *
- * resultados.php
- *
- * durante una votación activa.
+ * NO se redirige a votar_por_jurado.php.
  */
-
-if (
-    $rol === 'jurado' &&
-    isset(
-        $_SESSION['estudiante_votando_id']
-    ) &&
-    (int)$_SESSION['estudiante_votando_id'] > 0
-) {
-
-    header(
-        "Location: votar_por_jurado.php"
-    );
-
-    exit();
-
-}
 
 
 /* =========================================================
@@ -90,9 +77,7 @@ $resultadoElecciones =
     ");
 
 
-if (
-    $resultadoElecciones
-) {
+if ($resultadoElecciones) {
 
     while (
         $fila =
@@ -118,9 +103,29 @@ $idEleccion =
 
 
 /* =========================================================
-   SI NO SE SELECCIONÓ,
-   TOMAR LA ÚLTIMA ELECCIÓN
+   SI NO SE SELECCIONÓ:
+   JURADO → SU ELECCIÓN
+   ADMIN → ÚLTIMA ELECCIÓN
 ========================================================= */
+
+if ($idEleccion <= 0) {
+
+    if (
+        $rol === 'jurado' &&
+        isset(
+            $_SESSION['id_eleccion_jurado']
+        ) &&
+        (int)$_SESSION['id_eleccion_jurado'] > 0
+    ) {
+
+        $idEleccion =
+            (int)
+            $_SESSION['id_eleccion_jurado'];
+
+    }
+
+}
+
 
 if (
     $idEleccion <= 0 &&
@@ -164,34 +169,125 @@ if (
         ");
 
 
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
 
 
-        $stmt->execute();
+    $stmt->execute();
 
 
-        $resultado =
-            $stmt->get_result();
+    $resultado =
+        $stmt->get_result();
 
 
-        if (
-            $resultado->num_rows > 0
-        ) {
+    if (
+        $resultado->num_rows > 0
+    ) {
 
-            $datosEleccion =
-                $resultado->fetch_assoc();
-
-        }
-
-
-        $stmt->close();
+        $datosEleccion =
+            $resultado->fetch_assoc();
 
     }
+
+
+    $stmt->close();
+
+}
+
+
+/* =========================================================
+   GUARDAR ELECCIÓN EN SESIÓN PARA JURADO
+========================================================= */
+
+if (
+    $rol === 'jurado' &&
+    $datosEleccion
+) {
+
+    $_SESSION['id_eleccion_jurado'] =
+        $idEleccion;
+
+}
+
+
+/* =========================================================
+   OBTENER MESA DEL JURADO
+========================================================= */
+
+$mesaJurado = null;
+
+$mesaJuradoExiste = false;
+
+$mesaJuradoAbierta = false;
+
+
+if (
+    $rol === 'jurado' &&
+    $idUsuario > 0 &&
+    $idEleccion > 0
+) {
+
+    $stmtMesa =
+        $conn->prepare("
+
+            SELECT
+                id,
+                id_eleccion,
+                id_jurado,
+                nombre_mesa,
+                estado,
+                fecha_cierre
+
+            FROM mesas_votacion
+
+            WHERE id_eleccion = ?
+
+            AND id_jurado = ?
+
+            LIMIT 1
+
+        ");
+
+
+    $stmtMesa->bind_param(
+        "ii",
+        $idEleccion,
+        $idUsuario
+    );
+
+
+    $stmtMesa->execute();
+
+
+    $resultadoMesa =
+        $stmtMesa->get_result();
+
+
+    if (
+        $resultadoMesa->num_rows > 0
+    ) {
+
+        $mesaJurado =
+            $resultadoMesa->fetch_assoc();
+
+        $mesaJuradoExiste =
+            true;
+
+
+        $mesaJuradoAbierta =
+            strtolower(
+                trim(
+                    (string)
+                    $mesaJurado['estado']
+                )
+            ) === 'abierta';
+
+    }
+
+
+    $stmtMesa->close();
 
 }
 
@@ -227,35 +323,31 @@ if (
         ");
 
 
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
 
 
-        $stmt->execute();
+    $stmt->execute();
 
 
-        $resultado =
-            $stmt->get_result();
+    $resultado =
+        $stmt->get_result();
 
 
-        while (
-            $cargo =
-            $resultado->fetch_assoc()
-        ) {
+    while (
+        $cargo =
+        $resultado->fetch_assoc()
+    ) {
 
-            $cargos[] =
-                $cargo;
-
-        }
-
-
-        $stmt->close();
+        $cargos[] =
+            $cargo;
 
     }
+
+
+    $stmt->close();
 
 }
 
@@ -293,32 +385,28 @@ if (
         ");
 
 
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
 
 
-        $stmt->execute();
+    $stmt->execute();
 
 
-        $resultado =
-            $stmt->get_result();
+    $resultado =
+        $stmt->get_result();
 
 
-        $fila =
-            $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
 
-        $totalCandidatos =
-            (int)$fila['total'];
+    $totalCandidatos =
+        (int)$fila['total'];
 
 
-        $stmt->close();
-
-    }
+    $stmt->close();
 
 }
 
@@ -344,32 +432,28 @@ if (
         ");
 
 
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
+    $stmt->bind_param(
+        "i",
+        $idEleccion
+    );
 
 
-        $stmt->execute();
+    $stmt->execute();
 
 
-        $resultado =
-            $stmt->get_result();
+    $resultado =
+        $stmt->get_result();
 
 
-        $fila =
-            $resultado->fetch_assoc();
+    $fila =
+        $resultado->fetch_assoc();
 
 
-        $totalVotos =
-            (int)$fila['total'];
+    $totalVotos =
+        (int)$fila['total'];
 
 
-        $stmt->close();
-
-    }
+    $stmt->close();
 
 }
 
@@ -702,6 +786,192 @@ body {
 
 
 /* =========================================================
+   MESA DEL JURADO
+========================================================= */
+
+.mesa-jurado {
+
+    margin-top: 25px;
+
+    padding: 22px;
+
+    border-radius: 16px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 20px;
+
+    flex-wrap: wrap;
+
+}
+
+
+.mesa-jurado.abierta {
+
+    background: #ecfdf5;
+
+    border:
+        1px solid #a7f3d0;
+
+}
+
+
+.mesa-jurado.cerrada {
+
+    background: #f1f5f9;
+
+    border:
+        1px solid #cbd5e1;
+
+}
+
+
+.mesa-contenido {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 15px;
+
+}
+
+
+.mesa-icon {
+
+    width: 58px;
+
+    height: 58px;
+
+    border-radius: 14px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    font-size: 28px;
+
+}
+
+
+.mesa-jurado.abierta
+.mesa-icon {
+
+    background: #d1fae5;
+
+}
+
+
+.mesa-jurado.cerrada
+.mesa-icon {
+
+    background: #e2e8f0;
+
+}
+
+
+.mesa-contenido h4 {
+
+    margin: 0 0 5px;
+
+    color: #1453a3;
+
+    font-weight: bold;
+
+}
+
+
+.mesa-contenido p {
+
+    margin: 0;
+
+    color: #64748b;
+
+}
+
+
+.estado-mesa {
+
+    margin-top: 7px;
+
+    font-weight: bold;
+
+}
+
+
+.mesa-jurado.abierta
+.estado-mesa {
+
+    color: #047857;
+
+}
+
+
+.mesa-jurado.cerrada
+.estado-mesa {
+
+    color: #64748b;
+
+}
+
+
+.btn-cerrar-mesa {
+
+    border: none;
+
+    background: #dc3545;
+
+    color: white;
+
+    font-weight: bold;
+
+    padding: 14px 22px;
+
+    border-radius: 12px;
+
+    cursor: pointer;
+
+    box-shadow:
+        0 6px 15px
+        rgba(220,53,69,.20);
+
+    transition: .2s;
+
+}
+
+
+.btn-cerrar-mesa:hover {
+
+    background: #bb2d3b;
+
+    transform:
+        translateY(-1px);
+
+}
+
+
+.mesa-cerrada-label {
+
+    background: #cbd5e1;
+
+    color: #64748b;
+
+    padding: 14px 22px;
+
+    border-radius: 12px;
+
+    font-weight: bold;
+
+}
+
+
+/* =========================================================
    ESTADÍSTICAS
 ========================================================= */
 
@@ -1001,7 +1271,7 @@ body {
 
 <!-- =====================================================
      SIDEBAR
-===================================================== -->
+========================================================= -->
 
 <div class="sidebar">
 
@@ -1085,7 +1355,9 @@ Ingresar estudiante
 
 
 <a
-href="resultados.php"
+href="resultados.php?id_eleccion=<?php
+echo $idEleccion;
+?>"
 class="activo"
 >
 
@@ -1096,7 +1368,11 @@ Resultados
 </a>
 
 
-<a href="graficas.php">
+<a
+href="graficas.php?id_eleccion=<?php
+echo $idEleccion;
+?>"
+>
 
 <i class="bi bi-bar-chart-fill"></i>
 
@@ -1454,6 +1730,265 @@ if (
 </div>
 
 
+<!-- =====================================================
+     MESA DEL JURADO
+========================================================= -->
+
+<?php if (
+    $rol === 'jurado'
+) { ?>
+
+
+<?php if (
+    $mesaJuradoExiste
+) { ?>
+
+
+<div
+    class="mesa-jurado
+    <?php
+
+    echo $mesaJuradoAbierta
+        ? 'abierta'
+        : 'cerrada';
+
+    ?>"
+>
+
+
+<div class="mesa-contenido">
+
+
+<div class="mesa-icon">
+
+<?php
+
+echo $mesaJuradoAbierta
+    ? '🗳️'
+    : '🔒';
+
+?>
+
+</div>
+
+
+<div>
+
+
+<h4>
+
+🏫
+
+<?php
+
+echo htmlspecialchars(
+    $mesaJurado['nombre_mesa']
+);
+
+?>
+
+</h4>
+
+
+<p>
+
+Mesa asignada a:
+
+<strong>
+
+<?php
+
+echo htmlspecialchars(
+    $nombreUsuario
+);
+
+?>
+
+</strong>
+
+</p>
+
+
+<div class="estado-mesa">
+
+<?php if (
+    $mesaJuradoAbierta
+) { ?>
+
+🟢 Mesa de votación abierta
+
+<?php } else { ?>
+
+🔒 Mesa de votación cerrada
+
+<?php } ?>
+
+</div>
+
+
+<?php if (
+    !$mesaJuradoAbierta &&
+    !empty(
+        $mesaJurado['fecha_cierre']
+    )
+) { ?>
+
+<p
+    style="
+        margin-top:6px;
+        font-size:13px;
+    "
+>
+
+📅 Cerrada:
+
+<?php
+
+echo htmlspecialchars(
+    $mesaJurado['fecha_cierre']
+);
+
+?>
+
+</p>
+
+<?php } ?>
+
+
+</div>
+
+
+</div>
+
+
+<?php if (
+    $mesaJuradoAbierta
+) { ?>
+
+
+<form
+    method="POST"
+    action="cerrar_mesa.php"
+    onsubmit="
+        return confirm(
+            '¿Está seguro de cerrar esta mesa? Después de cerrarla no se podrán registrar nuevos votos en ella.'
+        );
+    "
+>
+
+
+<input
+    type="hidden"
+    name="id_mesa"
+    value="<?php
+
+        echo (int)
+        $mesaJurado['id'];
+
+    ?>"
+>
+
+
+<input
+    type="hidden"
+    name="id_eleccion"
+    value="<?php
+
+        echo $idEleccion;
+
+    ?>"
+>
+
+
+<button
+    type="submit"
+    class="btn-cerrar-mesa"
+>
+
+🔒 Cerrar mesa de votación
+
+</button>
+
+
+</form>
+
+
+<?php } else { ?>
+
+
+<span
+    class="mesa-cerrada-label"
+>
+
+🔒 Mesa cerrada
+
+</span>
+
+
+<?php } ?>
+
+
+</div>
+
+
+<?php } else { ?>
+
+
+<div
+    class="mesa-jurado cerrada"
+>
+
+
+<div class="mesa-contenido">
+
+
+<div class="mesa-icon">
+
+⚠️
+
+</div>
+
+
+<div>
+
+
+<h4>
+
+🏫 Mesa no asignada
+
+</h4>
+
+
+<p>
+
+No existe una mesa asignada
+a este jurado para esta elección.
+
+</p>
+
+
+<div class="estado-mesa">
+
+🚫 No puede iniciar votaciones
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+<?php } ?>
+
+
+<?php } ?>
+
+
 </div>
 
 
@@ -1558,7 +2093,7 @@ if (
 
 
         /* =============================================
-           TOTAL DE VOTOS DEL CARGO
+           TOTAL VOTOS DEL CARGO
         ============================================= */
 
         $totalVotosCargo = 0;
@@ -1579,33 +2114,29 @@ if (
             ");
 
 
-        if ($stmtTotal) {
-
-            $stmtTotal->bind_param(
-                "ii",
-                $idEleccion,
-                $idCargo
-            );
+        $stmtTotal->bind_param(
+            "ii",
+            $idEleccion,
+            $idCargo
+        );
 
 
-            $stmtTotal->execute();
+        $stmtTotal->execute();
 
 
-            $resultadoTotal =
-                $stmtTotal->get_result();
+        $resultadoTotal =
+            $stmtTotal->get_result();
 
 
-            $filaTotal =
-                $resultadoTotal->fetch_assoc();
+        $filaTotal =
+            $resultadoTotal->fetch_assoc();
 
 
-            $totalVotosCargo =
-                (int)$filaTotal['total'];
+        $totalVotosCargo =
+            (int)$filaTotal['total'];
 
 
-            $stmtTotal->close();
-
-        }
+        $stmtTotal->close();
 
 
         /* =============================================
@@ -1667,38 +2198,34 @@ if (
             ");
 
 
-        if ($stmt) {
-
-            $stmt->bind_param(
-                "iiii",
-                $idEleccion,
-                $idCargo,
-                $idEleccion,
-                $idCargo
-            );
+        $stmt->bind_param(
+            "iiii",
+            $idEleccion,
+            $idCargo,
+            $idEleccion,
+            $idCargo
+        );
 
 
-            $stmt->execute();
+        $stmt->execute();
 
 
-            $resultado =
-                $stmt->get_result();
+        $resultado =
+            $stmt->get_result();
 
 
-            while (
-                $fila =
-                $resultado->fetch_assoc()
-            ) {
+        while (
+            $fila =
+            $resultado->fetch_assoc()
+        ) {
 
-                $resultadosCargo[] =
-                    $fila;
-
-            }
-
-
-            $stmt->close();
+            $resultadosCargo[] =
+                $fila;
 
         }
+
+
+        $stmt->close();
 
 
         /* =============================================
@@ -1917,6 +2444,7 @@ if (
 ) {
 
 ?>
+
 
 <img
 

@@ -17,13 +17,24 @@ if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol'])
 ) {
+
     die("Sesión de jurado no válida.");
+
 }
 
-$rol = strtolower(trim((string) $_SESSION['rol']));
+
+$rol =
+    strtolower(
+        trim(
+            (string) $_SESSION['rol']
+        )
+    );
+
 
 if ($rol !== "jurado") {
+
     die("Acceso no autorizado.");
+
 }
 
 
@@ -33,16 +44,28 @@ if ($rol !== "jurado") {
 
 $idEleccion = 0;
 
-if (isset($_SESSION['id_eleccion_jurado'])) {
-    $idEleccion = (int) $_SESSION['id_eleccion_jurado'];
+
+if (
+    isset(
+        $_SESSION['id_eleccion_jurado']
+    )
+) {
+
+    $idEleccion =
+        (int)
+        $_SESSION['id_eleccion_jurado'];
+
 }
 
+
 if ($idEleccion <= 0) {
+
     die(
         "No se pudo identificar la elección. " .
         "Regrese al panel del jurado y presione " .
         "\"Comenzar votación\" nuevamente."
     );
+
 }
 
 
@@ -60,33 +83,141 @@ $stmt = $conn->prepare("
     LIMIT 1
 ");
 
+
 $stmt->bind_param(
     "i",
     $idEleccion
 );
 
+
 $stmt->execute();
 
-$resultado = $stmt->get_result();
 
-$eleccion = $resultado->fetch_assoc();
+$resultado =
+    $stmt->get_result();
+
+
+$eleccion =
+    $resultado->fetch_assoc();
+
 
 $stmt->close();
 
 
 if (!$eleccion) {
-    die("La elección no existe.");
+
+    die(
+        "La elección no existe."
+    );
+
 }
 
 
 /* =========================================================
-   VERIFICAR QUE ESTÉ ABIERTA
+   VERIFICAR QUE LA ELECCIÓN ESTÉ ABIERTA
 ========================================================= */
 
 if (
-    strtolower(trim($eleccion['estado'])) !== "abierta"
+    strtolower(
+        trim(
+            (string)
+            $eleccion['estado']
+        )
+    ) !== "abierta"
 ) {
-    die("La elección está cerrada.");
+
+    die(
+        "🔒 La elección está cerrada."
+    );
+
+}
+
+
+/* =========================================================
+   VERIFICAR MESA DEL JURADO
+========================================================= */
+
+$idJurado =
+    (int) $_SESSION['id'];
+
+
+$stmtMesa = $conn->prepare("
+    SELECT
+        id,
+        nombre_mesa,
+        estado
+    FROM mesas_votacion
+    WHERE id_eleccion = ?
+      AND id_jurado = ?
+    LIMIT 1
+");
+
+
+if (!$stmtMesa) {
+
+    die(
+        "No se pudo consultar la mesa de votación: "
+        . $conn->error
+    );
+
+}
+
+
+$stmtMesa->bind_param(
+    "ii",
+    $idEleccion,
+    $idJurado
+);
+
+
+$stmtMesa->execute();
+
+
+$resultadoMesa =
+    $stmtMesa->get_result();
+
+
+$mesa =
+    $resultadoMesa->fetch_assoc();
+
+
+$stmtMesa->close();
+
+
+/* =========================================================
+   COMPROBAR QUE EL JURADO TENGA MESA
+========================================================= */
+
+if (!$mesa) {
+
+    die(
+        "⚠️ Este jurado no tiene una mesa de votación " .
+        "asignada para esta elección."
+    );
+
+}
+
+
+/* =========================================================
+   COMPROBAR ESTADO DE LA MESA
+========================================================= */
+
+$estadoMesa =
+    strtolower(
+        trim(
+            (string)
+            $mesa['estado']
+        )
+    );
+
+
+if ($estadoMesa !== "abierta") {
+
+    die(
+        "🔒 La mesa de votación está cerrada. " .
+        "No se pueden registrar nuevos votos en esta mesa."
+    );
+
 }
 
 
@@ -96,11 +227,21 @@ if (
 
 $mensaje = "";
 
-if (isset($_SESSION['mensaje_votacion'])) {
 
-    $mensaje = $_SESSION['mensaje_votacion'];
+if (
+    isset(
+        $_SESSION['mensaje_votacion']
+    )
+) {
 
-    unset($_SESSION['mensaje_votacion']);
+    $mensaje =
+        $_SESSION['mensaje_votacion'];
+
+
+    unset(
+        $_SESSION['mensaje_votacion']
+    );
+
 }
 
 
@@ -117,29 +258,116 @@ $error = "";
    PROCESAR FORMULARIO
 ========================================================= */
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (
+    $_SERVER['REQUEST_METHOD']
+    ===
+    'POST'
+) {
 
-    $documento = trim(
-        $_POST['documento'] ?? ''
+
+    /*
+     * Volvemos a comprobar la mesa
+     * justo antes de procesar el documento.
+     *
+     * Esto evita que una mesa sea cerrada
+     * mientras esta página estaba abierta.
+     */
+
+    $stmtMesaPost = $conn->prepare("
+        SELECT
+            id,
+            nombre_mesa,
+            estado
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+          AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    $stmtMesaPost->bind_param(
+        "ii",
+        $idEleccion,
+        $idJurado
     );
+
+
+    $stmtMesaPost->execute();
+
+
+    $resultadoMesaPost =
+        $stmtMesaPost->get_result();
+
+
+    $mesaPost =
+        $resultadoMesaPost->fetch_assoc();
+
+
+    $stmtMesaPost->close();
+
+
+    if (!$mesaPost) {
+
+        die(
+            "⚠️ Este jurado no tiene una mesa asignada para esta elección."
+        );
+
+    }
+
+
+    if (
+        strtolower(
+            trim(
+                (string)
+                $mesaPost['estado']
+            )
+        ) !== "abierta"
+    ) {
+
+        die(
+            "🔒 La mesa de votación está cerrada. " .
+            "No se pueden registrar nuevos votos en esta mesa."
+        );
+
+    }
+
+
+    /* =====================================================
+       DOCUMENTO
+    ===================================================== */
+
+    $documento =
+        trim(
+            $_POST['documento']
+            ??
+            ''
+        );
 
 
     /* =====================================================
        VALIDAR DOCUMENTO
     ===================================================== */
 
-    if ($documento === '') {
+    if (
+        $documento === ''
+    ) {
 
         $error =
             "Debe ingresar el número de documento.";
 
-    } elseif (!ctype_digit($documento)) {
+    }
+
+    elseif (
+        !ctype_digit($documento)
+    ) {
 
         $error =
             "El número de documento debe contener " .
             "solamente números.";
 
-    } else {
+    }
+
+    else {
 
 
         /* =================================================
@@ -158,18 +386,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             LIMIT 1
         ");
 
+
         $stmt->bind_param(
             "s",
             $documento
         );
 
+
         $stmt->execute();
+
 
         $resultadoEstudiante =
             $stmt->get_result();
 
+
         $estudiante =
             $resultadoEstudiante->fetch_assoc();
+
 
         $stmt->close();
 
@@ -184,18 +417,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "No se encontró ningún estudiante " .
                 "registrado con ese número de documento.";
 
-        } else {
+        }
+
+        else {
 
 
             $idEstudiante =
-                (int) $estudiante['id'];
+                (int)
+                $estudiante['id'];
 
 
             /* =============================================
-               COMPROBAR SI YA VOTÓ EN ESTA ELECCIÓN
-
-               NO usamos solamente id_usuario.
-               También comprobamos id_eleccion.
+               COMPROBAR SI YA VOTÓ
             ============================================= */
 
             $stmt = $conn->prepare("
@@ -206,45 +439,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   AND id_eleccion = ?
             ");
 
+
             $stmt->bind_param(
                 "ii",
                 $idEstudiante,
                 $idEleccion
             );
 
+
             $stmt->execute();
+
 
             $resultadoVoto =
                 $stmt->get_result();
 
+
             $filaVoto =
                 $resultadoVoto->fetch_assoc();
+
 
             $stmt->close();
 
 
             $cantidadVotos =
-                (int) $filaVoto['cantidad'];
+                (int)
+                $filaVoto['cantidad'];
 
 
             /* =============================================
                YA VOTÓ
             ============================================= */
 
-            if ($cantidadVotos > 0) {
+            if (
+                $cantidadVotos > 0
+            ) {
 
                 $error =
                     "Este estudiante ya realizó " .
                     "su votación en esta elección.";
 
-            } else {
+            }
+
+            else {
 
 
                 /* =========================================
                    GUARDAR ESTUDIANTE EN SESIÓN
-
-                   ESTE ES EL DATO QUE NECESITA
-                   votar_por_jurado.php
                 ========================================= */
 
                 $_SESSION['estudiante_votando_id'] =
@@ -259,13 +499,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $estudiante['nombre'];
 
 
+                /*
+                 * Guardar también apellido y curso.
+                 */
+
+                $_SESSION['estudiante_votando_apellido'] =
+                    $estudiante['apellido'];
+
+
+                $_SESSION['estudiante_votando_curso'] =
+                    $estudiante['curso'];
+
+
                 /* =========================================
-                   GUARDAR ELECCIÓN NUEVAMENTE
-                   PARA EVITAR QUE SE PIERDA
+                   GUARDAR ELECCIÓN
                 ========================================= */
 
                 $_SESSION['id_eleccion_jurado'] =
                     $idEleccion;
+
+
+                /* =========================================
+                   GUARDAR MESA
+                ========================================= */
+
+                $_SESSION['id_mesa_jurado'] =
+                    (int)
+                    $mesa['id'];
 
 
                 /* =========================================
@@ -276,10 +536,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "Location: votar_por_jurado.php"
                 );
 
+
                 exit;
+
             }
+
         }
+
     }
+
 }
 
 ?>
@@ -306,6 +571,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 * {
     box-sizing: border-box;
 }
+
 
 body {
 
@@ -692,15 +958,18 @@ button:hover {
         margin: 25px auto;
     }
 
+
     .header {
 
         padding: 28px;
     }
 
+
     .content {
 
         padding: 25px;
     }
+
 
     .header h1 {
 
@@ -730,14 +999,18 @@ button:hover {
             🪪
         </div>
 
+
         <h1>
             Identificación del estudiante
         </h1>
 
+
         <p>
+
             Ingrese el número de documento
             del estudiante que realizará
             la votación.
+
         </p>
 
     </div>
@@ -768,9 +1041,66 @@ button:hover {
 
             </h2>
 
+
             <p>
+
                 Proceso democrático institucional
+
             </p>
+
+        </div>
+
+
+        <!-- ============================================
+             INFORMACIÓN DE LA MESA
+        ============================================= -->
+
+        <div
+            class="protected"
+            style="
+                background:#f0fdf4;
+                border-color:#bbf7d0;
+            "
+        >
+
+            <div class="protected-icon">
+                🗳️
+            </div>
+
+
+            <div>
+
+                <h3
+                    style="
+                        color:#15803d;
+                    "
+                >
+
+                    <?php
+
+                    echo htmlspecialchars(
+                        $mesa['nombre_mesa'],
+                        ENT_QUOTES,
+                        'UTF-8'
+                    );
+
+                    ?>
+
+                </h3>
+
+
+                <p>
+
+                    Mesa de votación activa para
+                    este jurado.
+
+                    <br>
+
+                    🟢 Mesa abierta
+
+                </p>
+
+            </div>
 
         </div>
 
@@ -785,16 +1115,20 @@ button:hover {
                 🛡️
             </div>
 
+
             <div>
 
                 <h3>
                     Proceso protegido
                 </h3>
 
+
                 <p>
+
                     El sistema verificará el documento
                     directamente con los estudiantes
                     registrados.
+
                 </p>
 
             </div>
@@ -806,7 +1140,13 @@ button:hover {
              MENSAJE DE VOTACIÓN REGISTRADA
         ============================================= -->
 
-        <?php if ($mensaje !== ""): ?>
+        <?php
+
+        if (
+            $mensaje !== ""
+        ):
+
+        ?>
 
             <div class="success">
 
@@ -824,14 +1164,24 @@ button:hover {
 
             </div>
 
-        <?php endif; ?>
+        <?php
+
+        endif;
+
+        ?>
 
 
         <!-- ============================================
              ERROR
         ============================================= -->
 
-        <?php if ($error !== ""): ?>
+        <?php
+
+        if (
+            $error !== ""
+        ):
+
+        ?>
 
             <div class="error">
 
@@ -849,7 +1199,11 @@ button:hover {
 
             </div>
 
-        <?php endif; ?>
+        <?php
+
+        endif;
+
+        ?>
 
 
         <!-- ============================================
@@ -865,7 +1219,7 @@ button:hover {
 
             <label for="documento">
 
-                Número de documento
+                🪪 Número de documento
 
             </label>
 
@@ -912,7 +1266,7 @@ button:hover {
 
         <div class="footer-info">
 
-            El documento será utilizado únicamente
+            🛡️ El documento será utilizado únicamente
             para verificar la habilitación del estudiante
             para esta elección.
 

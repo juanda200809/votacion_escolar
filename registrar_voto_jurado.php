@@ -19,6 +19,8 @@ verificarRol(['jurado']);
 
 require_once "config/conexion.php";
 
+$conn->set_charset("utf8mb4");
+
 
 /* =========================================================
    VERIFICAR MÉTODO
@@ -85,10 +87,40 @@ $idEstudiante =
    VERIFICAR ELECCIÓN EN SESIÓN
 ========================================================= */
 
+$idEleccion = 0;
+
+
+/*
+ * Compatibilidad con la sesión actual.
+ */
+
 if (
-    !isset($_SESSION['eleccion_votante_id']) ||
-    (int)$_SESSION['eleccion_votante_id'] <= 0
+    isset($_SESSION['eleccion_votante_id'])
 ) {
+
+    $idEleccion =
+        (int)$_SESSION['eleccion_votante_id'];
+
+}
+
+
+/*
+ * Compatibilidad con la variable utilizada
+ * por ingresar_estudiante.php / votar_por_jurado.php.
+ */
+
+if (
+    $idEleccion <= 0 &&
+    isset($_SESSION['id_eleccion_jurado'])
+) {
+
+    $idEleccion =
+        (int)$_SESSION['id_eleccion_jurado'];
+
+}
+
+
+if ($idEleccion <= 0) {
 
     header(
         "Location: ingresar_estudiante.php"
@@ -99,8 +131,23 @@ if (
 }
 
 
-$idEleccion =
-    (int)$_SESSION['eleccion_votante_id'];
+/* =========================================================
+   VERIFICAR JURADO
+========================================================= */
+
+$idJurado =
+    (int)$_SESSION['id'];
+
+
+if ($idJurado <= 0) {
+
+    header(
+        "Location: jurado.php"
+    );
+
+    exit();
+
+}
 
 
 /* =========================================================
@@ -329,7 +376,111 @@ try {
 
 
     /* =====================================================
-       4. OBTENER CARGOS VÁLIDOS
+       4. VERIFICAR MESA DEL JURADO
+    ===================================================== */
+
+    /*
+     * ESTA ES LA PROTECCIÓN PRINCIPAL.
+     *
+     * Solo se consulta la mesa perteneciente al jurado
+     * que está realizando la votación.
+     *
+     * No se modifica la tabla elecciones.
+     */
+
+    $stmtMesa =
+        $conn->prepare("
+
+            SELECT
+                id,
+                id_eleccion,
+                id_jurado,
+                nombre_mesa,
+                estado,
+                fecha_cierre
+
+            FROM mesas_votacion
+
+            WHERE id_eleccion = ?
+
+            AND id_jurado = ?
+
+            LIMIT 1
+
+            FOR UPDATE
+
+        ");
+
+
+    if (!$stmtMesa) {
+
+        throw new Exception(
+            "No se pudo verificar la mesa de votación."
+        );
+
+    }
+
+
+    $stmtMesa->bind_param(
+        "ii",
+        $idEleccion,
+        $idJurado
+    );
+
+
+    $stmtMesa->execute();
+
+
+    $resultadoMesa =
+        $stmtMesa->get_result();
+
+
+    if (
+        $resultadoMesa->num_rows === 0
+    ) {
+
+        $stmtMesa->close();
+
+        throw new Exception(
+            "Este jurado no tiene una mesa de votación asignada para esta elección."
+        );
+
+    }
+
+
+    $mesa =
+        $resultadoMesa->fetch_assoc();
+
+
+    $stmtMesa->close();
+
+
+    /* =====================================================
+       5. MESA DEBE ESTAR ABIERTA
+    ===================================================== */
+
+    $estadoMesa =
+        strtolower(
+            trim(
+                (string)$mesa['estado']
+            )
+        );
+
+
+    if (
+        $estadoMesa !== 'abierta'
+    ) {
+
+        throw new Exception(
+            "🔒 La mesa de votación está cerrada. " .
+            "El voto no fue registrado."
+        );
+
+    }
+
+
+    /* =====================================================
+       6. OBTENER CARGOS VÁLIDOS
     ===================================================== */
 
     $stmt =
@@ -393,7 +544,7 @@ try {
 
 
     /* =====================================================
-       5. DEBE EXISTIR AL MENOS UN CARGO
+       7. DEBE EXISTIR AL MENOS UN CARGO
     ===================================================== */
 
     if (
@@ -408,7 +559,7 @@ try {
 
 
     /* =====================================================
-       6. COMPROBAR TODOS LOS CARGOS
+       8. COMPROBAR TODOS LOS CARGOS
     ===================================================== */
 
     foreach (
@@ -431,7 +582,7 @@ try {
 
 
     /* =====================================================
-       7. COMPROBAR CARGOS EXTRA
+       9. COMPROBAR CARGOS EXTRA
     ===================================================== */
 
     foreach (
@@ -455,7 +606,7 @@ try {
 
 
     /* =====================================================
-       8. COMPROBAR DOBLE VOTO
+       10. COMPROBAR DOBLE VOTO
     ===================================================== */
 
     $stmt =
@@ -517,7 +668,7 @@ try {
 
 
     /* =====================================================
-       9. PREPARAR VALIDACIÓN DE CANDIDATO
+       11. PREPARAR VALIDACIÓN DE CANDIDATO
     ===================================================== */
 
     $stmtCandidato =
@@ -549,7 +700,7 @@ try {
 
 
     /* =====================================================
-       10. PREPARAR INSERCIÓN
+       12. PREPARAR INSERCIÓN
     ===================================================== */
 
     $stmtInsertar =
@@ -588,7 +739,7 @@ try {
 
 
     /* =====================================================
-       11. REGISTRAR CADA VOTO
+       13. REGISTRAR CADA VOTO
     ===================================================== */
 
     foreach (
@@ -630,7 +781,7 @@ try {
 
 
         /* ================================================
-           INSERTAR
+           INSERTAR VOTO
         ================================================ */
 
         $stmtInsertar->bind_param(
@@ -656,7 +807,7 @@ try {
 
 
     /* =====================================================
-       12. CERRAR CONSULTAS
+       14. CERRAR CONSULTAS
     ===================================================== */
 
     $stmtCandidato->close();
@@ -665,14 +816,14 @@ try {
 
 
     /* =====================================================
-       13. CONFIRMAR
+       15. CONFIRMAR TRANSACCIÓN
     ===================================================== */
 
     $conn->commit();
 
 
     /* =====================================================
-       14. LIMPIAR SESIÓN TEMPORAL
+       16. LIMPIAR SESIÓN TEMPORAL
     ===================================================== */
 
     unset(
@@ -693,11 +844,20 @@ try {
 
 
     /* =====================================================
-       15. INDICAR VOTACIÓN EXITOSA
+       17. INDICAR VOTACIÓN EXITOSA
     ===================================================== */
 
-    $_SESSION['votacion_completada'] = true;
+    $_SESSION['votacion_completada'] =
+        true;
 
+
+    $_SESSION['mensaje_votacion'] =
+        "La votación fue registrada correctamente.";
+
+
+    /* =====================================================
+       18. VOLVER A INGRESAR ESTUDIANTE
+    ===================================================== */
 
     header(
         "Location: ingresar_estudiante.php?ok=1"
@@ -712,10 +872,16 @@ try {
 
 
     /* =====================================================
-       DESHACER
+       DESHACER TODO
     ===================================================== */
 
-    $conn->rollback();
+    if (
+        $conn->in_transaction
+    ) {
+
+        $conn->rollback();
+
+    }
 
 
     /* =====================================================
@@ -729,8 +895,29 @@ try {
     );
 
 
+    /*
+     * Si la causa fue la mesa cerrada,
+     * mostramos un mensaje específico.
+     */
+
+    if (
+        stripos(
+            $e->getMessage(),
+            'mesa'
+        ) !== false
+    ) {
+
+        header(
+            "Location: votar_por_jurado.php?error=mesa_cerrada"
+        );
+
+        exit();
+
+    }
+
+
     /* =====================================================
-       MOSTRAR MENSAJE GENERAL
+       OTROS ERRORES
     ===================================================== */
 
     header(
