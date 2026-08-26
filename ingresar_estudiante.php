@@ -1,26 +1,17 @@
 <?php
 
-require_once "seguridad.php";
-
-evitarCache();
-
-verificarRol(['jurado']);
-
-// AQUÍ CONTINÚA TODO TU CÓDIGO ACTUAL
-
-
+session_start();
 
 include("config/conexion.php");
 
 
 /* =========================================================
-   VERIFICAR QUE SEA JURADO
+   VERIFICAR SESIÓN DEL JURADO
 ========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
-    !isset($_SESSION['rol']) ||
-    strtolower(trim((string)$_SESSION['rol'])) !== 'jurado'
+    !isset($_SESSION['rol'])
 ) {
 
     header("Location: login.php");
@@ -29,526 +20,466 @@ if (
 }
 
 
-/* =========================================================
-   BUSCAR ELECCIÓN ABIERTA
-========================================================= */
-
-$eleccion = null;
-
-$stmt = $conn->prepare("
-
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
-
-    FROM elecciones
-
-    WHERE estado = 'abierta'
-
-    ORDER BY id DESC
-
-    LIMIT 1
-
-");
+$rol = strtolower(
+    trim(
+        (string) $_SESSION['rol']
+    )
+);
 
 
-if ($stmt) {
+if ($rol !== "jurado") {
 
-    $stmt->execute();
-
-    $resultado = $stmt->get_result();
-
-    if ($resultado->num_rows > 0) {
-
-        $eleccion = $resultado->fetch_assoc();
-
-    }
-
-    $stmt->close();
+    header("Location: login.php");
+    exit();
 
 }
 
 
 /* =========================================================
-   VERIFICAR ELECCIÓN
+   CONFIGURACIÓN
 ========================================================= */
 
-$sinEleccion = ($eleccion === null);
-
-$idEleccion = 0;
-
-
-if (!$sinEleccion) {
-
-    $idEleccion = (int)$eleccion['id'];
-
-}
+date_default_timezone_set("America/Bogota");
 
 
 /* =========================================================
-   MENSAJES
-========================================================= */
-
-$mensaje = "";
-
-$tipoMensaje = "danger";
-
-
-/* =========================================================
-   SELECCIONAR ESTUDIANTE
+   TOKEN CSRF
 ========================================================= */
 
 if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['seleccionar_estudiante'])
+    !isset($_SESSION['csrf_estudiante'])
+) {
+
+    $_SESSION['csrf_estudiante'] =
+        bin2hex(
+            random_bytes(32)
+        );
+
+}
+
+
+$csrf =
+    $_SESSION['csrf_estudiante'];
+
+
+/* =========================================================
+   VARIABLES
+========================================================= */
+
+$error = "";
+
+$documento = "";
+
+
+/* =========================================================
+   PROCESAR FORMULARIO
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
 ) {
 
 
     /* =====================================================
-       VERIFICAR NUEVAMENTE LA ELECCIÓN
-       Esto evita confiar solamente en la información
-       cargada anteriormente.
+       VERIFICAR CSRF
     ===================================================== */
 
-    $stmt = $conn->prepare("
+    if (
+        !isset($_POST['csrf']) ||
+        !hash_equals(
+            $_SESSION['csrf_estudiante'],
+            $_POST['csrf']
+        )
+    ) {
+
+        $error =
+            "La solicitud no es válida. Intente nuevamente.";
+
+    }
+
+
+    /* =====================================================
+       OBTENER DOCUMENTO
+    ===================================================== */
+
+    if (
+        $error === ""
+    ) {
+
+        $documento =
+            trim(
+                $_POST['documento'] ?? ""
+            );
+
+    }
+
+
+    /* =====================================================
+       VALIDAR DOCUMENTO VACÍO
+    ===================================================== */
+
+    if (
+        $error === "" &&
+        $documento === ""
+    ) {
+
+        $error =
+            "Debe ingresar el número de documento.";
+
+    }
+
+
+    /* =====================================================
+       VALIDAR FORMATO
+    ===================================================== */
+
+    if (
+        $error === "" &&
+        !preg_match(
+            '/^[0-9]+$/',
+            $documento
+        )
+    ) {
+
+        $error =
+            "El documento solamente debe contener números.";
+
+    }
+
+
+    /* =====================================================
+       VERIFICAR ELECCIÓN ABIERTA
+    ===================================================== */
+
+    $eleccion = null;
+
+
+    if (
+        $error === ""
+    ) {
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT
+                    id,
+                    nombre,
+                    descripcion,
+                    estado
+
+                FROM elecciones
+
+                WHERE estado = 'abierta'
+
+                ORDER BY id DESC
+
+                LIMIT 1
+
+            ");
+
+
+        if (!$stmt) {
+
+            $error =
+                "No fue posible verificar la elección.";
+
+        } else {
+
+            $stmt->execute();
+
+            $resultado =
+                $stmt->get_result();
+
+
+            if (
+                $resultado->num_rows === 0
+            ) {
+
+                $error =
+                    "Actualmente no hay una elección abierta.";
+
+            } else {
+
+                $eleccion =
+                    $resultado->fetch_assoc();
+
+            }
+
+
+            $stmt->close();
+
+        }
+
+    }
+
+
+    /* =====================================================
+       BUSCAR ESTUDIANTE POR DOCUMENTO
+    ===================================================== */
+
+    $estudiante = null;
+
+
+    if (
+        $error === "" &&
+        $eleccion
+    ) {
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT
+                    id,
+                    documento,
+                    nombre,
+                    apellido,
+                    curso,
+                    rol
+
+                FROM usuarios
+
+                WHERE documento = ?
+
+                AND LOWER(
+                    TRIM(rol)
+                ) = 'estudiante'
+
+                LIMIT 1
+
+            ");
+
+
+        if (!$stmt) {
+
+            $error =
+                "No fue posible verificar el estudiante.";
+
+        } else {
+
+            $stmt->bind_param(
+                "s",
+                $documento
+            );
+
+
+            $stmt->execute();
+
+
+            $resultado =
+                $stmt->get_result();
+
+
+            if (
+                $resultado->num_rows === 0
+            ) {
+
+                $error =
+                    "El documento no corresponde a un estudiante registrado.";
+
+            } else {
+
+                $estudiante =
+                    $resultado->fetch_assoc();
+
+            }
+
+
+            $stmt->close();
+
+        }
+
+    }
+
+
+    /* =====================================================
+       VERIFICAR SI YA VOTÓ
+    ===================================================== */
+
+    if (
+        $error === "" &&
+        $estudiante &&
+        $eleccion
+    ) {
+
+        $idEstudiante =
+            (int) $estudiante['id'];
+
+
+        $idEleccion =
+            (int) $eleccion['id'];
+
+
+        $stmt =
+            $conn->prepare("
+
+                SELECT id
+
+                FROM votos
+
+                WHERE
+                    id_usuario = ?
+
+                    AND id_eleccion = ?
+
+                LIMIT 1
+
+            ");
+
+
+        if (!$stmt) {
+
+            $error =
+                "No fue posible verificar el estado de la votación.";
+
+        } else {
+
+            $stmt->bind_param(
+                "ii",
+                $idEstudiante,
+                $idEleccion
+            );
+
+
+            $stmt->execute();
+
+
+            $resultado =
+                $stmt->get_result();
+
+
+            if (
+                $resultado->num_rows > 0
+            ) {
+
+                $error =
+                    "Este estudiante ya realizó su votación.";
+
+            }
+
+
+            $stmt->close();
+
+        }
+
+    }
+
+
+    /* =====================================================
+       CREAR SESIÓN DEL ESTUDIANTE
+    ===================================================== */
+
+    if (
+        $error === "" &&
+        $estudiante &&
+        $eleccion
+    ) {
+
+
+        /*
+         * Regeneramos el identificador de sesión
+         * antes de comenzar el proceso de votación.
+         */
+
+        session_regenerate_id(true);
+
+
+        $_SESSION['estudiante_jurado'] =
+            (int) $estudiante['id'];
+
+
+        $_SESSION['eleccion_jurado'] =
+            (int) $eleccion['id'];
+
+
+        $_SESSION['documento_estudiante'] =
+            $estudiante['documento'];
+
+
+        $_SESSION['nombre_estudiante'] =
+            $estudiante['nombre']
+            . " "
+            . $estudiante['apellido'];
+
+
+        $_SESSION['hora_inicio_votacion'] =
+            time();
+
+
+        /* =================================================
+           GENERAR TOKEN PARA LA VOTACIÓN
+        ================================================= */
+
+        $_SESSION['token_votacion'] =
+            bin2hex(
+                random_bytes(32)
+            );
+
+
+        /* =================================================
+           REDIRIGIR A LA VOTACIÓN
+        ================================================= */
+
+        header(
+            "Location: votar_por_jurado.php"
+        );
+
+        exit();
+
+    }
+
+}
+
+
+/* =========================================================
+   OBTENER ELECCIÓN ACTUAL PARA MOSTRAR
+========================================================= */
+
+$eleccionActual = null;
+
+
+$stmt =
+    $conn->prepare("
 
         SELECT
             id,
-            estado
+            nombre,
+            descripcion
 
         FROM elecciones
 
-        WHERE id = ?
+        WHERE estado = 'abierta'
+
+        ORDER BY id DESC
 
         LIMIT 1
 
     ");
 
 
-    if (!$stmt) {
+if ($stmt) {
 
-        $mensaje =
-            "No se pudo verificar la elección.";
+    $stmt->execute();
 
-    } else {
+    $resultado =
+        $stmt->get_result();
 
-        $stmt->bind_param(
-            "i",
-            $idEleccion
-        );
 
-        $stmt->execute();
+    if (
+        $resultado->num_rows > 0
+    ) {
 
-        $resultado =
-            $stmt->get_result();
-
-
-        if (
-            $resultado->num_rows === 0
-        ) {
-
-            $mensaje =
-                "La elección no existe.";
-
-        } else {
-
-            $eleccionActual =
-                $resultado->fetch_assoc();
-
-
-            if (
-                strtolower(
-                    trim(
-                        (string)$eleccionActual['estado']
-                    )
-                ) !== 'abierta'
-            ) {
-
-                $mensaje =
-                    "La elección está cerrada.";
-
-            } else {
-
-
-                /* =========================================
-                   OBTENER ID DEL ESTUDIANTE
-                ========================================= */
-
-                $idEstudiante =
-                    isset($_POST['id_estudiante'])
-                    ? (int)$_POST['id_estudiante']
-                    : 0;
-
-
-                if (
-                    $idEstudiante <= 0
-                ) {
-
-                    $mensaje =
-                        "El estudiante seleccionado no es válido.";
-
-                } else {
-
-
-                    /* =====================================
-                       BUSCAR ESTUDIANTE
-                    ===================================== */
-
-                    $stmtEstudiante =
-                        $conn->prepare("
-
-                            SELECT
-                                id,
-                                documento,
-                                nombre,
-                                apellido,
-                                curso
-
-                            FROM usuarios
-
-                            WHERE id = ?
-
-                            AND LOWER(
-                                TRIM(rol)
-                            ) = 'estudiante'
-
-                            LIMIT 1
-
-                        ");
-
-
-                    if (!$stmtEstudiante) {
-
-                        $mensaje =
-                            "Error al consultar el estudiante.";
-
-                    } else {
-
-                        $stmtEstudiante->bind_param(
-                            "i",
-                            $idEstudiante
-                        );
-
-                        $stmtEstudiante->execute();
-
-                        $resultadoEstudiante =
-                            $stmtEstudiante->get_result();
-
-
-                        if (
-                            $resultadoEstudiante->num_rows === 0
-                        ) {
-
-                            $mensaje =
-                                "El estudiante no existe o no pertenece al rol de estudiante.";
-
-                        } else {
-
-                            $estudiante =
-                                $resultadoEstudiante->fetch_assoc();
-
-
-                            /* =================================
-                               COMPROBAR SI YA VOTÓ
-                            ================================= */
-
-                            $stmtVoto =
-                                $conn->prepare("
-
-                                    SELECT
-                                        id
-
-                                    FROM votos
-
-                                    WHERE id_usuario = ?
-
-                                    AND id_eleccion = ?
-
-                                    LIMIT 1
-
-                                ");
-
-
-                            if (!$stmtVoto) {
-
-                                $mensaje =
-                                    "No se pudo comprobar si el estudiante ya votó.";
-
-                            } else {
-
-                                $stmtVoto->bind_param(
-                                    "ii",
-                                    $idEstudiante,
-                                    $idEleccion
-                                );
-
-                                $stmtVoto->execute();
-
-                                $resultadoVoto =
-                                    $stmtVoto->get_result();
-
-
-                                if (
-                                    $resultadoVoto->num_rows > 0
-                                ) {
-
-                                    /*
-                                     * EL ESTUDIANTE YA VOTÓ.
-                                     */
-
-                                    $mensaje =
-                                        "Este estudiante ya realizó su votación en esta elección.";
-
-                                    $tipoMensaje =
-                                        "danger";
-
-
-                                    /*
-                                     * Limpiar cualquier selección
-                                     * anterior para evitar reutilizar
-                                     * una sesión vieja.
-                                     */
-
-                                    unset(
-                                        $_SESSION['estudiante_votando_id'],
-                                        $_SESSION['estudiante_votando_documento'],
-                                        $_SESSION['estudiante_votando_nombre'],
-                                        $_SESSION['estudiante_votando_curso'],
-                                        $_SESSION['eleccion_votante_id']
-                                    );
-
-
-                                } else {
-
-
-                                    /* =========================
-                                       LIMPIAR SELECCIÓN ANTERIOR
-                                    ========================= */
-
-                                    unset(
-                                        $_SESSION['estudiante_votando_id'],
-                                        $_SESSION['estudiante_votando_documento'],
-                                        $_SESSION['estudiante_votando_nombre'],
-                                        $_SESSION['estudiante_votando_curso'],
-                                        $_SESSION['eleccion_votante_id']
-                                    );
-
-
-                                    /* =========================
-                                       GUARDAR ESTUDIANTE
-                                    ========================= */
-
-                                    $_SESSION[
-                                        'estudiante_votando_id'
-                                    ] =
-                                        (int)$estudiante['id'];
-
-
-                                    $_SESSION[
-                                        'estudiante_votando_documento'
-                                    ] =
-                                        $estudiante['documento'];
-
-
-                                    $_SESSION[
-                                        'estudiante_votando_nombre'
-                                    ] =
-                                        $estudiante['nombre']
-                                        . " "
-                                        .
-                                        $estudiante['apellido'];
-
-
-                                    $_SESSION[
-                                        'estudiante_votando_curso'
-                                    ] =
-                                        $estudiante['curso'];
-
-
-                                    $_SESSION[
-                                        'eleccion_votante_id'
-                                    ] =
-                                        $idEleccion;
-
-
-                                    /*
-                                     * Redirigir al proceso de votación.
-                                     */
-
-                                    header(
-                                        "Location: votar_por_jurado.php"
-                                    );
-
-                                    exit();
-
-                                }
-
-
-                                $stmtVoto->close();
-
-                            }
-
-                        }
-
-
-                        $stmtEstudiante->close();
-
-                    }
-
-                }
-
-            }
-
-        }
-
-
-        $stmt->close();
+        $eleccionActual =
+            $resultado->fetch_assoc();
 
     }
 
-}
 
-
-/* =========================================================
-   BÚSQUEDA
-========================================================= */
-
-$busqueda = "";
-
-$estudiantes = [];
-
-
-if (
-    isset($_GET['buscar'])
-) {
-
-    $busqueda =
-        trim(
-            (string)$_GET['buscar']
-        );
-
-}
-
-
-/* =========================================================
-   REALIZAR BÚSQUEDA
-========================================================= */
-
-if (
-    !$sinEleccion &&
-    $busqueda !== ""
-) {
-
-
-    $textoBusqueda =
-        "%" . $busqueda . "%";
-
-
-    $stmt = $conn->prepare("
-
-        SELECT
-
-            u.id,
-            u.documento,
-            u.nombre,
-            u.apellido,
-            u.curso,
-
-            CASE
-
-                WHEN EXISTS (
-
-                    SELECT 1
-
-                    FROM votos v
-
-                    WHERE v.id_usuario = u.id
-
-                    AND v.id_eleccion = ?
-
-                )
-
-                THEN 1
-
-                ELSE 0
-
-            END AS ya_voto
-
-        FROM usuarios u
-
-        WHERE LOWER(
-            TRIM(u.rol)
-        ) = 'estudiante'
-
-        AND (
-
-            u.documento LIKE ?
-
-            OR u.nombre LIKE ?
-
-            OR u.apellido LIKE ?
-
-            OR u.curso LIKE ?
-
-            OR CONCAT(
-                u.nombre,
-                ' ',
-                u.apellido
-            ) LIKE ?
-
-        )
-
-        ORDER BY
-            u.nombre ASC,
-            u.apellido ASC
-
-        LIMIT 100
-
-    ");
-
-
-    if ($stmt) {
-
-        $stmt->bind_param(
-            "isssss",
-            $idEleccion,
-            $textoBusqueda,
-            $textoBusqueda,
-            $textoBusqueda,
-            $textoBusqueda,
-            $textoBusqueda
-        );
-
-
-        $stmt->execute();
-
-
-        $resultado =
-            $stmt->get_result();
-
-
-        while (
-            $fila =
-            $resultado->fetch_assoc()
-        ) {
-
-            $estudiantes[] =
-                $fila;
-
-        }
-
-
-        $stmt->close();
-
-    }
+    $stmt->close();
 
 }
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -559,22 +490,25 @@ if (
 <meta charset="UTF-8">
 
 <meta
-name="viewport"
-content="width=device-width, initial-scale=1">
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
 <title>
-Ingresar estudiante
+Identificar estudiante | Votaciones Escolares
 </title>
 
 
 <link
-href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+>
 
 
 <link
-rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+>
 
 
 <style>
@@ -584,15 +518,15 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 ========================================================= */
 
 * {
-
     box-sizing: border-box;
-
 }
 
 
 body {
 
     margin: 0;
+
+    min-height: 100vh;
 
     background: #eef3f9;
 
@@ -601,7 +535,7 @@ body {
         Helvetica,
         sans-serif;
 
-    color: #1e293b;
+    color: #26374a;
 
 }
 
@@ -612,17 +546,20 @@ body {
 
 .header {
 
-    background: #1976e8;
+    min-height: 70px;
+
+    background: #1473ed;
 
     color: white;
-
-    padding: 18px 30px;
 
     display: flex;
 
     align-items: center;
 
     justify-content: space-between;
+
+    padding:
+        0 32px;
 
     box-shadow:
         0 3px 12px
@@ -631,11 +568,18 @@ body {
 }
 
 
-.header h3 {
-
-    margin: 0;
+.header-title {
 
     font-size: 23px;
+
+    font-weight: 700;
+
+}
+
+
+.header-user {
+
+    font-size: 15px;
 
     font-weight: 600;
 
@@ -648,11 +592,11 @@ body {
 
 .contenedor {
 
-    max-width: 1100px;
+    width:
+        min(700px, calc(100% - 30px));
 
-    margin: auto;
-
-    padding: 35px 20px;
+    margin:
+        45px auto;
 
 }
 
@@ -665,41 +609,65 @@ body {
 
     background: white;
 
-    border-radius: 18px;
+    border-radius: 20px;
 
-    padding: 30px;
+    overflow: hidden;
 
     box-shadow:
-        0 5px 18px
-        rgba(0,0,0,.08);
-
-    border:
-        1px solid
-        #e2e8f0;
+        0 10px 30px
+        rgba(0,0,0,.09);
 
 }
 
 
 /* =========================================================
-   TÍTULO
+   ENCABEZADO
 ========================================================= */
 
-.titulo {
+.card-header-custom {
 
-    color: #1459a6;
+    background:
+        linear-gradient(
+            135deg,
+            #176df0,
+            #06479f
+        );
 
-    font-weight: 700;
+    color: white;
 
-    margin-bottom: 5px;
+    padding: 32px;
 
 }
 
 
-.subtitulo {
+.card-header-custom h1 {
 
-    color: #64748b;
+    margin: 0;
 
-    margin-bottom: 25px;
+    font-size: 31px;
+
+    font-weight: 700;
+
+}
+
+
+.card-header-custom p {
+
+    margin:
+        9px 0 0;
+
+    opacity: .92;
+
+}
+
+
+/* =========================================================
+   CUERPO
+========================================================= */
+
+.card-body-custom {
+
+    padding: 32px;
 
 }
 
@@ -710,317 +678,270 @@ body {
 
 .eleccion {
 
-    background: #dbeafe;
+    background: #eaf3ff;
 
     border:
-        1px solid
-        #bfdbfe;
+        1px solid #c9ddfa;
 
     border-radius: 14px;
 
-    padding: 18px;
+    padding: 20px;
 
-    margin-bottom: 25px;
-
-    color: #084298;
+    margin-bottom: 24px;
 
 }
 
 
-.eleccion h4 {
+.eleccion h3 {
 
-    margin-bottom: 5px;
+    margin:
+        0 0 6px;
+
+    color: #1453a3;
+
+    font-size: 21px;
 
     font-weight: 700;
 
 }
 
 
-/* =========================================================
-   BUSCADOR
-========================================================= */
+.eleccion p {
 
-.buscador {
+    margin: 0;
 
-    display: flex;
-
-    gap: 10px;
-
-    margin-bottom: 25px;
-
-}
-
-
-.buscador input {
-
-    flex: 1;
-
-    border:
-        1px solid
-        #cbd5e1;
-
-    border-radius: 10px;
-
-    padding: 13px 15px;
-
-    font-size: 16px;
-
-}
-
-
-.buscador input:focus {
-
-    outline: none;
-
-    border-color: #1976e8;
-
-    box-shadow:
-        0 0 0 3px
-        rgba(25,118,232,.12);
-
-}
-
-
-.btn-buscar {
-
-    border: none;
-
-    background: #1976e8;
-
-    color: white;
-
-    padding:
-        0 24px;
-
-    border-radius: 10px;
-
-    font-weight: 600;
-
-}
-
-
-.btn-buscar:hover {
-
-    background: #125fc0;
+    color: #527094;
 
 }
 
 
 /* =========================================================
-   RESULTADOS
+   SEGURIDAD
 ========================================================= */
 
-.resultados {
+.seguridad {
 
     display: flex;
 
-    flex-direction: column;
+    align-items: flex-start;
 
     gap: 12px;
 
-}
-
-
-.estudiante {
-
-    background: white;
+    background: #f4f8fd;
 
     border:
-        1px solid
-        #e2e8f0;
+        1px solid #dce7f3;
 
-    border-radius: 14px;
+    padding: 16px;
 
-    padding: 18px;
+    border-radius: 12px;
 
-    display: flex;
+    margin-bottom: 25px;
 
-    align-items: center;
-
-    justify-content: space-between;
-
-    gap: 20px;
-
-    transition: .2s;
-
-}
-
-
-.estudiante:hover {
-
-    border-color: #bfdbfe;
-
-    box-shadow:
-        0 4px 12px
-        rgba(0,0,0,.06);
-
-}
-
-
-.info-estudiante {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 16px;
-
-}
-
-
-.icono-estudiante {
-
-    width: 55px;
-
-    height: 55px;
-
-    border-radius: 50%;
-
-    background: #e8f1ff;
-
-    color: #1976e8;
-
-    display: flex;
-
-    align-items: center;
-
-    justify-content: center;
-
-    font-size: 25px;
-
-}
-
-
-.nombre-estudiante {
-
-    font-size: 18px;
-
-    font-weight: 700;
-
-    color: #1459a6;
-
-}
-
-
-.detalle {
-
-    color: #64748b;
+    color: #536b84;
 
     font-size: 14px;
 
-    margin-top: 3px;
+}
+
+
+.seguridad i {
+
+    color: #1473ed;
+
+    font-size: 23px;
+
+    flex-shrink: 0;
 
 }
 
 
 /* =========================================================
-   ESTADOS
+   ERROR
 ========================================================= */
 
-.estado {
+.error {
 
-    display: inline-flex;
+    background: #fff1f1;
+
+    color: #b42318;
+
+    border:
+        1px solid #ffcaca;
+
+    border-radius: 10px;
+
+    padding: 14px 16px;
+
+    margin-bottom: 20px;
+
+    display: flex;
 
     align-items: center;
 
-    gap: 6px;
+    gap: 10px;
 
     font-size: 14px;
 
-    font-weight: 600;
+}
+
+
+/* =========================================================
+   FORMULARIO
+========================================================= */
+
+.form-label {
+
+    display: block;
+
+    color: #1453a3;
+
+    font-weight: 700;
 
     margin-bottom: 8px;
 
 }
 
 
-.estado-ok {
+.input-documento {
 
-    color: #198754;
+    width: 100%;
+
+    height: 56px;
+
+    border:
+        1px solid #ccd8e7;
+
+    border-radius: 10px;
+
+    padding:
+        0 16px;
+
+    font-size: 18px;
+
+    outline: none;
+
+    transition: .2s ease;
 
 }
 
 
-.estado-no {
+.input-documento:focus {
 
-    color: #dc3545;
+    border-color: #1473ed;
+
+    box-shadow:
+        0 0 0 3px
+        rgba(20,115,237,.12);
 
 }
 
 
 /* =========================================================
-   BOTONES
+   BOTÓN
 ========================================================= */
 
-.btn-seleccionar {
+.btn-continuar {
+
+    width: 100%;
+
+    height: 56px;
+
+    margin-top: 20px;
 
     border: none;
 
-    background: #198754;
+    border-radius: 10px;
+
+    background: #1473ed;
 
     color: white;
 
-    padding:
-        9px 15px;
+    font-size: 16px;
 
-    border-radius: 8px;
+    font-weight: 700;
 
-    font-weight: 600;
+    cursor: pointer;
 
-}
-
-
-.btn-seleccionar:hover {
-
-    background: #157347;
+    transition: .2s ease;
 
 }
 
 
-.btn-bloqueado {
+.btn-continuar:hover {
 
-    border: none;
+    background: #0d5fcf;
 
-    background: #e2e8f0;
-
-    color: #64748b;
-
-    padding:
-        9px 15px;
-
-    border-radius: 8px;
-
-    font-weight: 600;
-
-    cursor: not-allowed;
+    transform:
+        translateY(-1px);
 
 }
 
 
 /* =========================================================
-   SIN RESULTADOS
+   INFORMACIÓN
 ========================================================= */
 
-.sin-resultados {
+.ayuda {
 
-    text-align: center;
+    margin-top: 12px;
 
-    padding: 40px 20px;
+    color: #7a8ca1;
 
-    color: #64748b;
+    font-size: 12px;
 
 }
 
 
-.sin-resultados i {
+/* =========================================================
+   VOLVER
+========================================================= */
 
-    font-size: 45px;
-
-    color: #94a3b8;
+.volver {
 
     display: block;
 
-    margin-bottom: 10px;
+    text-align: center;
+
+    margin-top: 22px;
+
+    color: #1453a3;
+
+    text-decoration: none;
+
+    font-weight: 600;
+
+}
+
+
+.volver:hover {
+
+    text-decoration: underline;
+
+}
+
+
+/* =========================================================
+   FOOTER
+========================================================= */
+
+.footer {
+
+    text-align: center;
+
+    color: #718096;
+
+    font-size: 12px;
+
+    padding:
+        20px;
+
+}
+
+
+.footer strong {
+
+    color: #1453a3;
 
 }
 
@@ -1029,67 +950,55 @@ body {
    RESPONSIVE
 ========================================================= */
 
-@media (
-    max-width: 700px
-) {
+@media(max-width:600px) {
 
     .header {
 
         padding:
-            15px;
+            0 15px;
 
     }
 
 
-    .header h3 {
+    .header-title {
 
         font-size: 18px;
 
     }
 
 
+    .header-user {
+
+        font-size: 12px;
+
+    }
+
+
     .contenedor {
 
-        padding:
-            20px 12px;
+        margin:
+            25px auto;
 
     }
 
 
-    .card-principal {
+    .card-header-custom {
 
-        padding:
-            20px 15px;
-
-    }
-
-
-    .buscador {
-
-        flex-direction: column;
+        padding: 24px;
 
     }
 
 
-    .btn-buscar {
+    .card-header-custom h1 {
 
-        padding: 12px;
-
-    }
-
-
-    .estudiante {
-
-        flex-direction: column;
-
-        align-items: stretch;
+        font-size: 26px;
 
     }
 
 
-    .info-estudiante {
+    .card-body-custom {
 
-        align-items: flex-start;
+        padding: 22px;
 
     }
 
@@ -1105,114 +1014,120 @@ body {
 
 <!-- =====================================================
      HEADER
-========================================================= -->
+===================================================== -->
 
-<div class="header">
-
-
-<h3>
-
-<i class="bi bi-check2-square"></i>
-
-Sistema de Votaciones Escolares
-
-</h3>
+<header class="header">
 
 
-<div>
+<div class="header-title">
 
-<i class="bi bi-person-badge-fill"></i>
+    <i class="bi bi-check2-square"></i>
 
-Jurado:
-
-<?php
-
-echo htmlspecialchars(
-    $_SESSION['nombre'] ?? 'Jurado'
-);
-
-?>
+    Sistema de Votaciones Escolares
 
 </div>
 
 
+<div class="header-user">
+
+    <i class="bi bi-person-badge-fill"></i>
+
+    Jurado:
+
+    <strong>
+
+        <?php
+
+        echo htmlspecialchars(
+            $_SESSION['nombre'] ?? 'Jurado'
+        );
+
+        ?>
+
+    </strong>
+
 </div>
+
+
+</header>
 
 
 <!-- =====================================================
      CONTENIDO
-========================================================= -->
+===================================================== -->
 
-<div class="contenedor">
+<main class="contenedor">
 
 
 <div class="card-principal">
 
 
 <!-- =====================================================
-     TÍTULO
-========================================================= -->
+     ENCABEZADO
+===================================================== -->
 
-<h2 class="titulo">
+<div class="card-header-custom">
 
-<i class="bi bi-person-search"></i>
+    <h1>
 
-Buscar estudiante
+        <i class="bi bi-person-vcard-fill"></i>
 
-</h2>
+        Identificación del estudiante
+
+    </h1>
 
 
-<p class="subtitulo">
+    <p>
 
-Busque al estudiante que realizará la votación.
+        Ingrese el número de documento
+        del estudiante que realizará la votación.
 
-</p>
+    </p>
+
+</div>
 
 
 <!-- =====================================================
-     ELECCIÓN
-========================================================= -->
+     CUERPO
+===================================================== -->
 
-<?php if ($eleccion) { ?>
+<div class="card-body-custom">
+
+
+<?php if (
+    $eleccionActual
+) { ?>
 
 
 <div class="eleccion">
 
 
-<h4>
+<h3>
 
-<i class="bi bi-calendar-event-fill"></i>
+    <i class="bi bi-calendar-check-fill"></i>
 
-<?php
+    <?php
 
-echo htmlspecialchars(
-    $eleccion['nombre']
-);
+    echo htmlspecialchars(
+        $eleccionActual['nombre']
+    );
 
-?>
+    ?>
 
-</h4>
+</h3>
 
 
-<?php if (
-    !empty(
-        $eleccion['descripcion']
-    )
-) { ?>
+<p>
 
-<div>
+    <?php
 
-<?php
+    echo htmlspecialchars(
+        $eleccionActual['descripcion']
+    );
 
-echo htmlspecialchars(
-    $eleccion['descripcion']
-);
+    ?>
 
-?>
-
-</div>
-
-<?php } ?>
+</p>
 
 
 </div>
@@ -1221,58 +1136,68 @@ echo htmlspecialchars(
 <?php } else { ?>
 
 
-<div class="alert alert-danger">
+<div class="error">
 
-<i class="bi bi-exclamation-triangle-fill"></i>
+    <i class="bi bi-exclamation-triangle-fill"></i>
 
-No hay ninguna elección abierta actualmente.
+    Actualmente no existe una elección abierta.
 
 </div>
-
-
-<a
-href="jurado.php"
-class="btn btn-primary">
-
-<i class="bi bi-arrow-left"></i>
-
-Volver al panel
-
-</a>
 
 
 <?php } ?>
 
 
-<?php if ($eleccion) { ?>
+<!-- =====================================================
+     SEGURIDAD
+===================================================== -->
+
+<div class="seguridad">
+
+
+<i class="bi bi-shield-lock-fill"></i>
+
+
+<div>
+
+<strong>
+
+    Proceso protegido
+
+</strong>
+
+<br>
+
+El sistema verificará el documento
+directamente con los estudiantes registrados.
+No se mostrarán datos de otros estudiantes.
+
+</div>
+
+
+</div>
 
 
 <!-- =====================================================
-     MENSAJE
-========================================================= -->
+     ERROR
+===================================================== -->
 
 <?php if (
-    $mensaje !== ""
+    $error !== ""
 ) { ?>
 
 
-<div class="alert alert-<?php
+<div class="error">
 
-echo htmlspecialchars(
-    $tipoMensaje
-);
+    <i class="bi bi-exclamation-circle-fill"></i>
 
-?>">
+    <?php
 
-<i class="bi bi-info-circle-fill"></i>
+    echo htmlspecialchars(
+        $error
+    );
 
-<?php
-
-echo htmlspecialchars(
-    $mensaje
-);
-
-?>
+    ?>
 
 </div>
 
@@ -1281,40 +1206,78 @@ echo htmlspecialchars(
 
 
 <!-- =====================================================
-     BUSCADOR
-========================================================= -->
+     FORMULARIO
+===================================================== -->
 
 <form
-method="GET"
-class="buscador">
+    method="POST"
+    action="ingresar_estudiante.php"
+    autocomplete="off"
+>
 
 
 <input
+    type="hidden"
+    name="csrf"
+    value="<?php
 
-type="text"
+    echo htmlspecialchars(
+        $csrf
+    );
 
-name="buscar"
+    ?>"
+>
 
-value="<?php
 
-echo htmlspecialchars(
-    $busqueda
-);
+<label
+    for="documento"
+    class="form-label"
+>
 
-?>"
+    Número de documento
 
-placeholder="Buscar por documento, nombre, apellido o curso..."
+</label>
 
-autocomplete="off">
+
+<input
+    type="text"
+    id="documento"
+    name="documento"
+    class="input-documento"
+    value="<?php
+
+    echo htmlspecialchars(
+        $documento
+    );
+
+    ?>"
+    placeholder="Ingrese solamente números"
+    inputmode="numeric"
+    pattern="[0-9]+"
+    maxlength="20"
+    autocomplete="off"
+    required
+>
+
+
+<div class="ayuda">
+
+    <i class="bi bi-info-circle"></i>
+
+    Escriba únicamente el número de documento
+    del estudiante.
+
+</div>
 
 
 <button
-type="submit"
-class="btn-buscar">
+    type="submit"
+    class="btn-continuar"
+>
 
-<i class="bi bi-search"></i>
+    <i class="bi bi-arrow-right-circle-fill"></i>
 
-Buscar
+    Continuar con la votación
 
 </button>
 
@@ -1323,286 +1286,52 @@ Buscar
 
 
 <!-- =====================================================
-     RESULTADOS
-========================================================= -->
-
-<?php if (
-    $busqueda !== ""
-) { ?>
-
-
-<?php if (
-    count($estudiantes) > 0
-) { ?>
-
-
-<div class="resultados">
-
-
-<?php foreach (
-    $estudiantes
-    as $estudiante
-) { ?>
-
-
-<div class="estudiante">
-
-
-<div class="info-estudiante">
-
-
-<div class="icono-estudiante">
-
-<i class="bi bi-person-fill"></i>
-
-</div>
-
-
-<div>
-
-
-<div class="nombre-estudiante">
-
-<?php
-
-echo htmlspecialchars(
-    $estudiante['nombre']
-    . " "
-    .
-    $estudiante['apellido']
-);
-
-?>
-
-</div>
-
-
-<div class="detalle">
-
-<i class="bi bi-card-text"></i>
-
-Documento:
-
-<?php
-
-echo htmlspecialchars(
-    $estudiante['documento']
-);
-
-?>
-
-
-&nbsp;&nbsp;
-
-
-<i class="bi bi-mortarboard-fill"></i>
-
-Curso:
-
-<?php
-
-echo htmlspecialchars(
-    $estudiante['curso']
-);
-
-?>
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<div class="text-md-end">
-
-
-<?php
-
-if (
-    (int)$estudiante['ya_voto'] === 1
-) {
-
-?>
-
-
-<div class="estado estado-no">
-
-<i class="bi bi-x-circle-fill"></i>
-
-Ya votó
-
-</div>
-
-
-<br>
-
-
-<button
-type="button"
-class="btn-bloqueado"
-disabled>
-
-<i class="bi bi-lock-fill"></i>
-
-Bloqueado
-
-</button>
-
-
-<?php
-
-} else {
-
-?>
-
-
-<div class="estado estado-ok">
-
-<i class="bi bi-check-circle-fill"></i>
-
-Puede votar
-
-</div>
-
-
-<form
-method="POST"
-style="margin:0;">
-
-<input
-
-type="hidden"
-
-name="id_estudiante"
-
-value="<?php
-
-echo (int)$estudiante['id'];
-
-?>">
-
-
-<button
-
-type="submit"
-
-name="seleccionar_estudiante"
-
-class="btn-seleccionar">
-
-<i class="bi bi-arrow-right-circle-fill"></i>
-
-Seleccionar
-
-</button>
-
-
-</form>
-
-
-<?php
-
-}
-
-?>
-
-
-</div>
-
-
-</div>
-
-
-<?php } ?>
-
-
-</div>
-
-
-<?php } else { ?>
-
-
-<div class="sin-resultados">
-
-
-<i class="bi bi-person-x"></i>
-
-
-<h5>
-
-No se encontraron estudiantes
-
-</h5>
-
-
-<p>
-
-Intente buscar con otro documento,
-nombre, apellido o curso.
-
-</p>
-
-
-</div>
-
-
-<?php } ?>
-
-
-<?php } else { ?>
-
-
-<div class="sin-resultados">
-
-
-<i class="bi bi-search"></i>
-
-
-<h5>
-
-Buscar estudiante
-
-</h5>
-
-
-<p>
-
-Ingrese un documento, nombre, apellido
-o curso para comenzar.
-
-</p>
-
-
-</div>
-
-
-<?php } ?>
-
-
-<br>
-
+     VOLVER
+===================================================== -->
 
 <a
-href="jurado.php"
-class="btn btn-outline-secondary">
+    href="jurado.php"
+    class="volver"
+>
 
-<i class="bi bi-arrow-left"></i>
+    <i class="bi bi-arrow-left"></i>
 
-Volver al panel del jurado
+    Volver al panel del jurado
 
 </a>
 
 
-<?php } ?>
-
+</div>
 
 </div>
 
 
-</div>
+<!-- =====================================================
+     FOOTER
+===================================================== -->
+
+<footer class="footer">
+
+    © <?php echo date("Y"); ?>
+
+    Sistema de Votaciones Escolares
+
+    <br>
+
+    Elaborado por
+
+    <strong>
+        Juan David Otero Cantor
+    </strong>
+
+    <br>
+
+    Todos los derechos reservados.
+
+</footer>
+
+
+</main>
 
 
 </body>

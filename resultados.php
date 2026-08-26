@@ -1,9 +1,17 @@
 <?php
 
+/* =========================================================
+   SEGURIDAD
+========================================================= */
+
 require_once "seguridad.php";
 
 evitarCache();
-verificarRol(['administrador', 'jurado']);
+
+verificarRol([
+    'administrador',
+    'jurado'
+]);
 
 require_once "config/conexion.php";
 
@@ -18,8 +26,43 @@ $rol = strtolower(
     )
 );
 
+
 $nombreUsuario =
     $_SESSION['nombre'] ?? 'Usuario';
+
+
+/* =========================================================
+   BLOQUEAR RESULTADOS DURANTE UNA VOTACIÓN
+========================================================= */
+
+/*
+ * El jurado puede consultar resultados normalmente.
+ *
+ * Sin embargo, cuando existe un estudiante en proceso
+ * de votación, se bloquea el acceso a resultados.
+ *
+ * Esto evita que se pueda escribir directamente:
+ *
+ * resultados.php
+ *
+ * durante una votación activa.
+ */
+
+if (
+    $rol === 'jurado' &&
+    isset(
+        $_SESSION['estudiante_votando_id']
+    ) &&
+    (int)$_SESSION['estudiante_votando_id'] > 0
+) {
+
+    header(
+        "Location: votar_por_jurado.php"
+    );
+
+    exit();
+
+}
 
 
 /* =========================================================
@@ -28,31 +71,36 @@ $nombreUsuario =
 
 $elecciones = [];
 
-$resultadoElecciones = $conn->query("
 
-    SELECT
-        id,
-        nombre,
-        descripcion,
-        fecha_inicio,
-        fecha_fin,
-        estado
+$resultadoElecciones =
+    $conn->query("
 
-    FROM elecciones
+        SELECT
+            id,
+            nombre,
+            descripcion,
+            fecha_inicio,
+            fecha_fin,
+            estado
 
-    ORDER BY fecha_inicio DESC
+        FROM elecciones
 
-");
+        ORDER BY fecha_inicio DESC
+
+    ");
 
 
-if ($resultadoElecciones) {
+if (
+    $resultadoElecciones
+) {
 
     while (
         $fila =
         $resultadoElecciones->fetch_assoc()
     ) {
 
-        $elecciones[] = $fila;
+        $elecciones[] =
+            $fila;
 
     }
 
@@ -92,25 +140,29 @@ if (
 $datosEleccion = null;
 
 
-if ($idEleccion > 0) {
+if (
+    $idEleccion > 0
+) {
 
-    $stmt = $conn->prepare("
+    $stmt =
+        $conn->prepare("
 
-        SELECT
-            id,
-            nombre,
-            descripcion,
-            fecha_inicio,
-            fecha_fin,
-            estado
+            SELECT
+                id,
+                nombre,
+                descripcion,
+                fecha_inicio,
+                fecha_fin,
+                estado
 
-        FROM elecciones
+            FROM elecciones
 
-        WHERE id = ?
+            WHERE id = ?
 
-        LIMIT 1
+            LIMIT 1
 
-    ");
+        ");
+
 
     if ($stmt) {
 
@@ -119,10 +171,13 @@ if ($idEleccion > 0) {
             $idEleccion
         );
 
+
         $stmt->execute();
+
 
         $resultado =
             $stmt->get_result();
+
 
         if (
             $resultado->num_rows > 0
@@ -132,6 +187,7 @@ if ($idEleccion > 0) {
                 $resultado->fetch_assoc();
 
         }
+
 
         $stmt->close();
 
@@ -147,24 +203,29 @@ if ($idEleccion > 0) {
 $cargos = [];
 
 
-if ($datosEleccion) {
+if (
+    $datosEleccion
+) {
 
-    $stmt = $conn->prepare("
+    $stmt =
+        $conn->prepare("
 
-        SELECT
-            c.id,
-            c.nombre_cargo
+            SELECT
+                c.id,
+                c.nombre_cargo
 
-        FROM cargos c
+            FROM cargos c
 
-        INNER JOIN eleccion_cargos ec
-            ON ec.id_cargo = c.id
+            INNER JOIN eleccion_cargos ec
 
-        WHERE ec.id_eleccion = ?
+                ON ec.id_cargo = c.id
 
-        ORDER BY c.id ASC
+            WHERE ec.id_eleccion = ?
 
-    ");
+            ORDER BY c.id ASC
+
+        ");
+
 
     if ($stmt) {
 
@@ -173,19 +234,24 @@ if ($datosEleccion) {
             $idEleccion
         );
 
+
         $stmt->execute();
+
 
         $resultado =
             $stmt->get_result();
+
 
         while (
             $cargo =
             $resultado->fetch_assoc()
         ) {
 
-            $cargos[] = $cargo;
+            $cargos[] =
+                $cargo;
 
         }
+
 
         $stmt->close();
 
@@ -210,18 +276,22 @@ $totalCargos =
    TOTAL CANDIDATOS
 ========================================================= */
 
-if ($datosEleccion) {
+if (
+    $datosEleccion
+) {
 
-    $stmt = $conn->prepare("
+    $stmt =
+        $conn->prepare("
 
-        SELECT
-            COUNT(*) AS total
+            SELECT
+                COUNT(*) AS total
 
-        FROM candidatos
+            FROM candidatos
 
-        WHERE id_eleccion = ?
+            WHERE id_eleccion = ?
 
-    ");
+        ");
+
 
     if ($stmt) {
 
@@ -230,16 +300,21 @@ if ($datosEleccion) {
             $idEleccion
         );
 
+
         $stmt->execute();
+
 
         $resultado =
             $stmt->get_result();
 
+
         $fila =
             $resultado->fetch_assoc();
 
+
         $totalCandidatos =
             (int)$fila['total'];
+
 
         $stmt->close();
 
@@ -250,21 +325,24 @@ if ($datosEleccion) {
 
 /* =========================================================
    TOTAL VOTOS
-   AHORA SE UTILIZA DIRECTAMENTE id_eleccion
 ========================================================= */
 
-if ($datosEleccion) {
+if (
+    $datosEleccion
+) {
 
-    $stmt = $conn->prepare("
+    $stmt =
+        $conn->prepare("
 
-        SELECT
-            COUNT(*) AS total
+            SELECT
+                COUNT(*) AS total
 
-        FROM votos
+            FROM votos
 
-        WHERE id_eleccion = ?
+            WHERE id_eleccion = ?
 
-    ");
+        ");
+
 
     if ($stmt) {
 
@@ -273,16 +351,21 @@ if ($datosEleccion) {
             $idEleccion
         );
 
+
         $stmt->execute();
+
 
         $resultado =
             $stmt->get_result();
 
+
         $fila =
             $resultado->fetch_assoc();
 
+
         $totalVotos =
             (int)$fila['total'];
+
 
         $stmt->close();
 
@@ -302,7 +385,8 @@ if ($datosEleccion) {
 
 <meta
 name="viewport"
-content="width=device-width, initial-scale=1">
+content="width=device-width, initial-scale=1"
+>
 
 <title>
 Resultados Oficiales
@@ -311,12 +395,14 @@ Resultados Oficiales
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
+rel="stylesheet"
+>
 
 
 <link
 rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+>
 
 
 <style>
@@ -324,6 +410,7 @@ href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.m
 * {
     box-sizing: border-box;
 }
+
 
 body {
 
@@ -380,7 +467,9 @@ body {
 
 
 .logo-icon {
+
     font-size: 48px;
+
 }
 
 
@@ -912,7 +1001,7 @@ body {
 
 <!-- =====================================================
      SIDEBAR
-========================================================= -->
+===================================================== -->
 
 <div class="sidebar">
 
@@ -933,7 +1022,9 @@ VOTACIONES
 
 <?php
 
-if ($rol === "jurado") {
+if (
+    $rol === "jurado"
+) {
 
     echo "Panel del Jurado";
 
@@ -953,7 +1044,9 @@ if ($rol === "jurado") {
 <div class="menu">
 
 
-<?php if ($rol === "administrador") { ?>
+<?php if (
+    $rol === "administrador"
+) { ?>
 
 <a href="admin.php">
 
@@ -976,7 +1069,9 @@ Inicio
 <?php } ?>
 
 
-<?php if ($rol === "jurado") { ?>
+<?php if (
+    $rol === "jurado"
+) { ?>
 
 <a href="ingresar_estudiante.php">
 
@@ -991,7 +1086,8 @@ Ingresar estudiante
 
 <a
 href="resultados.php"
-class="activo">
+class="activo"
+>
 
 <i class="bi bi-trophy-fill"></i>
 
@@ -1009,9 +1105,12 @@ Gráficas
 </a>
 
 
-<?php if ($rol === "administrador") { ?>
+<?php if (
+    $rol === "administrador"
+) { ?>
 
 <div class="separador"></div>
+
 
 <a href="jurados.php">
 
@@ -1027,7 +1126,12 @@ Jurados
 <div class="separador"></div>
 
 
-<a href="cerrar_sesion.php">
+<a
+href="cerrar_sesion.php"
+onclick="
+return confirm('¿Desea cerrar sesión?');
+"
+>
 
 <i class="bi bi-box-arrow-right"></i>
 
@@ -1042,7 +1146,7 @@ Cerrar sesión
 
 
 <!-- =====================================================
-     MAIN
+     CONTENIDO
 ========================================================= -->
 
 <div class="main">
@@ -1050,8 +1154,11 @@ Cerrar sesión
 
 <div class="topbar">
 
+
 <h4>
+
 🗳️ Sistema de Votaciones Escolares
+
 </h4>
 
 
@@ -1068,6 +1175,7 @@ echo htmlspecialchars(
 ?>
 
 </span>
+
 
 </div>
 
@@ -1106,6 +1214,7 @@ Consulta los resultados de las elecciones escolares.
 
 <div class="col-md-9">
 
+
 <label class="form-label fw-bold">
 
 <i class="bi bi-calendar-event"></i>
@@ -1118,7 +1227,8 @@ Seleccione una elección
 <select
 name="id_eleccion"
 class="form-select"
-required>
+required
+>
 
 
 <option value="">
@@ -1134,7 +1244,9 @@ Seleccione...
 
 
 <option
-value="<?php echo (int)$e['id']; ?>"
+value="<?php
+echo (int)$e['id'];
+?>"
 
 <?php
 
@@ -1167,14 +1279,17 @@ echo htmlspecialchars(
 
 </select>
 
+
 </div>
 
 
 <div class="col-md-3 mt-3 mt-md-0">
 
+
 <button
 type="submit"
-class="btn btn-resultados w-100">
+class="btn btn-resultados w-100"
+>
 
 <i class="bi bi-search"></i>
 
@@ -1182,17 +1297,22 @@ Ver resultados
 
 </button>
 
+
 </div>
 
 
 </div>
+
 
 </form>
 
+
 </div>
 
 
-<?php if ($datosEleccion) { ?>
+<?php if (
+    $datosEleccion
+) { ?>
 
 
 <!-- =====================================================
@@ -1297,7 +1417,9 @@ $estado =
     );
 
 
-if ($estado === "abierta") {
+if (
+    $estado === "abierta"
+) {
 
 ?>
 
@@ -1325,9 +1447,12 @@ if ($estado === "abierta") {
 
 ?>
 
-</div>
 
 </div>
+
+
+</div>
+
 
 </div>
 
@@ -1343,15 +1468,22 @@ if ($estado === "abierta") {
 
 <i class="bi bi-hand-index-thumb-fill"></i>
 
+
 <h2>
 
-<?php echo $totalVotos; ?>
+<?php
+
+echo $totalVotos;
+
+?>
 
 </h2>
+
 
 <p>
 Votos registrados
 </p>
+
 
 </div>
 
@@ -1360,15 +1492,22 @@ Votos registrados
 
 <i class="bi bi-people-fill"></i>
 
+
 <h2>
 
-<?php echo $totalCandidatos; ?>
+<?php
+
+echo $totalCandidatos;
+
+?>
 
 </h2>
+
 
 <p>
 Candidatos
 </p>
+
 
 </div>
 
@@ -1377,15 +1516,22 @@ Candidatos
 
 <i class="bi bi-award-fill"></i>
 
+
 <h2>
 
-<?php echo $totalCargos; ?>
+<?php
+
+echo $totalCargos;
+
+?>
 
 </h2>
+
 
 <p>
 Cargos
 </p>
+
 
 </div>
 
@@ -1441,16 +1587,21 @@ if (
                 $idCargo
             );
 
+
             $stmtTotal->execute();
+
 
             $resultadoTotal =
                 $stmtTotal->get_result();
 
+
             $filaTotal =
                 $resultadoTotal->fetch_assoc();
 
+
             $totalVotosCargo =
                 (int)$filaTotal['total'];
+
 
             $stmtTotal->close();
 
@@ -1526,7 +1677,9 @@ if (
                 $idCargo
             );
 
+
             $stmt->execute();
+
 
             $resultado =
                 $stmt->get_result();
@@ -1541,6 +1694,7 @@ if (
                     $fila;
 
             }
+
 
             $stmt->close();
 
@@ -1576,7 +1730,7 @@ if (
 
 
         /* =============================================
-           CONTAR CUÁNTOS TIENEN EL MAYOR
+           EMPATES
         ============================================= */
 
         $cantidadEmpatados = 0;
@@ -1612,9 +1766,11 @@ if (
 
 <div class="cargo-header">
 
+
 <h3>
 
 <i class="bi bi-award-fill"></i>
+
 
 <?php
 
@@ -1624,7 +1780,9 @@ echo htmlspecialchars(
 
 ?>
 
+
 </h3>
+
 
 </div>
 
@@ -1668,7 +1826,9 @@ Estado
 
 
 <?php if (
-    count($resultadosCargo) > 0
+    count(
+        $resultadosCargo
+    ) > 0
 ) { ?>
 
 
@@ -1743,12 +1903,14 @@ $foto =
 
 
 $rutaFoto =
-    "uploads/candidatos/" .
+    "uploads/candidatos/"
+    .
     $foto;
 
 
 if (
-    $foto !== "" &&
+    $foto !== ""
+    &&
     file_exists(
         $rutaFoto
     )
@@ -1768,7 +1930,10 @@ echo htmlspecialchars(
 
 class="foto"
 
-alt="Foto del candidato">
+alt="Foto del candidato"
+
+>
+
 
 <?php
 
@@ -1776,11 +1941,13 @@ alt="Foto del candidato">
 
 ?>
 
+
 <div class="sin-foto">
 
 <i class="bi bi-person-fill"></i>
 
 </div>
+
 
 <?php
 
@@ -1807,6 +1974,7 @@ echo htmlspecialchars(
 
 
 </div>
+
 
 </td>
 
@@ -1836,6 +2004,7 @@ echo $votosCandidato;
 
 </span>
 
+
 </td>
 
 
@@ -1847,6 +2016,7 @@ echo $porcentaje;
 
 ?>%
 
+
 </td>
 
 
@@ -1857,6 +2027,7 @@ echo $porcentaje;
     $esEmpate
 ) { ?>
 
+
 <span class="badge-empate">
 
 ⚠️ EMPATE
@@ -1864,9 +2035,14 @@ echo $porcentaje;
 </span>
 
 
-<?php } elseif (
+<?php
+
+} elseif (
     $esMayor
-) { ?>
+) {
+
+?>
+
 
 <span class="badge-ganador">
 
@@ -1875,7 +2051,12 @@ echo $porcentaje;
 </span>
 
 
-<?php } else { ?>
+<?php
+
+} else {
+
+?>
+
 
 <span class="text-muted">
 
@@ -1883,28 +2064,48 @@ Participante
 
 </span>
 
-<?php } ?>
+
+<?php
+
+}
+
+?>
 
 
 </td>
 
+
 </tr>
 
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 
-<?php } else { ?>
+<?php
+
+} else {
+
+?>
 
 
 <tr>
 
 <td
 colspan="5"
-class="text-center p-4">
+class="text-center p-4"
+>
 
 
-<i class="bi bi-person-x fs-2 text-muted"></i>
+<i class="
+bi
+bi-person-x
+fs-2
+text-muted
+"></i>
 
 
 <p class="mb-0 mt-2">
@@ -1920,14 +2121,21 @@ para este cargo.
 </tr>
 
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 
 </tbody>
 
+
 </table>
 
+
 </div>
+
 
 </div>
 
@@ -1957,7 +2165,11 @@ Esta elección no tiene cargos configurados.
 ?>
 
 
-<?php } else { ?>
+<?php
+
+} else {
+
+?>
 
 
 <div class="alert alert-warning mt-4">
@@ -1970,12 +2182,18 @@ en el sistema.
 </div>
 
 
-<?php } ?>
+<?php
+
+}
+
+?>
 
 
 </div>
 
+
 </div>
+
 
 </body>
 
