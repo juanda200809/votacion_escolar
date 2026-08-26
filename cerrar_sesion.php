@@ -2,38 +2,58 @@
 
 session_start();
 
-/*
-|--------------------------------------------------------------------------
-| CERRAR SESIÓN
-|--------------------------------------------------------------------------
-| Destruye completamente la sesión actual y devuelve al usuario
-| a la página de inicio de sesión.
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   CERRAR TODA LA SESIÓN
+========================================================= */
 
-// Vaciar todas las variables de sesión
+// Vaciar variables de sesión
 $_SESSION = [];
 
-// Eliminar la cookie de sesión si existe
+
+/* =========================================================
+   ELIMINAR COOKIE DE SESIÓN
+========================================================= */
+
 if (ini_get("session.use_cookies")) {
 
-    $parametros = session_get_cookie_params();
+    $params = session_get_cookie_params();
 
     setcookie(
         session_name(),
         '',
         time() - 42000,
-        $parametros["path"],
-        $parametros["domain"],
-        $parametros["secure"],
-        $parametros["httponly"]
+        $params['path'],
+        $params['domain'],
+        $params['secure'],
+        $params['httponly']
     );
 }
 
-// Destruir la sesión
+
+/* =========================================================
+   DESTRUIR SESIÓN
+========================================================= */
+
 session_destroy();
 
-// Redirigir al login
+
+/* =========================================================
+   EVITAR CACHÉ
+========================================================= */
+
+header(
+    "Cache-Control: no-store, no-cache, must-revalidate, max-age=0"
+);
+
+header(
+    "Pragma: no-cache"
+);
+
+
+/* =========================================================
+   VOLVER AL LOGIN
+========================================================= */
+
 header("Location: login.php");
 exit();
 
