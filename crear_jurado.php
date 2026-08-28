@@ -45,6 +45,13 @@ if (isset($_GET['eliminar'])) {
     }
 
 
+    /*
+     * Eliminamos solamente usuarios con rol jurado.
+     *
+     * Si existe una mesa relacionada y la base de datos
+     * tiene ON DELETE CASCADE, su mesa también se eliminará.
+     */
+
     $stmt = $conn->prepare("
 
         DELETE FROM usuarios
@@ -260,7 +267,11 @@ if (
 
 
                 $rolExistente =
-                    $usuarioExistente['rol'];
+                    strtolower(
+                        trim(
+                            (string)$usuarioExistente['rol']
+                        )
+                    );
 
 
                 if (
@@ -288,42 +299,50 @@ if (
                 $stmt->close();
 
 
-                /* =========================================
-                   CONTRASEÑA
-                ========================================= */
+                /* =================================================
+                   INICIAR TRANSACCIÓN
+                ================================================= */
 
-                $password_hash =
-                    password_hash(
-                        $documento,
-                        PASSWORD_DEFAULT
-                    );
+                $conn->begin_transaction();
 
 
-                if (
-                    $password_hash === false
-                ) {
-
-                    $mensaje =
-                        "No se pudo generar la contraseña.";
-
-                    $tipoMensaje =
-                        "danger";
-
-                } else {
+                try {
 
 
-                    /* =====================================
+                    /* =============================================
+                       CONTRASEÑA AUTOMÁTICA
+                    ============================================= */
+
+                    $password_hash =
+                        password_hash(
+                            $documento,
+                            PASSWORD_DEFAULT
+                        );
+
+
+                    if (
+                        $password_hash === false
+                    ) {
+
+                        throw new Exception(
+                            "No se pudo generar la contraseña."
+                        );
+
+                    }
+
+
+                    /* =============================================
                        CORREO
-                    ===================================== */
+                    ============================================= */
 
                     $correo = "";
 
 
-                    /* =====================================
+                    /* =============================================
                        INSERTAR JURADO
-                    ===================================== */
+                    ============================================= */
 
-                    $stmt =
+                    $stmtJurado =
                         $conn->prepare("
 
                             INSERT INTO usuarios
@@ -351,72 +370,429 @@ if (
                         ");
 
 
-                    if (!$stmt) {
+                    if (!$stmtJurado) {
 
-                        $mensaje =
-                            "No se pudo preparar el registro del jurado.";
+                        throw new Exception(
+                            "No se pudo preparar el registro del jurado."
+                        );
 
-                        $tipoMensaje =
-                            "danger";
+                    }
+
+
+                    $stmtJurado->bind_param(
+
+                        "ssssss",
+
+                        $documento,
+
+                        $nombre,
+
+                        $apellido,
+
+                        $correo,
+
+                        $curso,
+
+                        $password_hash
+
+                    );
+
+
+                    if (
+                        !$stmtJurado->execute()
+                    ) {
+
+                        $stmtJurado->close();
+
+                        throw new Exception(
+                            "No se pudo registrar el jurado."
+                        );
+
+                    }
+
+
+                    /*
+                     * ID REAL DEL JURADO RECIÉN CREADO.
+                     */
+
+                    $idJurado =
+                        (int)$conn->insert_id;
+
+
+                    $stmtJurado->close();
+
+
+                    if (
+                        $idJurado <= 0
+                    ) {
+
+                        throw new Exception(
+                            "No se pudo obtener el ID del nuevo jurado."
+                        );
+
+                    }
+
+
+                    /* =============================================
+                       BUSCAR LA ELECCIÓN ACTUAL
+                    ============================================= */
+
+                    /*
+                     * Tomamos la elección más reciente.
+                     *
+                     * NO modificamos el estado de la elección.
+                     *
+                     * Si está abierta, la mesa comenzará abierta.
+                     * Si está cerrada, la mesa también queda cerrada.
+                     */
+
+                    $stmtEleccion =
+                        $conn->prepare("
+
+                            SELECT
+                                id,
+                                nombre,
+                                estado
+
+                            FROM elecciones
+
+                            ORDER BY id DESC
+
+                            LIMIT 1
+
+                        ");
+
+
+                    if (!$stmtEleccion) {
+
+                        throw new Exception(
+                            "No se pudo consultar la elección actual."
+                        );
+
+                    }
+
+
+                    $stmtEleccion->execute();
+
+
+                    $resultadoEleccion =
+                        $stmtEleccion->get_result();
+
+
+                    $eleccion =
+                        $resultadoEleccion->fetch_assoc();
+
+
+                    $stmtEleccion->close();
+
+
+                    if (!$eleccion) {
+
+                        throw new Exception(
+                            "No existe ninguna elección. Cree una elección antes de registrar jurados."
+                        );
+
+                    }
+
+
+                    $idEleccion =
+                        (int)$eleccion['id'];
+
+
+                    $estadoEleccion =
+                        strtolower(
+                            trim(
+                                (string)$eleccion['estado']
+                            )
+                        );
+
+
+                    /* =============================================
+                       DETERMINAR ESTADO INICIAL DE LA MESA
+                    ============================================= */
+
+                    /*
+                     * La mesa NO se crea cerrada automáticamente
+                     * cuando la elección está abierta.
+                     *
+                     * Esto es lo que corrige el problema actual.
+                     */
+
+                    if (
+                        $estadoEleccion === "abierta"
+                    ) {
+
+                        $estadoMesa =
+                            "abierta";
 
                     } else {
 
+                        $estadoMesa =
+                            "cerrada";
 
-                        $stmt->bind_param(
+                    }
 
-                            "ssssss",
 
-                            $documento,
+                    /* =============================================
+                       COMPROBAR SI YA TIENE MESA
+                    ============================================= */
 
-                            $nombre,
+                    $stmtMesaExiste =
+                        $conn->prepare("
 
-                            $apellido,
+                            SELECT
+                                id,
+                                estado
 
-                            $correo,
+                            FROM mesas_votacion
 
-                            $curso,
+                            WHERE id_eleccion = ?
 
-                            $password_hash
+                            AND id_jurado = ?
+
+                            LIMIT 1
+
+                        ");
+
+
+                    if (!$stmtMesaExiste) {
+
+                        throw new Exception(
+                            "No se pudo comprobar la mesa del jurado."
+                        );
+
+                    }
+
+
+                    $stmtMesaExiste->bind_param(
+                        "ii",
+                        $idEleccion,
+                        $idJurado
+                    );
+
+
+                    $stmtMesaExiste->execute();
+
+
+                    $resultadoMesaExiste =
+                        $stmtMesaExiste->get_result();
+
+
+                    $mesaExistente =
+                        $resultadoMesaExiste->fetch_assoc();
+
+
+                    $stmtMesaExiste->close();
+
+
+                    /* =============================================
+                       CREAR MESA
+                    ============================================= */
+
+                    if (
+                        !$mesaExistente
+                    ) {
+
+
+                        /*
+                         * Nombre de la mesa.
+                         *
+                         * Ejemplo:
+                         * Mesa 1
+                         * Mesa 2
+                         * Mesa 3
+                         */
+
+                        $stmtNumeroMesa =
+                            $conn->prepare("
+
+                                SELECT
+                                    COUNT(*) AS total
+
+                                FROM mesas_votacion
+
+                                WHERE id_eleccion = ?
+
+                            ");
+
+
+                        if (!$stmtNumeroMesa) {
+
+                            throw new Exception(
+                                "No se pudo calcular el número de mesa."
+                            );
+
+                        }
+
+
+                        $stmtNumeroMesa->bind_param(
+                            "i",
+                            $idEleccion
+                        );
+
+
+                        $stmtNumeroMesa->execute();
+
+
+                        $resultadoNumeroMesa =
+                            $stmtNumeroMesa->get_result();
+
+
+                        $filaNumeroMesa =
+                            $resultadoNumeroMesa->fetch_assoc();
+
+
+                        $stmtNumeroMesa->close();
+
+
+                        $numeroMesa =
+                            (
+                                (int)(
+                                    $filaNumeroMesa['total']
+                                    ??
+                                    0
+                                )
+                            )
+                            + 1;
+
+
+                        $nombreMesa =
+                            "Mesa "
+                            .
+                            $numeroMesa;
+
+
+                        /* =========================================
+                           INSERTAR MESA
+                        ========================================= */
+
+                        $stmtMesa =
+                            $conn->prepare("
+
+                                INSERT INTO mesas_votacion
+                                (
+                                    id_eleccion,
+                                    id_jurado,
+                                    nombre_mesa,
+                                    estado,
+                                    fecha_cierre
+                                )
+
+                                VALUES
+                                (
+                                    ?,
+                                    ?,
+                                    ?,
+                                    ?,
+                                    NULL
+                                )
+
+                            ");
+
+
+                        if (!$stmtMesa) {
+
+                            throw new Exception(
+                                "No se pudo preparar la creación de la mesa."
+                            );
+
+                        }
+
+
+                        $stmtMesa->bind_param(
+
+                            "iiss",
+
+                            $idEleccion,
+
+                            $idJurado,
+
+                            $nombreMesa,
+
+                            $estadoMesa
 
                         );
 
 
                         if (
-                            $stmt->execute()
+                            !$stmtMesa->execute()
                         ) {
 
-                            $mensaje =
-                                "Jurado registrado correctamente.";
+                            $stmtMesa->close();
 
-                            $tipoMensaje =
-                                "success";
-
-
-                            /*
-                             * Limpiar los campos del formulario
-                             * después de guardar.
-                             */
-
-                            $documento = "";
-                            $nombre = "";
-                            $apellido = "";
-                            $curso = "";
-
-
-                        } else {
-
-                            $mensaje =
-                                "No se pudo registrar el jurado.";
-
-                            $tipoMensaje =
-                                "danger";
+                            throw new Exception(
+                                "No se pudo crear la mesa de votación."
+                            );
 
                         }
 
 
-                        $stmt->close();
+                        $stmtMesa->close();
+
 
                     }
+
+
+                    /* =============================================
+                       CONFIRMAR TRANSACCIÓN
+                    ============================================= */
+
+                    $conn->commit();
+
+
+                    /* =============================================
+                       MENSAJE FINAL
+                    ============================================= */
+
+                    if (
+                        $estadoMesa === "abierta"
+                    ) {
+
+                        $mensaje =
+                            "Jurado registrado correctamente. " .
+                            "Su mesa de votación fue creada y está abierta.";
+
+                    } else {
+
+                        $mensaje =
+                            "Jurado registrado correctamente. " .
+                            "Su mesa fue creada, pero la elección actualmente está cerrada.";
+
+                    }
+
+
+                    $tipoMensaje =
+                        "success";
+
+
+                    /* =============================================
+                       LIMPIAR FORMULARIO
+                    ============================================= */
+
+                    $documento = "";
+                    $nombre = "";
+                    $apellido = "";
+                    $curso = "";
+
+
+                } catch (
+                    Throwable $e
+                ) {
+
+
+                    /*
+                     * Si falla la mesa, también se deshace
+                     * la creación del jurado.
+                     */
+
+                    $conn->rollback();
+
+
+                    $mensaje =
+                        $e->getMessage();
+
+                    $tipoMensaje =
+                        "danger";
 
                 }
 
