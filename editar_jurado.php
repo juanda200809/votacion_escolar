@@ -2,46 +2,37 @@
 
 session_start();
 
-include("config/conexion.php");
+require_once "config/conexion.php";
+
+$conn->set_charset("utf8mb4");
 
 
 /* =========================================================
-   VERIFICAR ADMINISTRADOR
+   SOLO ADMINISTRADOR
 ========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'administrador'
+    strtolower(trim((string)$_SESSION['rol'])) !== 'administrador'
 ) {
-
     header("Location: login.php");
     exit();
-
 }
 
 
 /* =========================================================
-   VERIFICAR ID
+   ID DEL JURADO
 ========================================================= */
 
-if (
-    !isset($_GET['id']) ||
-    !is_numeric($_GET['id'])
-) {
-
-    header("Location: crear_jurado.php");
-    exit();
-
-}
+$idJurado = isset($_GET['id'])
+    ? (int)$_GET['id']
+    : 0;
 
 
-$id = (int)$_GET['id'];
+if ($idJurado <= 0) {
 
-
-if ($id <= 0) {
-
-    header("Location: crear_jurado.php");
+    header("Location: admin.php?error=jurado");
     exit();
 
 }
@@ -52,392 +43,85 @@ if ($id <= 0) {
 ========================================================= */
 
 $stmt = $conn->prepare("
-
     SELECT
         id,
         documento,
         nombre,
         apellido,
         curso,
-        password,
-        rol
-
+        correo,
+        fecha_registro
     FROM usuarios
-
     WHERE id = ?
-
-    AND rol = 'jurado'
-
+    AND LOWER(TRIM(rol)) = 'jurado'
     LIMIT 1
-
 ");
 
+if (!$stmt) {
 
-$stmt->bind_param(
-    "i",
-    $id
-);
+    die("Error al consultar el jurado: " . $conn->error);
 
+}
+
+$stmt->bind_param("i", $idJurado);
 
 $stmt->execute();
 
+$resultado = $stmt->get_result();
 
-$resultado =
-    $stmt->get_result();
+$jurado = $resultado->fetch_assoc();
+
+$stmt->close();
 
 
-if (
-    $resultado->num_rows === 0
-) {
+if (!$jurado) {
 
-    $stmt->close();
-
-    header(
-        "Location: crear_jurado.php?error=no_encontrado"
-    );
-
+    header("Location: admin.php?error=jurado");
     exit();
 
 }
 
 
-$jurado =
-    $resultado->fetch_assoc();
-
-
-$stmt->close();
-
-
 /* =========================================================
-   VARIABLES
+   ELECCIÓN ACTUAL
 ========================================================= */
 
-$error = "";
-
-$exito = "";
-
-
-/* =========================================================
-   PROCESAR FORMULARIO
-========================================================= */
+$idEleccion = 0;
 
 if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
+    isset($_GET['id_eleccion']) &&
+    (int)$_GET['id_eleccion'] > 0
 ) {
 
+    $idEleccion = (int)$_GET['id_eleccion'];
 
-    $documento =
-        trim(
-            $_POST['documento'] ?? ""
-        );
+}
 
 
-    $nombre =
-        trim(
-            $_POST['nombre'] ?? ""
-        );
+/* Si no viene por URL, tomar la última elección */
 
+if ($idEleccion <= 0) {
 
-    $apellido =
-        trim(
-            $_POST['apellido'] ?? ""
-        );
+    $stmt = $conn->prepare("
+        SELECT id
+        FROM elecciones
+        ORDER BY id DESC
+        LIMIT 1
+    ");
 
-
-    $curso =
-        trim(
-            $_POST['curso'] ?? ""
-        );
-
-
-    $password =
-        trim(
-            $_POST['password'] ?? ""
-        );
-
-
-    /* =====================================================
-       VALIDAR
-    ===================================================== */
-
-    if (
-        $documento === "" ||
-        $nombre === "" ||
-        $apellido === "" ||
-        $curso === ""
-    ) {
-
-        $error =
-            "Debe completar todos los campos.";
-
-    }
-
-
-    elseif (
-        !preg_match(
-            '/^[0-9]+$/',
-            $documento
-        )
-    ) {
-
-        $error =
-            "El documento debe contener únicamente números.";
-
-    }
-
-
-    else {
-
-
-        /* ================================================
-           COMPROBAR DOCUMENTO DUPLICADO
-        ================================================ */
-
-        $stmt =
-            $conn->prepare("
-
-                SELECT
-                    id,
-                    rol
-
-                FROM usuarios
-
-                WHERE documento = ?
-
-                AND id != ?
-
-                LIMIT 1
-
-            ");
-
-
-        $stmt->bind_param(
-            "si",
-            $documento,
-            $id
-        );
-
+    if ($stmt) {
 
         $stmt->execute();
 
+        $resultado = $stmt->get_result();
 
-        $resultadoDocumento =
-            $stmt->get_result();
+        $fila = $resultado->fetch_assoc();
 
+        $stmt->close();
 
-        if (
-            $resultadoDocumento->num_rows > 0
-        ) {
+        if ($fila) {
 
-            $usuario =
-                $resultadoDocumento->fetch_assoc();
-
-
-            $stmt->close();
-
-
-            if (
-                $usuario['rol'] === 'jurado'
-            ) {
-
-                $error =
-                    "Ya existe otro jurado con ese documento.";
-
-            } else {
-
-                $error =
-                    "Ese documento ya pertenece a otro usuario.";
-
-            }
-
-        } else {
-
-
-            $stmt->close();
-
-
-            /* ============================================
-               DETERMINAR CONTRASEÑA
-            ============================================ */
-
-            /*
-             * Si el administrador escribe una contraseña,
-             * utilizamos esa contraseña.
-             *
-             * Si la deja vacía:
-             *
-             * - Si cambió el documento, la contraseña será
-             *   automáticamente el nuevo documento.
-             *
-             * - Si no cambió el documento, conservamos
-             *   la contraseña actual.
-             */
-
-            $documentoAnterior =
-                (string)$jurado['documento'];
-
-
-            $documentoCambio =
-                (
-                    $documento !==
-                    $documentoAnterior
-                );
-
-
-            if (
-                $password !== ""
-            ) {
-
-
-                $passwordHash =
-                    password_hash(
-                        $password,
-                        PASSWORD_DEFAULT
-                    );
-
-
-            } elseif (
-                $documentoCambio
-            ) {
-
-
-                /*
-                 * Al cambiar el documento,
-                 * la nueva contraseña será el nuevo documento.
-                 */
-
-                $passwordHash =
-                    password_hash(
-                        $documento,
-                        PASSWORD_DEFAULT
-                    );
-
-
-            } else {
-
-
-                /*
-                 * Conservar contraseña actual.
-                 */
-
-                $passwordHash =
-                    $jurado['password'];
-
-            }
-
-
-            /* ============================================
-               ACTUALIZAR JURADO
-            ============================================ */
-
-            $stmt =
-                $conn->prepare("
-
-                    UPDATE usuarios
-
-                    SET
-
-                        documento = ?,
-
-                        nombre = ?,
-
-                        apellido = ?,
-
-                        curso = ?,
-
-                        password = ?
-
-                    WHERE id = ?
-
-                    AND rol = 'jurado'
-
-                ");
-
-
-            if (!$stmt) {
-
-                $error =
-                    "No se pudo preparar la actualización.";
-
-            } else {
-
-
-                $stmt->bind_param(
-
-                    "sssssi",
-
-                    $documento,
-
-                    $nombre,
-
-                    $apellido,
-
-                    $curso,
-
-                    $passwordHash,
-
-                    $id
-
-                );
-
-
-                if (
-                    $stmt->execute()
-                ) {
-
-
-                    $exito =
-                        "Los datos del jurado fueron actualizados correctamente.";
-
-
-                    /*
-                     * Actualizar datos mostrados
-                     */
-
-                    $jurado['documento'] =
-                        $documento;
-
-
-                    $jurado['nombre'] =
-                        $nombre;
-
-
-                    $jurado['apellido'] =
-                        $apellido;
-
-
-                    $jurado['curso'] =
-                        $curso;
-
-
-                    /*
-                     * Mostrar aviso si se cambió
-                     * el documento.
-                     */
-
-                    if (
-                        $documentoCambio &&
-                        $password === ""
-                    ) {
-
-                        $exito .=
-                            " Como cambiaste el documento, la nueva contraseña del jurado es su nuevo documento.";
-
-                    }
-
-
-                } else {
-
-
-                    $error =
-                        "No se pudieron actualizar los datos del jurado.";
-
-                }
-
-
-                $stmt->close();
-
-            }
+            $idEleccion = (int)$fila['id'];
 
         }
 
@@ -445,8 +129,479 @@ if (
 
 }
 
-?>
 
+/* =========================================================
+   PROCESAR ASIGNACIÓN
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['asignar_mesa'])
+) {
+
+    $idMesa = isset($_POST['id_mesa'])
+        ? (int)$_POST['id_mesa']
+        : 0;
+
+
+    $idEleccionPost = isset($_POST['id_eleccion'])
+        ? (int)$_POST['id_eleccion']
+        : $idEleccion;
+
+
+    if (
+        $idMesa <= 0 ||
+        $idEleccionPost <= 0
+    ) {
+
+        header(
+            "Location: editar_jurado.php?id="
+            . $idJurado
+            . "&error=datos"
+        );
+
+        exit();
+
+    }
+
+
+    $conn->begin_transaction();
+
+    try {
+
+        /* =============================================
+           COMPROBAR QUE LA MESA ESTÁ DISPONIBLE
+        ============================================= */
+
+        $stmtMesa = $conn->prepare("
+            SELECT
+                id,
+                id_eleccion,
+                id_jurado,
+                nombre_mesa,
+                estado
+            FROM mesas_votacion
+            WHERE id = ?
+            AND id_eleccion = ?
+            LIMIT 1
+            FOR UPDATE
+        ");
+
+        if (!$stmtMesa) {
+
+            throw new Exception(
+                "No se pudo consultar la mesa."
+            );
+
+        }
+
+        $stmtMesa->bind_param(
+            "ii",
+            $idMesa,
+            $idEleccionPost
+        );
+
+        $stmtMesa->execute();
+
+        $resultadoMesa =
+            $stmtMesa->get_result();
+
+        $mesa =
+            $resultadoMesa->fetch_assoc();
+
+        $stmtMesa->close();
+
+
+        if (!$mesa) {
+
+            throw new Exception(
+                "La mesa no existe para esta elección."
+            );
+
+        }
+
+
+        /* =============================================
+           LA MESA NO PUEDE ESTAR ASIGNADA
+        ============================================= */
+
+        if (
+            !empty($mesa['id_jurado'])
+        ) {
+
+            /*
+             * Si ya pertenece al mismo jurado,
+             * simplemente dejamos continuar.
+             */
+
+            if (
+                (int)$mesa['id_jurado']
+                !==
+                $idJurado
+            ) {
+
+                throw new Exception(
+                    "Esta mesa ya está asignada a otro jurado."
+                );
+
+            }
+
+        }
+
+
+        /* =============================================
+           QUITAR MESA ANTERIOR DEL JURADO
+        ============================================= */
+
+        $stmtAnterior = $conn->prepare("
+            UPDATE mesas_votacion
+            SET
+                id_jurado = NULL
+            WHERE id_eleccion = ?
+            AND id_jurado = ?
+        ");
+
+        if (!$stmtAnterior) {
+
+            throw new Exception(
+                "No se pudo liberar la mesa anterior."
+            );
+
+        }
+
+        $stmtAnterior->bind_param(
+            "ii",
+            $idEleccionPost,
+            $idJurado
+        );
+
+        if (!$stmtAnterior->execute()) {
+
+            $stmtAnterior->close();
+
+            throw new Exception(
+                "No se pudo actualizar la mesa anterior."
+            );
+
+        }
+
+        $stmtAnterior->close();
+
+
+        /* =============================================
+           ASIGNAR NUEVA MESA
+        ============================================= */
+
+        $stmtAsignar = $conn->prepare("
+            UPDATE mesas_votacion
+            SET
+                id_jurado = ?
+            WHERE id = ?
+            AND id_eleccion = ?
+            AND (
+                id_jurado IS NULL
+                OR id_jurado = ?
+            )
+        ");
+
+        if (!$stmtAsignar) {
+
+            throw new Exception(
+                "No se pudo preparar la asignación."
+            );
+
+        }
+
+        $stmtAsignar->bind_param(
+            "iiii",
+            $idJurado,
+            $idMesa,
+            $idEleccionPost,
+            $idJurado
+        );
+
+        if (!$stmtAsignar->execute()) {
+
+            $stmtAsignar->close();
+
+            throw new Exception(
+                "No se pudo asignar la mesa."
+            );
+
+        }
+
+        $filasAfectadas =
+            $stmtAsignar->affected_rows;
+
+        $stmtAsignar->close();
+
+
+        if (
+            $filasAfectadas <= 0
+        ) {
+
+            throw new Exception(
+                "La mesa ya no está disponible."
+            );
+
+        }
+
+
+        $conn->commit();
+
+
+        header(
+            "Location: editar_jurado.php?id="
+            . $idJurado
+            . "&id_eleccion="
+            . $idEleccionPost
+            . "&guardado=1"
+        );
+
+        exit();
+
+
+    } catch (
+        Throwable $e
+    ) {
+
+        $conn->rollback();
+
+
+        header(
+            "Location: editar_jurado.php?id="
+            . $idJurado
+            . "&id_eleccion="
+            . $idEleccion
+            . "&error="
+            . urlencode(
+                $e->getMessage()
+            )
+        );
+
+        exit();
+
+    }
+
+}
+
+
+/* =========================================================
+   QUITAR MESA DEL JURADO
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['quitar_mesa'])
+) {
+
+    $idEleccionPost = isset($_POST['id_eleccion'])
+        ? (int)$_POST['id_eleccion']
+        : $idEleccion;
+
+
+    if (
+        $idEleccionPost > 0
+    ) {
+
+        $stmt = $conn->prepare("
+            UPDATE mesas_votacion
+            SET
+                id_jurado = NULL
+            WHERE id_eleccion = ?
+            AND id_jurado = ?
+        ");
+
+
+        if ($stmt) {
+
+            $stmt->bind_param(
+                "ii",
+                $idEleccionPost,
+                $idJurado
+            );
+
+            $stmt->execute();
+
+            $stmt->close();
+
+        }
+
+    }
+
+
+    header(
+        "Location: editar_jurado.php?id="
+        . $idJurado
+        . "&id_eleccion="
+        . $idEleccion
+        . "&quitado=1"
+    );
+
+    exit();
+
+}
+
+
+/* =========================================================
+   OBTENER MESA ACTUAL
+========================================================= */
+
+$mesaActual = null;
+
+
+if (
+    $idEleccion > 0
+) {
+
+    $stmt = $conn->prepare("
+        SELECT
+            id,
+            nombre_mesa,
+            estado,
+            fecha_cierre
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+        AND id_jurado = ?
+        LIMIT 1
+    ");
+
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "ii",
+            $idEleccion,
+            $idJurado
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+        $mesaActual =
+            $resultado->fetch_assoc();
+
+        $stmt->close();
+
+    }
+
+}
+
+
+/* =========================================================
+   OBTENER MESAS DISPONIBLES
+========================================================= */
+
+$mesasDisponibles = [];
+
+
+if (
+    $idEleccion > 0
+) {
+
+    $stmt = $conn->prepare("
+        SELECT
+            id,
+            nombre_mesa,
+            estado
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+        AND (
+            id_jurado IS NULL
+            OR id_jurado = ?
+        )
+        ORDER BY
+            CAST(
+                TRIM(
+                    REPLACE(
+                        nombre_mesa,
+                        'Mesa ',
+                        ''
+                    )
+                ) AS UNSIGNED
+            ) ASC,
+            id ASC
+    ");
+
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "ii",
+            $idEleccion,
+            $idJurado
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+
+        while (
+            $fila =
+            $resultado->fetch_assoc()
+        ) {
+
+            $mesasDisponibles[] =
+                $fila;
+
+        }
+
+
+        $stmt->close();
+
+    }
+
+}
+
+
+/* =========================================================
+   MENSAJE
+========================================================= */
+
+$mensaje = "";
+
+$tipoMensaje = "";
+
+
+if (
+    isset($_GET['guardado'])
+) {
+
+    $mensaje =
+        "La mesa fue asignada correctamente al jurado.";
+
+    $tipoMensaje =
+        "success";
+
+}
+elseif (
+    isset($_GET['quitado'])
+) {
+
+    $mensaje =
+        "La mesa fue retirada del jurado.";
+
+    $tipoMensaje =
+        "success";
+
+}
+elseif (
+    isset($_GET['error'])
+) {
+
+    $mensaje =
+        $_GET['error'];
+
+    $tipoMensaje =
+        "danger";
+
+}
+
+?>
 
 <!DOCTYPE html>
 
@@ -458,32 +613,31 @@ if (
 
 <meta
 name="viewport"
-content="width=device-width, initial-scale=1">
+content="width=device-width, initial-scale=1.0"
+>
 
 <title>
-
-Editar Jurado
-
+Editar jurado
 </title>
 
 
 <link
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
+rel="stylesheet"
+>
 
 
 <link
+href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
 rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+>
 
 
 <style>
 
 body {
 
-    margin:0;
-
-    background:#eef3f9;
+    background: #eef3f9;
 
     font-family:
         Arial,
@@ -493,122 +647,92 @@ body {
 }
 
 
-.topbar {
-
-    background:#1453a3;
-
-    color:white;
-
-    padding:18px 30px;
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
-}
-
-
 .contenedor {
 
-    max-width:850px;
-
-    margin:40px auto;
-
-    padding:0 20px;
+    max-width: 950px;
 
 }
 
 
-.card-editar {
+.card {
 
-    background:white;
+    border: none;
 
-    border-radius:20px;
-
-    padding:35px;
+    border-radius: 18px;
 
     box-shadow:
-        0 8px 25px
-        rgba(0,0,0,.12);
+        0 6px 22px
+        rgba(0,0,0,.09);
+
+}
+
+
+.encabezado {
+
+    background: #0d47a1;
+
+    color: white;
+
+    padding: 25px;
+
+    border-radius:
+        18px 18px 0 0;
 
 }
 
 
 .titulo {
 
-    color:#1453a3;
+    color: #0d47a1;
 
-    font-weight:bold;
-
-}
-
-
-.icono-jurado {
-
-    width:80px;
-
-    height:80px;
-
-    border-radius:50%;
-
-    background:#dbe8f8;
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:center;
-
-    margin:0 auto 20px;
-
-    font-size:40px;
-
-    color:#1453a3;
+    font-weight: 700;
 
 }
 
 
-.form-label {
+.mesa-actual {
 
-    font-weight:bold;
-
-    color:#333;
-
-}
-
-
-.info-password {
-
-    background:#cff4fc;
+    background: #e7f8ef;
 
     border:
-        1px solid #9eeaf9;
+        1px solid #9ce7bb;
 
-    color:#055160;
+    border-radius: 14px;
 
-    border-radius:10px;
-
-    padding:15px;
+    padding: 20px;
 
 }
 
 
-.btn-guardar {
+.sin-mesa {
 
-    padding:12px 25px;
+    background: #fff3cd;
 
-    font-weight:bold;
+    border:
+        1px solid #ffe69c;
+
+    border-radius: 14px;
+
+    padding: 20px;
+
+}
+
+
+.mesa-item {
+
+    border:
+        1px solid #dbe4ef;
+
+    border-radius: 12px;
+
+    padding: 15px;
+
+    margin-bottom: 10px;
+
+    background: #fff;
 
 }
 
-
-.btn-volver {
-
-    padding:12px 25px;
-
-}
 
 </style>
 
@@ -618,83 +742,89 @@ body {
 <body>
 
 
-<!-- =====================================================
-     BARRA SUPERIOR
-===================================================== -->
-
-<div class="topbar">
+<div class="container contenedor py-5">
 
 
-<div>
+<div class="card">
 
-<i class="bi bi-mortarboard-fill"></i>
 
-<strong>
+<div class="encabezado">
 
-Sistema de Votaciones Escolares
 
-</strong>
-
-</div>
+<div class="d-flex
+            justify-content-between
+            align-items-center
+            flex-wrap
+            gap-2">
 
 
 <div>
 
-<i class="bi bi-person-fill"></i>
 
-Administrador
+<h2 class="mb-1">
 
-</div>
+<i class="bi bi-person-gear"></i>
 
-
-</div>
-
-
-<div class="contenedor">
-
-
-<div class="card-editar">
-
-
-<div class="icono-jurado">
-
-<i class="bi bi-person-badge-fill"></i>
-
-</div>
-
-
-<h2 class="text-center titulo">
-
-<i class="bi bi-pencil-square"></i>
-
-Editar Jurado
+Editar jurado
 
 </h2>
 
 
-<p class="text-center text-muted mb-4">
+<p class="mb-0">
 
-Actualiza los datos del jurado.
+Asignación de mesa de votación
 
 </p>
 
 
-<!-- =====================================================
-     ERROR
-===================================================== -->
+</div>
+
+
+<a
+href="admin.php"
+class="btn btn-light"
+>
+
+<i class="bi bi-arrow-left"></i>
+
+Volver al administrador
+
+</a>
+
+
+</div>
+
+
+</div>
+
+
+<div class="card-body p-4">
+
 
 <?php if (
-    $error !== ""
+    $mensaje !== ""
 ) { ?>
 
 
-<div class="alert alert-danger">
+<div class="alert alert-<?php
+echo htmlspecialchars(
+    $tipoMensaje,
+    ENT_QUOTES,
+    'UTF-8'
+);
+?>">
 
-<i class="bi bi-exclamation-triangle-fill"></i>
 
-<?php echo htmlspecialchars(
-    $error
-); ?>
+<?php
+
+echo htmlspecialchars(
+    $mensaje,
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
 
 </div>
 
@@ -703,23 +833,186 @@ Actualiza los datos del jurado.
 
 
 <!-- =====================================================
-     ÉXITO
+     DATOS DEL JURADO
 ===================================================== -->
 
+<div class="mb-4">
+
+
+<h4 class="titulo">
+
+Datos del jurado
+
+</h4>
+
+
+<div class="row g-3">
+
+
+<div class="col-md-6">
+
+
+<strong>
+
+Nombre
+
+</strong>
+
+
+<div>
+
+<?php
+
+echo htmlspecialchars(
+    $jurado['nombre']
+    . ' '
+    . $jurado['apellido'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</div>
+
+
+</div>
+
+
+<div class="col-md-6">
+
+
+<strong>
+
+Documento
+
+</strong>
+
+
+<div>
+
+<?php
+
+echo htmlspecialchars(
+    $jurado['documento'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</div>
+
+
+</div>
+
+
+<div class="col-md-6">
+
+
+<strong>
+
+Curso
+
+</strong>
+
+
+<div>
+
+<?php
+
+echo htmlspecialchars(
+    $jurado['curso'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+<hr>
+
+
+<!-- =====================================================
+     MESA ACTUAL
+===================================================== -->
+
+<div class="mb-4">
+
+
+<h4 class="titulo mb-3">
+
+🗳️ Mesa actual
+
+</h4>
+
+
 <?php if (
-    $exito !== ""
+    $mesaActual
 ) { ?>
 
 
-<div class="alert alert-success">
+<div class="mesa-actual">
 
-<i class="bi bi-check-circle-fill"></i>
 
-<?php echo htmlspecialchars(
-    $exito
-); ?>
+<h5>
 
-</div>
+<?php
+
+echo htmlspecialchars(
+    $mesaActual['nombre_mesa'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</h5>
+
+
+<p class="mb-2">
+
+Esta mesa está actualmente asignada
+a este jurado.
+
+</p>
+
+
+<?php if (
+    strtolower(
+        trim(
+            (string)$mesaActual['estado']
+        )
+    ) === 'abierta'
+) { ?>
+
+
+<span class="badge bg-success">
+
+🟢 Abierta
+
+</span>
+
+
+<?php } else { ?>
+
+
+<span class="badge bg-danger">
+
+🔴 Cerrada
+
+</span>
 
 
 <?php } ?>
@@ -727,264 +1020,206 @@ Actualiza los datos del jurado.
 
 <form
 method="POST"
-autocomplete="off">
-
-
-<!-- =====================================================
-     DOCUMENTO
-===================================================== -->
-
-<div class="mb-3">
-
-
-<label
-class="form-label">
-
-<i class="bi bi-person-vcard-fill"></i>
-
-Documento
-
-</label>
+class="mt-3"
+>
 
 
 <input
-
-type="text"
-
-name="documento"
-
-class="form-control form-control-lg"
-
-value="<?php echo htmlspecialchars(
-    $jurado['documento']
-); ?>"
-
-inputmode="numeric"
-
-pattern="[0-9]+"
-
-required>
-
-
-</div>
-
-
-<!-- =====================================================
-     NOMBRE
-===================================================== -->
-
-<div class="mb-3">
-
-
-<label
-class="form-label">
-
-<i class="bi bi-person-fill"></i>
-
-Nombre
-
-</label>
-
-
-<input
-
-type="text"
-
-name="nombre"
-
-class="form-control form-control-lg"
-
-value="<?php echo htmlspecialchars(
-    $jurado['nombre']
-); ?>"
-
-required>
-
-
-</div>
-
-
-<!-- =====================================================
-     APELLIDO
-===================================================== -->
-
-<div class="mb-3">
-
-
-<label
-class="form-label">
-
-<i class="bi bi-person-fill"></i>
-
-Apellido
-
-</label>
-
-
-<input
-
-type="text"
-
-name="apellido"
-
-class="form-control form-control-lg"
-
-value="<?php echo htmlspecialchars(
-    $jurado['apellido']
-); ?>"
-
-required>
-
-
-</div>
-
-
-<!-- =====================================================
-     CURSO
-===================================================== -->
-
-<div class="mb-3">
-
-
-<label
-class="form-label">
-
-<i class="bi bi-mortarboard-fill"></i>
-
-Curso
-
-</label>
-
-
-<input
-
-type="text"
-
-name="curso"
-
-class="form-control form-control-lg"
-
-value="<?php echo htmlspecialchars(
-    $jurado['curso']
-); ?>"
-
-required>
-
-
-</div>
-
-
-<!-- =====================================================
-     CONTRASEÑA
-===================================================== -->
-
-<div class="mb-3">
-
-
-<label
-class="form-label">
-
-<i class="bi bi-key-fill"></i>
-
-Nueva contraseña
-
-</label>
-
-
-<input
-
-type="password"
-
-name="password"
-
-class="form-control form-control-lg"
-
-placeholder="Dejar vacío para conservar la actual">
-
-
-</div>
-
-
-<div class="info-password mb-4">
-
-
-<i class="bi bi-info-circle-fill"></i>
-
-
-<strong>
-
-¿Cómo funciona la contraseña?
-
-</strong>
-
-
-<br><br>
-
-
-Si dejas el campo vacío:
-
-<ul class="mb-0">
-
-<li>
-Si no cambias el documento, se conserva la contraseña actual.
-</li>
-
-<li>
-Si cambias el documento, la contraseña pasa a ser el nuevo documento.
-</li>
-
-</ul>
-
-
-Si escribes una contraseña,
-se utilizará esa contraseña.
-
-
-</div>
-
-
-<!-- =====================================================
-     BOTONES
-===================================================== -->
-
-<div
-class="d-flex
-       justify-content-between
-       flex-wrap
-       gap-2">
-
-
-<a
-
-href="crear_jurado.php"
-
-class="btn btn-secondary btn-volver">
-
-
-<i class="bi bi-arrow-left"></i>
-
-Volver
-
-
-</a>
+type="hidden"
+name="id_eleccion"
+value="<?php echo $idEleccion; ?>"
+>
 
 
 <button
-
 type="submit"
+name="quitar_mesa"
+value="1"
+class="btn btn-outline-danger"
+onclick="
+return confirm(
+'¿Desea quitar la mesa de este jurado?'
+);
+"
+>
 
-class="btn btn-primary btn-guardar">
+<i class="bi bi-x-circle"></i>
 
-
-<i class="bi bi-save-fill"></i>
-
-Guardar cambios
-
+Quitar mesa
 
 </button>
 
 
+</form>
+
+
 </div>
+
+
+<?php } else { ?>
+
+
+<div class="sin-mesa">
+
+
+<h5>
+
+⚠️ Sin mesa asignada
+
+</h5>
+
+
+<p class="mb-0">
+
+Este jurado todavía no tiene una mesa
+asignada para esta elección.
+
+</p>
+
+
+</div>
+
+
+<?php } ?>
+
+
+</div>
+
+
+<!-- =====================================================
+     ASIGNAR MESA
+===================================================== -->
+
+<div>
+
+
+<h4 class="titulo mb-3">
+
+📦 Asignar mesa
+
+</h4>
+
+
+<?php if (
+    count($mesasDisponibles) > 0
+) { ?>
+
+
+<p class="text-muted">
+
+Selecciona una mesa disponible.
+Las mesas asignadas a otros jurados
+no aparecen como disponibles.
+
+</p>
+
+
+<?php foreach (
+    $mesasDisponibles
+    as $mesa
+) { ?>
+
+
+<div class="mesa-item">
+
+
+<div class="row align-items-center">
+
+
+<div class="col-md-7">
+
+
+<h5 class="mb-1">
+
+<?php
+
+echo htmlspecialchars(
+    $mesa['nombre_mesa'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+
+<?php if (
+    strtolower(
+        trim(
+            (string)$mesa['estado']
+        )
+    ) === 'abierta'
+) { ?>
+
+
+<span class="badge bg-success ms-2">
+
+🟢 Abierta
+
+</span>
+
+
+<?php } else { ?>
+
+
+<span class="badge bg-secondary ms-2">
+
+🔴 Cerrada
+
+</span>
+
+
+<?php } ?>
+
+
+</h5>
+
+
+<small class="text-muted">
+
+Mesa disponible para asignación.
+
+</small>
+
+
+</div>
+
+
+<div class="col-md-5 text-md-end mt-2 mt-md-0">
+
+
+<form
+method="POST"
+>
+
+
+<input
+type="hidden"
+name="id_eleccion"
+value="<?php echo $idEleccion; ?>"
+>
+
+
+<input
+type="hidden"
+name="id_mesa"
+value="<?php echo (int)$mesa['id']; ?>"
+>
+
+
+<button
+type="submit"
+name="asignar_mesa"
+value="1"
+class="btn btn-primary"
+>
+
+
+<i class="bi bi-check-circle-fill"></i>
+
+Asignar esta mesa
+
+
+</button>
 
 
 </form>
@@ -994,6 +1229,69 @@ Guardar cambios
 
 
 </div>
+
+
+</div>
+
+
+<?php } ?>
+
+
+<?php } else { ?>
+
+
+<div class="alert alert-warning">
+
+
+<i class="bi bi-exclamation-triangle-fill"></i>
+
+
+<strong>
+
+No hay mesas disponibles.
+
+</strong>
+
+
+<br>
+
+
+Ve a:
+
+<strong>
+
+Administrador → Jurados → Nueva mesa
+
+</strong>
+
+
+para crear una mesa disponible.
+
+
+</div>
+
+
+<?php } ?>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+</script>
 
 
 </body>

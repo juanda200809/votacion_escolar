@@ -4,178 +4,87 @@ session_start();
 
 require_once "config/conexion.php";
 
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
 $conn->set_charset("utf8mb4");
 
 
 /* =========================================================
-   VERIFICAR SESIÓN DEL JURADO
+   VERIFICAR SESIÓN
 ========================================================= */
 
-$juradoAutenticado = false;
-$juradoId = 0;
-
-
-/* Sesión específica del jurado */
-if (isset($_SESSION['jurado_id'])) {
-
-    $juradoId = (int) $_SESSION['jurado_id'];
-
-    if ($juradoId > 0) {
-        $juradoAutenticado = true;
-    }
-}
-
-
-/* Sesión utilizada por jurado.php */
 if (
-    isset($_SESSION['id']) &&
-    isset($_SESSION['rol']) &&
-    strtolower(trim((string) $_SESSION['rol'])) === 'jurado'
+    !isset($_SESSION['id']) ||
+    !isset($_SESSION['rol'])
 ) {
-
-    $juradoId = (int) $_SESSION['id'];
-
-    if ($juradoId > 0) {
-        $juradoAutenticado = true;
-    }
-}
-
-
-if (!$juradoAutenticado) {
-
     header("Location: login.php");
-    exit;
-
+    exit();
 }
+
+$rol = strtolower(trim($_SESSION['rol']));
+
+/*
+ * Resultados puede ser consultado por administrador y jurado.
+ */
+if (
+    $rol !== 'administrador' &&
+    $rol !== 'jurado'
+) {
+    header("Location: login.php");
+    exit();
+}
+
+
+/* =========================================================
+   DATOS DEL USUARIO
+========================================================= */
+
+$idUsuario = (int)$_SESSION['id'];
+
+$nombreUsuario =
+    $_SESSION['nombre']
+    ?? 'Usuario';
 
 
 /* =========================================================
    OBTENER ELECCIÓN
 ========================================================= */
 
-$idEleccion = filter_input(
-    INPUT_GET,
-    'id_eleccion',
-    FILTER_VALIDATE_INT
-);
+$idEleccion = 0;
 
-
-<<<<<<< HEAD
-if (
-    !$idEleccion &&
-    isset($_SESSION['id_eleccion'])
-=======
-$nombreUsuario =
-    $_SESSION['nombre'] ?? 'Usuario';
-
-
-$idUsuario =
-    (int)($_SESSION['id'] ?? 0);
-
-
-/* =========================================================
-   IMPORTANTE
-   NO BLOQUEAR RESULTADOS PARA EL JURADO
-========================================================= */
 
 /*
- * El jurado puede consultar resultados aunque su mesa
- * esté cerrada.
- *
- * NO se redirige a votar_por_jurado.php.
+ * Primero intentamos recibirla por GET.
  */
-
-
-/* =========================================================
-   LISTAR ELECCIONES
-========================================================= */
-
-$elecciones = [];
-
-
-$resultadoElecciones =
-    $conn->query("
-
-        SELECT
-            id,
-            nombre,
-            descripcion,
-            fecha_inicio,
-            fecha_fin,
-            estado
-
-        FROM elecciones
-
-        ORDER BY fecha_inicio DESC
-
-    ");
-
-
-if ($resultadoElecciones) {
-
-    while (
-        $fila =
-        $resultadoElecciones->fetch_assoc()
-    ) {
-
-        $elecciones[] =
-            $fila;
-
-    }
-
-}
-
-
-/* =========================================================
-   ELECCIÓN SELECCIONADA
-========================================================= */
-
-$idEleccion =
-    isset($_GET['id_eleccion'])
-    ? (int)$_GET['id_eleccion']
-    : 0;
-
-
-/* =========================================================
-   SI NO SE SELECCIONÓ:
-   JURADO → SU ELECCIÓN
-   ADMIN → ÚLTIMA ELECCIÓN
-========================================================= */
-
-if ($idEleccion <= 0) {
-
-    if (
-        $rol === 'jurado' &&
-        isset(
-            $_SESSION['id_eleccion_jurado']
-        ) &&
-        (int)$_SESSION['id_eleccion_jurado'] > 0
-    ) {
-
-        $idEleccion =
-            (int)
-            $_SESSION['id_eleccion_jurado'];
-
-    }
-
-}
-
-
 if (
-    $idEleccion <= 0 &&
-    count($elecciones) > 0
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
+    isset($_GET['id_eleccion']) &&
+    is_numeric($_GET['id_eleccion'])
 ) {
 
     $idEleccion =
-        (int) $_SESSION['id_eleccion'];
+        (int)$_GET['id_eleccion'];
 
 }
 
 
-if (!$idEleccion) {
+/*
+ * Si no viene por GET, usamos la elección guardada
+ * en sesión.
+ */
+if (
+    $idEleccion <= 0 &&
+    isset($_SESSION['id_eleccion'])
+) {
+
+    $idEleccion =
+        (int)$_SESSION['id_eleccion'];
+
+}
+
+
+/*
+ * Si todavía no tenemos elección,
+ * buscamos la última registrada.
+ */
+if ($idEleccion <= 0) {
 
     $stmt = $conn->prepare("
         SELECT id
@@ -184,248 +93,47 @@ if (!$idEleccion) {
         LIMIT 1
     ");
 
+    if ($stmt) {
 
-    if (!$stmt) {
+        $stmt->execute();
 
-        die(
-            "Error al consultar las elecciones: "
-            . $conn->error
-        );
+        $resultado =
+            $stmt->get_result();
 
-    }
+        $fila =
+            $resultado->fetch_assoc();
 
+        $stmt->close();
 
-    $stmt->execute();
+        if ($fila) {
 
-    $resultado =
-        $stmt->get_result();
+            $idEleccion =
+                (int)$fila['id'];
 
-    $fila =
-        $resultado->fetch_assoc();
-
-    $stmt->close();
-
-
-    if (!$fila) {
-
-        die(
-            "No existen elecciones registradas."
-        );
+        }
 
     }
-
-
-    $idEleccion =
-        (int) $fila['id'];
 
 }
 
 
-/* =========================================================
-   OBTENER LA MESA DEL JURADO
-========================================================= */
-
-$mesa = null;
-
-
-$stmtMesa = $conn->prepare("
-    SELECT
-        id,
-        id_eleccion,
-        id_jurado,
-        nombre_mesa,
-        estado,
-        fecha_cierre
-    FROM mesas_votacion
-    WHERE id_eleccion = ?
-      AND id_jurado = ?
-    LIMIT 1
-");
-
-
-if (!$stmtMesa) {
+/*
+ * Si no existe ninguna elección.
+ */
+if ($idEleccion <= 0) {
 
     die(
-        "Error al consultar la mesa de votación: "
-        . $conn->error
+        "No existe ninguna elección registrada."
     );
 
 }
 
 
-$stmtMesa->bind_param(
-    "ii",
-    $idEleccion,
-    $juradoId
-);
-
-
-$stmtMesa->execute();
-
-
-$resultadoMesa =
-    $stmtMesa->get_result();
-
-
-$mesa =
-    $resultadoMesa->fetch_assoc();
-
-
-$stmtMesa->close();
-
-
-if (!$mesa) {
-
-    die(
-        "No existe una mesa de votación asignada a este jurado para esta elección."
-    );
-
-}
-
-
-/* =========================================================
-   CERRAR ÚNICAMENTE LA MESA DEL JURADO
-========================================================= */
-
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    &&
-    isset($_POST['cerrar_mesa'])
-) {
-
-
-    $idCerrar = filter_input(
-        INPUT_POST,
-        'id_eleccion',
-        FILTER_VALIDATE_INT
-    );
-
-
-<<<<<<< HEAD
-    if (
-        !$idCerrar ||
-        $idCerrar !== $idEleccion
-    ) {
-
-        die("Elección no válida.");
-
-    }
-
-
-    /*
-     * IMPORTANTE:
-     *
-     * NO modificamos elecciones.estado.
-     *
-     * Solamente cerramos la mesa
-     * perteneciente al jurado actual.
-     */
-
-    $stmtCerrar = $conn->prepare("
-        UPDATE mesas_votacion
-        SET
-            estado = 'cerrada',
-            fecha_cierre = NOW()
-        WHERE id_eleccion = ?
-          AND id_jurado = ?
-          AND estado = 'abierta'
-    ");
-
-
-    if (!$stmtCerrar) {
-
-        die(
-            "No se pudo preparar el cierre de la mesa: "
-            . $conn->error
-        );
-
-    }
-
-
-    $stmtCerrar->bind_param(
-        "ii",
-        $idEleccion,
-        $juradoId
-    );
-
-
-    if (!$stmtCerrar->execute()) {
-
-        $stmtCerrar->close();
-
-        die(
-            "No se pudo cerrar la mesa de votación."
-        );
-
-    }
-
-
-    $stmtCerrar->close();
-
-
-    $_SESSION['id_eleccion'] =
-        $idEleccion;
-
-
-    header(
-        "Location: resultados.php?id_eleccion="
-        . $idEleccion
-        . "&cerrada=1"
-    );
-
-    exit;
-
-}
-
-
-/* =========================================================
-   ACTUALIZAR ESTADO DE LA MESA
-========================================================= */
-
-$stmtMesa = $conn->prepare("
-    SELECT
-        id,
-        id_eleccion,
-        id_jurado,
-        nombre_mesa,
-        estado,
-        fecha_cierre
-    FROM mesas_votacion
-    WHERE id_eleccion = ?
-      AND id_jurado = ?
-    LIMIT 1
-");
-
-
-$stmtMesa->bind_param(
-    "ii",
-    $idEleccion,
-    $juradoId
-);
-
-
-$stmtMesa->execute();
-
-
-$resultadoMesa =
-    $stmtMesa->get_result();
-
-
-$mesa =
-    $resultadoMesa->fetch_assoc();
-
-
-$stmtMesa->close();
-
-
-$mesaCerrada =
-    isset($mesa['estado'])
-    &&
-    strtolower(
-        trim(
-            (string) $mesa['estado']
-        )
-    ) === 'cerrada';
+/*
+ * Guardar elección en sesión.
+ */
+$_SESSION['id_eleccion'] =
+    $idEleccion;
 
 
 /* =========================================================
@@ -445,32 +153,27 @@ $stmt = $conn->prepare("
     LIMIT 1
 ");
 
-
 if (!$stmt) {
 
     die(
-        "Error al preparar la consulta de elección."
+        "Error al consultar la elección: "
+        . $conn->error
     );
 
 }
-
 
 $stmt->bind_param(
     "i",
     $idEleccion
 );
 
-
 $stmt->execute();
 
-
-$resultadoEleccion =
+$resultado =
     $stmt->get_result();
 
-
 $eleccion =
-    $resultadoEleccion->fetch_assoc();
-
+    $resultado->fetch_assoc();
 
 $stmt->close();
 
@@ -478,112 +181,125 @@ $stmt->close();
 if (!$eleccion) {
 
     die(
-        "La elección no existe."
+        "La elección seleccionada no existe."
     );
 
 }
 
 
-$_SESSION['id_eleccion'] =
-    $idEleccion;
+/* =========================================================
+   INFORMACIÓN DE LA MESA DEL JURADO
+========================================================= */
+
+$mesa = null;
+
+if ($rol === 'jurado') {
+
+    $stmt = $conn->prepare("
+        SELECT
+            id,
+            id_eleccion,
+            id_jurado,
+            nombre_mesa,
+            estado,
+            fecha_cierre
+        FROM mesas_votacion
+        WHERE id_eleccion = ?
+        AND id_jurado = ?
+        LIMIT 1
+    ");
+
+    if ($stmt) {
+
+        $stmt->bind_param(
+            "ii",
+            $idEleccion,
+            $idUsuario
+        );
+
+        $stmt->execute();
+
+        $resultado =
+            $stmt->get_result();
+
+        $mesa =
+            $resultado->fetch_assoc();
+
+        $stmt->close();
+
+    }
+
+}
 
 
 /* =========================================================
    CONTAR VOTOS
 ========================================================= */
 
+$totalVotos = 0;
+
 $stmt = $conn->prepare("
-    SELECT
-        COUNT(*) AS total
+    SELECT COUNT(*) AS total
     FROM votos
     WHERE id_eleccion = ?
 ");
 
+if ($stmt) {
 
-if (!$stmt) {
-
-    die(
-        "Error al consultar los votos."
+    $stmt->bind_param(
+        "i",
+        $idEleccion
     );
+
+    $stmt->execute();
+
+    $resultado =
+        $stmt->get_result();
+
+    $fila =
+        $resultado->fetch_assoc();
+
+    $totalVotos =
+        (int)($fila['total'] ?? 0);
+
+    $stmt->close();
 
 }
-
-
-$stmt->bind_param(
-    "i",
-    $idEleccion
-);
-
-
-$stmt->execute();
-
-
-$resultado =
-    $stmt->get_result();
-
-
-$fila =
-    $resultado->fetch_assoc();
-
-
-$totalVotos =
-    (int) (
-        $fila['total']
-        ??
-        0
-    );
-
-
-$stmt->close();
 
 
 /* =========================================================
    CONTAR CANDIDATOS
 ========================================================= */
 
+$totalCandidatos = 0;
+
 $stmt = $conn->prepare("
-    SELECT
-        COUNT(*) AS total
+    SELECT COUNT(*) AS total
     FROM candidatos
     WHERE id_eleccion = ?
 ");
 
+if ($stmt) {
 
-if (!$stmt) {
-
-    die(
-        "Error al consultar los candidatos."
+    $stmt->bind_param(
+        "i",
+        $idEleccion
     );
+
+    $stmt->execute();
+
+    $resultado =
+        $stmt->get_result();
+
+    $fila =
+        $resultado->fetch_assoc();
+
+    $totalCandidatos =
+        (int)($fila['total'] ?? 0);
+
+    $stmt->close();
 
 }
-
-
-$stmt->bind_param(
-    "i",
-    $idEleccion
-);
-
-
-$stmt->execute();
-
-
-$resultado =
-    $stmt->get_result();
-
-
-$fila =
-    $resultado->fetch_assoc();
-
-
-$totalCandidatos =
-    (int) (
-        $fila['total']
-        ??
-        0
-    );
-
-
-$stmt->close();
 
 
 /* =========================================================
@@ -592,44 +308,29 @@ $stmt->close();
 
 $totalCargos = 0;
 
-
 $stmt = $conn->prepare("
-    SELECT
-        COUNT(*) AS total
+    SELECT COUNT(*) AS total
     FROM eleccion_cargos
     WHERE id_eleccion = ?
 ");
 
-
 if ($stmt) {
 
-=======
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
     $stmt->bind_param(
         "i",
         $idEleccion
     );
-<<<<<<< HEAD
-
 
     $stmt->execute();
-
 
     $resultado =
         $stmt->get_result();
 
-
     $fila =
         $resultado->fetch_assoc();
 
-
     $totalCargos =
-        (int) (
-            $fila['total']
-            ??
-            0
-        );
-
+        (int)($fila['total'] ?? 0);
 
     $stmt->close();
 
@@ -640,8 +341,10 @@ if ($stmt) {
    OBTENER CANDIDATOS Y VOTOS
 ========================================================= */
 
-$sql = "
+$candidatosPorCargo = [];
 
+
+$sql = "
     SELECT
 
         c.id,
@@ -655,34 +358,18 @@ $sql = "
 
         COUNT(v.id) AS votos
 
-
     FROM candidatos c
 
-
     INNER JOIN cargos ca
-
         ON ca.id = c.id_cargo
 
-
     LEFT JOIN votos v
-
         ON v.id_candidato = c.id
-
         AND v.id_eleccion = ?
-
-
-    INNER JOIN eleccion_cargos ec
-
-        ON ec.id_eleccion = ?
-
-        AND ec.id_cargo = c.id_cargo
-
 
     WHERE c.id_eleccion = ?
 
-
     GROUP BY
-
         c.id,
         c.nombre,
         c.apellido,
@@ -691,25 +378,21 @@ $sql = "
         c.id_cargo,
         ca.nombre_cargo
 
-
     ORDER BY
-
         c.id_cargo ASC,
         votos DESC,
         c.apellido ASC,
         c.nombre ASC
-
 ";
 
 
-$stmt =
-    $conn->prepare($sql);
+$stmt = $conn->prepare($sql);
 
 
 if (!$stmt) {
 
     die(
-        "Error al consultar los resultados: "
+        "Error al obtener los resultados: "
         . $conn->error
     );
 
@@ -717,8 +400,7 @@ if (!$stmt) {
 
 
 $stmt->bind_param(
-    "iii",
-    $idEleccion,
+    "ii",
     $idEleccion,
     $idEleccion
 );
@@ -727,20 +409,17 @@ $stmt->bind_param(
 $stmt->execute();
 
 
-$resultadoCandidatos =
+$resultado =
     $stmt->get_result();
-
-
-$candidatosPorCargo = [];
 
 
 while (
     $fila =
-    $resultadoCandidatos->fetch_assoc()
+    $resultado->fetch_assoc()
 ) {
 
     $idCargo =
-        (int) $fila['id_cargo'];
+        (int)$fila['id_cargo'];
 
 
     if (
@@ -771,60 +450,19 @@ $stmt->close();
 
 
 /* =========================================================
-   NOMBRE DEL JURADO
+   FUNCIÓN PARA FOTOS
 ========================================================= */
 
-$nombreJurado =
-    'Jurado';
-
-
-if (
-    !empty(
-        $_SESSION['jurado_nombre']
-    )
-) {
-
-    $nombreJurado =
-        $_SESSION['jurado_nombre'];
-
-}
-
-elseif (
-    !empty(
-        $_SESSION['nombre']
-    )
-) {
-
-    $nombreJurado =
-        $_SESSION['nombre'];
-
-}
-
-
-/* =========================================================
-   MENSAJE
-========================================================= */
-
-$mesaCerradaAhora =
-    isset($_GET['cerrada']);
-
-
-/* =========================================================
-   FUNCIÓN PARA ENCONTRAR LA FOTO
-========================================================= */
-
-function encontrarFotoCandidato($fotoOriginal)
+function obtenerFoto($foto)
 {
 
-    $fotoOriginal =
+    $foto =
         trim(
-            (string) $fotoOriginal
+            (string)$foto
         );
 
 
-    if (
-        $fotoOriginal === ''
-    ) {
+    if ($foto === '') {
 
         return '';
 
@@ -832,84 +470,68 @@ function encontrarFotoCandidato($fotoOriginal)
 
 
     /*
-     * Si la base de datos ya contiene
-     * una URL completa.
+     * URL externa.
      */
-
     if (
         filter_var(
-            $fotoOriginal,
+            $foto,
             FILTER_VALIDATE_URL
         )
     ) {
 
-        return $fotoOriginal;
+        return $foto;
 
     }
 
 
     /*
-     * Normalizar separadores.
+     * Normalizar barras.
      */
-
-    $fotoOriginal =
+    $foto =
         str_replace(
             '\\',
             '/',
-            $fotoOriginal
+            $foto
         );
 
 
-    /*
-     * Si ya contiene una ruta relativa,
-     * primero intentamos utilizarla tal cual.
-     */
-
-    $rutaDirecta =
+    $foto =
         ltrim(
-            $fotoOriginal,
+            $foto,
             '/'
         );
 
 
-    $rutaFisicaDirecta =
+    /*
+     * Si la ruta guardada ya existe.
+     */
+    $rutaFisica =
         __DIR__
         . DIRECTORY_SEPARATOR
         . str_replace(
             '/',
             DIRECTORY_SEPARATOR,
-            $rutaDirecta
+            $foto
         );
 
 
     if (
-        file_exists(
-            $rutaFisicaDirecta
-        )
+        file_exists($rutaFisica)
     ) {
 
-        return $rutaDirecta;
+        return $foto;
 
     }
 
 
     /*
-     * Obtener solamente el nombre
-     * del archivo.
+     * Buscar por nombre en carpetas comunes.
      */
-
-    $nombreFoto =
-        basename(
-            $fotoOriginal
-        );
+    $nombreArchivo =
+        basename($foto);
 
 
-    /*
-     * Carpetas donde normalmente
-     * puede estar la fotografía.
-     */
-
-    $posiblesCarpetas = [
+    $carpetas = [
 
         'uploads/candidatos/',
         'imagenes/candidatos/',
@@ -923,13 +545,12 @@ function encontrarFotoCandidato($fotoOriginal)
 
 
     foreach (
-        $posiblesCarpetas
-        as $carpeta
+        $carpetas as $carpeta
     ) {
 
-        $rutaRelativa =
+        $ruta =
             $carpeta
-            . $nombreFoto;
+            . $nombreArchivo;
 
 
         $rutaFisica =
@@ -938,316 +559,27 @@ function encontrarFotoCandidato($fotoOriginal)
             . str_replace(
                 '/',
                 DIRECTORY_SEPARATOR,
-                $rutaRelativa
+                $ruta
             );
 
 
         if (
-            file_exists(
-                $rutaFisica
-            )
+            file_exists($rutaFisica)
         ) {
 
-            return $rutaRelativa;
+            return $ruta;
 
         }
 
     }
 
-=======
 
-
-    $stmt->execute();
-
-
-    $resultado =
-        $stmt->get_result();
-
-
-    if (
-        $resultado->num_rows > 0
-    ) {
-
-        $datosEleccion =
-            $resultado->fetch_assoc();
-
-    }
-
-
-    $stmt->close();
-
-}
-
-
-/* =========================================================
-   GUARDAR ELECCIÓN EN SESIÓN PARA JURADO
-========================================================= */
-
-if (
-    $rol === 'jurado' &&
-    $datosEleccion
-) {
-
-    $_SESSION['id_eleccion_jurado'] =
-        $idEleccion;
-
-}
-
-
-/* =========================================================
-   OBTENER MESA DEL JURADO
-========================================================= */
-
-$mesaJurado = null;
-
-$mesaJuradoExiste = false;
-
-$mesaJuradoAbierta = false;
-
-
-if (
-    $rol === 'jurado' &&
-    $idUsuario > 0 &&
-    $idEleccion > 0
-) {
-
-    $stmtMesa =
-        $conn->prepare("
-
-            SELECT
-                id,
-                id_eleccion,
-                id_jurado,
-                nombre_mesa,
-                estado,
-                fecha_cierre
-
-            FROM mesas_votacion
-
-            WHERE id_eleccion = ?
-
-            AND id_jurado = ?
-
-            LIMIT 1
-
-        ");
-
-
-    $stmtMesa->bind_param(
-        "ii",
-        $idEleccion,
-        $idUsuario
-    );
-
-
-    $stmtMesa->execute();
-
-
-    $resultadoMesa =
-        $stmtMesa->get_result();
-
-
-    if (
-        $resultadoMesa->num_rows > 0
-    ) {
-
-        $mesaJurado =
-            $resultadoMesa->fetch_assoc();
-
-        $mesaJuradoExiste =
-            true;
-
-
-        $mesaJuradoAbierta =
-            strtolower(
-                trim(
-                    (string)
-                    $mesaJurado['estado']
-                )
-            ) === 'abierta';
-
-    }
-
-
-    $stmtMesa->close();
-
-}
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
-
-    /*
-     * No se encontró.
-     */
-
-<<<<<<< HEAD
     return '';
-=======
-/* =========================================================
-   CARGOS
-========================================================= */
-
-$cargos = [];
-
-
-if (
-    $datosEleccion
-) {
-
-    $stmt =
-        $conn->prepare("
-
-            SELECT
-                c.id,
-                c.nombre_cargo
-
-            FROM cargos c
-
-            INNER JOIN eleccion_cargos ec
-
-                ON ec.id_cargo = c.id
-
-            WHERE ec.id_eleccion = ?
-
-            ORDER BY c.id ASC
-
-        ");
-
-
-    $stmt->bind_param(
-        "i",
-        $idEleccion
-    );
-
-
-    $stmt->execute();
-
-
-    $resultado =
-        $stmt->get_result();
-
-
-    while (
-        $cargo =
-        $resultado->fetch_assoc()
-    ) {
-
-        $cargos[] =
-            $cargo;
-
-    }
-
-
-    $stmt->close();
-
-}
-
-
-/* =========================================================
-   ESTADÍSTICAS
-========================================================= */
-
-$totalVotos = 0;
-
-$totalCandidatos = 0;
-
-$totalCargos =
-    count($cargos);
-
-
-/* =========================================================
-   TOTAL CANDIDATOS
-========================================================= */
-
-if (
-    $datosEleccion
-) {
-
-    $stmt =
-        $conn->prepare("
-
-            SELECT
-                COUNT(*) AS total
-
-            FROM candidatos
-
-            WHERE id_eleccion = ?
-
-        ");
-
-
-    $stmt->bind_param(
-        "i",
-        $idEleccion
-    );
-
-
-    $stmt->execute();
-
-
-    $resultado =
-        $stmt->get_result();
-
-
-    $fila =
-        $resultado->fetch_assoc();
-
-
-    $totalCandidatos =
-        (int)$fila['total'];
-
-
-    $stmt->close();
-
-}
-
-
-/* =========================================================
-   TOTAL VOTOS
-========================================================= */
-
-if (
-    $datosEleccion
-) {
-
-    $stmt =
-        $conn->prepare("
-
-            SELECT
-                COUNT(*) AS total
-
-            FROM votos
-
-            WHERE id_eleccion = ?
-
-        ");
-
-
-    $stmt->bind_param(
-        "i",
-        $idEleccion
-    );
-
-
-    $stmt->execute();
-
-
-    $resultado =
-        $stmt->get_result();
-
-
-    $fila =
-        $resultado->fetch_assoc();
-
-
-    $totalVotos =
-        (int)$fila['total'];
-
-
-    $stmt->close();
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
 
 }
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -1263,11 +595,15 @@ if (
 >
 
 <title>
-    Resultados Oficiales
+Resultados - Votaciones Escolares
 </title>
 
 
 <style>
+
+/* =========================================================
+   GENERAL
+========================================================= */
 
 * {
     box-sizing: border-box;
@@ -1286,12 +622,13 @@ body {
     background: #eef4fb;
 
     color: #1f2937;
+
 }
 
 
-/* =================================================
-   BARRA SUPERIOR
-================================================= */
+/* =========================================================
+   TOPBAR
+========================================================= */
 
 .topbar {
 
@@ -1308,28 +645,31 @@ body {
     justify-content: space-between;
 
     padding: 0 30px;
+
 }
 
 
 .topbar-title {
 
-    font-size: 22px;
+    font-size: 21px;
 
     font-weight: 700;
+
 }
 
 
-.jurado {
+.usuario {
 
     font-size: 15px;
 
     font-weight: 600;
+
 }
 
 
-/* =================================================
-   ESTRUCTURA
-================================================= */
+/* =========================================================
+   LAYOUT
+========================================================= */
 
 .layout {
 
@@ -1337,8 +677,13 @@ body {
 
     min-height:
         calc(100vh - 70px);
+
 }
 
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
 
 .sidebar {
 
@@ -1348,7 +693,8 @@ body {
 
     color: white;
 
-    padding-bottom: 30px;
+    flex-shrink: 0;
+
 }
 
 
@@ -1362,14 +708,16 @@ body {
     border-bottom:
         1px solid
         rgba(255,255,255,.18);
+
 }
 
 
 .sidebar-icon {
 
-    font-size: 48px;
+    font-size: 45px;
 
     margin-bottom: 8px;
+
 }
 
 
@@ -1377,21 +725,26 @@ body {
 
     margin: 0;
 
-    font-size: 30px;
+    font-size: 28px;
+
 }
 
 
 .sidebar-header p {
 
-    margin: 5px 0 0;
+    margin:
+        5px 0 0;
 
     opacity: .85;
+
 }
 
 
 .menu {
 
-    padding-top: 18px;
+    padding:
+        15px 10px;
+
 }
 
 
@@ -1401,18 +754,19 @@ body {
 
     align-items: center;
 
-    gap: 14px;
+    gap: 13px;
 
     padding:
-        17px 25px;
+        15px;
 
     color: white;
 
     text-decoration: none;
 
-    font-size: 16px;
+    border-radius: 9px;
 
-    transition: .2s;
+    margin-bottom: 4px;
+
 }
 
 
@@ -1420,19 +774,21 @@ body {
 
     background:
         rgba(255,255,255,.12);
+
 }
 
 
 .menu a.active {
 
     background:
-        rgba(0,0,0,.15);
+        rgba(255,255,255,.20);
+
 }
 
 
-/* =================================================
-   CONTENIDO
-================================================= */
+/* =========================================================
+   CONTENT
+========================================================= */
 
 .content {
 
@@ -1441,20 +797,22 @@ body {
     padding: 35px;
 
     overflow-x: auto;
+
 }
 
 
 .container {
 
-    max-width: 1100px;
+    max-width: 1150px;
 
     margin: auto;
+
 }
 
 
-/* =================================================
+/* =========================================================
    ELECCIÓN
-================================================= */
+========================================================= */
 
 .election-card {
 
@@ -1464,11 +822,12 @@ body {
 
     padding: 28px;
 
+    margin-bottom: 25px;
+
     box-shadow:
-        0 8px 25px
+        0 7px 25px
         rgba(0,0,0,.08);
 
-    margin-bottom: 25px;
 }
 
 
@@ -1481,62 +840,64 @@ body {
     justify-content: space-between;
 
     gap: 20px;
+
 }
 
 
 .election-title {
 
-    color: #1769d2;
-
-    font-size: 28px;
-
-    font-weight: 700;
-
     margin:
         0 0 8px;
+
+    color: #1769d2;
+
+    font-size: 29px;
+
 }
 
 
 .election-description {
 
+    margin: 0;
+
     color: #64748b;
 
-    margin: 0;
 }
 
 
 .estado {
 
     padding:
-        9px 16px;
+        9px 15px;
 
     border-radius: 20px;
 
     font-weight: 700;
 
-    font-size: 13px;
-
     white-space: nowrap;
+
 }
 
 
-.estado.abierta {
+.estado-abierta {
 
     background: #d1fae5;
 
     color: #047857;
+
 }
 
 
-.estado.cerrada {
+.estado-cerrada {
 
     background: #e5e7eb;
 
     color: #4b5563;
+
 }
 
 
-.dates {
+.fechas {
 
     display: grid;
 
@@ -1546,10 +907,11 @@ body {
     gap: 20px;
 
     margin-top: 25px;
+
 }
 
 
-.date-box {
+.fecha {
 
     background: #f8fafc;
 
@@ -1558,207 +920,56 @@ body {
 
     border-radius: 12px;
 
-    padding: 16px;
+    padding: 15px;
+
 }
 
 
-.date-label {
+.fecha-label {
 
     color: #64748b;
 
     font-size: 14px;
 
     margin-bottom: 5px;
+
 }
 
 
-.date-value {
+.fecha-valor {
 
     color: #175cae;
 
     font-weight: 700;
+
 }
 
 
-/* =================================================
-   ESTADO DE LA MESA
-================================================= */
+/* =========================================================
+   MESA
+========================================================= */
 
-.mensaje-cerrada {
+.mesa-card {
 
-    background: #ecfdf5;
+    border-radius: 17px;
 
-    border:
-        1px solid #a7f3d0;
-
-    color: #047857;
-
-    border-radius: 12px;
-
-    padding:
-        17px 20px;
+    padding: 22px;
 
     margin-bottom: 25px;
 
-    font-weight: 600;
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 20px;
+
 }
 
 
 .mesa-abierta {
 
-    background: #eff6ff;
-
-    border:
-        1px solid #bfdbfe;
-
-    color: #1d4ed8;
-
-    border-radius: 12px;
-
-    padding:
-        17px 20px;
-
-    margin-bottom: 25px;
-
-    font-weight: 600;
-}
-
-
-/* =================================================
-   CERRAR MESA
-================================================= */
-
-.cerrar-mesa {
-
-    background: white;
-
-    border:
-        1px solid #fecaca;
-
-    border-radius: 16px;
-
-    padding: 22px;
-
-    margin-bottom: 28px;
-
-    display: flex;
-
-    justify-content: space-between;
-
-    align-items: center;
-
-    gap: 20px;
-}
-
-
-.cerrar-info strong {
-
-    display: block;
-
-    color: #b91c1c;
-
-    font-size: 18px;
-
-    margin-bottom: 7px;
-}
-
-
-.cerrar-info span {
-
-    color: #64748b;
-
-    font-size: 14px;
-}
-
-
-.btn-cerrar {
-
-    border: none;
-
-    background: #dc2626;
-
-    color: white;
-
-    padding:
-        15px 25px;
-
-    border-radius: 10px;
-
-    font-size: 15px;
-
-    font-weight: 700;
-
-    cursor: pointer;
-
-    transition: .2s;
-
-    white-space: nowrap;
-}
-
-
-.btn-cerrar:hover {
-
-    background: #b91c1c;
-
-    transform:
-        translateY(-2px);
-
-    box-shadow:
-        0 7px 18px
-        rgba(220,38,38,.25);
-}
-
-
-.mesa-ya-cerrada {
-
-    background: #f1f5f9;
-
-    border:
-        1px solid #cbd5e1;
-
-    color: #64748b;
-
-    border-radius: 14px;
-
-    padding:
-        18px 22px;
-
-    margin-bottom: 28px;
-
-    font-weight: 700;
-}
-
-
-<<<<<<< HEAD
-/* =================================================
-=======
-/* =========================================================
-   MESA DEL JURADO
-========================================================= */
-
-.mesa-jurado {
-
-    margin-top: 25px;
-
-    padding: 22px;
-
-    border-radius: 16px;
-
-    display: flex;
-
-    align-items: center;
-
-    justify-content: space-between;
-
-    gap: 20px;
-
-    flex-wrap: wrap;
-
-}
-
-
-.mesa-jurado.abierta {
-
     background: #ecfdf5;
 
     border:
@@ -1767,7 +978,7 @@ body {
 }
 
 
-.mesa-jurado.cerrada {
+.mesa-cerrada {
 
     background: #f1f5f9;
 
@@ -1777,24 +988,26 @@ body {
 }
 
 
-.mesa-contenido {
+.mesa-info {
 
     display: flex;
 
     align-items: center;
 
-    gap: 15px;
+    gap: 18px;
 
 }
 
 
 .mesa-icon {
 
-    width: 58px;
+    width: 60px;
 
-    height: 58px;
+    height: 60px;
 
     border-radius: 14px;
+
+    background: #dbeafe;
 
     display: flex;
 
@@ -1802,126 +1015,56 @@ body {
 
     justify-content: center;
 
-    font-size: 28px;
+    font-size: 30px;
 
 }
 
 
-.mesa-jurado.abierta
-.mesa-icon {
+.mesa-nombre {
 
-    background: #d1fae5;
-
-}
-
-
-.mesa-jurado.cerrada
-.mesa-icon {
-
-    background: #e2e8f0;
-
-}
-
-
-.mesa-contenido h4 {
-
-    margin: 0 0 5px;
+    margin:
+        0 0 5px;
 
     color: #1453a3;
 
-    font-weight: bold;
-
 }
 
 
-.mesa-contenido p {
+.mesa-texto {
 
-    margin: 0;
+    margin: 4px 0;
 
     color: #64748b;
 
 }
 
 
-.estado-mesa {
+.mesa-estado {
 
-    margin-top: 7px;
+    font-weight: 700;
 
-    font-weight: bold;
+    margin-top: 8px;
 
 }
 
 
-.mesa-jurado.abierta
-.estado-mesa {
+.mesa-abierta .mesa-estado {
 
     color: #047857;
 
 }
 
 
-.mesa-jurado.cerrada
-.estado-mesa {
+.mesa-cerrada .mesa-estado {
 
     color: #64748b;
-
-}
-
-
-.btn-cerrar-mesa {
-
-    border: none;
-
-    background: #dc3545;
-
-    color: white;
-
-    font-weight: bold;
-
-    padding: 14px 22px;
-
-    border-radius: 12px;
-
-    cursor: pointer;
-
-    box-shadow:
-        0 6px 15px
-        rgba(220,53,69,.20);
-
-    transition: .2s;
-
-}
-
-
-.btn-cerrar-mesa:hover {
-
-    background: #bb2d3b;
-
-    transform:
-        translateY(-1px);
-
-}
-
-
-.mesa-cerrada-label {
-
-    background: #cbd5e1;
-
-    color: #64748b;
-
-    padding: 14px 22px;
-
-    border-radius: 12px;
-
-    font-weight: bold;
 
 }
 
 
 /* =========================================================
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
    ESTADÍSTICAS
-================================================= */
+========================================================= */
 
 .stats {
 
@@ -1933,32 +1076,31 @@ body {
     gap: 20px;
 
     margin-bottom: 30px;
+
 }
 
 
-.stat-card {
+.stat {
 
     background: white;
 
     border-radius: 17px;
 
-    padding: 28px;
+    padding: 25px;
 
     text-align: center;
 
     box-shadow:
         0 7px 22px
         rgba(0,0,0,.07);
+
 }
 
 
 .stat-icon {
 
-    font-size: 38px;
+    font-size: 35px;
 
-    color: #1769d2;
-
-    margin-bottom: 8px;
 }
 
 
@@ -1969,6 +1111,9 @@ body {
     color: #175cae;
 
     font-weight: 700;
+
+    margin-top: 5px;
+
 }
 
 
@@ -1976,15 +1121,16 @@ body {
 
     color: #64748b;
 
-    margin-top: 7px;
-
     font-weight: 600;
+
+    margin-top: 5px;
+
 }
 
 
-/* =================================================
-   CARGOS
-================================================= */
+/* =========================================================
+   RESULTADOS
+========================================================= */
 
 .cargo {
 
@@ -1997,8 +1143,9 @@ body {
     margin-bottom: 30px;
 
     box-shadow:
-        0 8px 25px
+        0 7px 25px
         rgba(0,0,0,.08);
+
 }
 
 
@@ -2011,9 +1158,17 @@ body {
     padding:
         20px 25px;
 
-    font-size: 25px;
+    font-size: 24px;
 
     font-weight: 700;
+
+}
+
+
+.tabla-contenedor {
+
+    overflow-x: auto;
+
 }
 
 
@@ -2021,7 +1176,10 @@ body {
 
     width: 100%;
 
+    min-width: 750px;
+
     border-collapse: collapse;
+
 }
 
 
@@ -2033,24 +1191,18 @@ body {
 
     text-align: left;
 
-    padding: 16px;
+    padding: 15px;
 
-    font-size: 15px;
 }
 
 
 .tabla td {
 
-    padding: 16px;
+    padding: 15px;
 
     border-bottom:
         1px solid #e5e7eb;
-}
 
-
-.tabla tr:last-child td {
-
-    border-bottom: none;
 }
 
 
@@ -2061,6 +1213,7 @@ body {
     align-items: center;
 
     gap: 13px;
+
 }
 
 
@@ -2070,14 +1223,13 @@ body {
 
     height: 55px;
 
-    border-radius: 50%;
-
     object-fit: cover;
+
+    border-radius: 50%;
 
     border:
         2px solid #dbeafe;
 
-    display: block;
 }
 
 
@@ -2097,27 +1249,26 @@ body {
 
     justify-content: center;
 
-    color: #1769d2;
-
     font-size: 23px;
+
 }
 
 
-.nombre-candidato {
+.nombre {
 
     font-weight: 700;
 
-    color: #1f2937;
 }
 
 
 .votos {
 
-    font-size: 20px;
+    font-size: 19px;
 
     font-weight: 700;
 
     color: #1769d2;
+
 }
 
 
@@ -2126,107 +1277,119 @@ body {
     font-weight: 700;
 
     color: #175cae;
+
 }
 
 
 .ganador {
-
-    display: inline-block;
 
     background: #fbbf24;
 
     color: #78350f;
 
     padding:
-        7px 12px;
+        7px 11px;
 
     border-radius: 8px;
 
     font-size: 12px;
 
     font-weight: 800;
+
 }
 
 
-.sin-candidatos {
+.sin-resultados {
 
-    padding: 25px;
+    padding: 45px;
+
+    text-align: center;
 
     color: #64748b;
 
-    text-align: center;
 }
 
 
-/* =================================================
+/* =========================================================
    RESPONSIVE
-================================================= */
+========================================================= */
 
-@media (max-width: 850px) {
+@media (max-width: 900px) {
 
     .sidebar {
 
         width: 210px;
-    }
 
-
-    .content {
-
-        padding: 20px;
     }
 
 
     .stats {
 
         grid-template-columns: 1fr;
-    }
 
-
-    .cerrar-mesa {
-
-        flex-direction: column;
-
-        align-items: stretch;
-    }
-
-
-    .btn-cerrar {
-
-        width: 100%;
     }
 
 }
 
 
-@media (max-width: 650px) {
+@media (max-width: 700px) {
 
     .layout {
 
         display: block;
+
     }
 
 
     .sidebar {
 
         width: 100%;
+
     }
 
 
-    .dates {
+    .content {
 
-        grid-template-columns: 1fr;
+        padding: 20px;
+
+    }
+
+
+    .topbar {
+
+        padding:
+            0 15px;
+
+    }
+
+
+    .usuario {
+
+        display: none;
+
     }
 
 
     .election-top {
 
         flex-direction: column;
+
     }
 
 
-    .tabla {
+    .fechas {
 
-        min-width: 800px;
+        grid-template-columns: 1fr;
+
+    }
+
+
+    .mesa-card {
+
+        flex-direction: column;
+
+        align-items: flex-start;
+
     }
 
 }
@@ -2239,37 +1402,36 @@ body {
 <body>
 
 
-<!-- =====================================================
-<<<<<<< HEAD
-     BARRA SUPERIOR
-===================================================== -->
-=======
-     SIDEBAR
+<!-- =========================================================
+     TOPBAR
 ========================================================= -->
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
 
 <header class="topbar">
 
-    <div class="topbar-title">
 
-        ⚖️ Sistema de Votaciones Escolares
+<div class="topbar-title">
 
-    </div>
+⚖️ Sistema de Votaciones Escolares
+
+</div>
 
 
-    <div class="jurado">
+<div class="usuario">
 
-        👤 Jurado:
+👤
 
-        <?php
+<?php
 
-        echo htmlspecialchars(
-            $nombreJurado
-        );
+echo htmlspecialchars(
+    $nombreUsuario,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-        ?>
+?>
 
-    </div>
+</div>
+
 
 </header>
 
@@ -2277,138 +1439,240 @@ body {
 <div class="layout">
 
 
-<!-- =================================================
+<!-- =========================================================
      SIDEBAR
-================================================= -->
+========================================================= -->
 
 <aside class="sidebar">
 
 
-    <div class="sidebar-header">
-
-        <div class="sidebar-icon">
-            🗳️
-        </div>
+<div class="sidebar-header">
 
 
-        <h2>
-            VOTACIONES
-        </h2>
+<div class="sidebar-icon">
+
+🗳️
+
+</div>
 
 
-        <p>
-            Panel del Jurado
-        </p>
+<h2>
 
-    </div>
+VOTACIONES
 
-
-    <nav class="menu">
+</h2>
 
 
-        <a href="jurado.php">
+<p>
 
-            🏠
+Panel de <?php
 
-            <span>
-                Inicio
-            </span>
+echo $rol === 'administrador'
+    ? 'Administrador'
+    : 'Jurado';
 
-        </a>
+?>
 
-
-        <a
-            href="ingresar_estudiante.php?id_eleccion=<?php echo $idEleccion; ?>"
-            target="_blank"
-            rel="noopener noreferrer"
-        >
-
-            👤
-
-            <span>
-                Ingresar estudiante
-            </span>
-
-        </a>
+</p>
 
 
-        <a
-            class="active"
-            href="resultados.php?id_eleccion=<?php echo $idEleccion; ?>"
-        >
+</div>
 
-<<<<<<< HEAD
-            🏆
-=======
+
+<nav class="menu">
+
+
+<?php if (
+    $rol === 'administrador'
+) { ?>
+
+
+<a href="admin.php">
+
+🏠
+
+<span>
+
+Inicio
+
+</span>
+
+</a>
+
+
+<a href="jurados.php">
+
+👥
+
+<span>
+
+Jurados
+
+</span>
+
+</a>
+
+
+<a href="candidatos.php">
+
+👤
+
+<span>
+
+Candidatos
+
+</span>
+
+</a>
+
+
+<a href="elecciones.php">
+
+📅
+
+<span>
+
+Elecciones
+
+</span>
+
+</a>
+
+
 <a
-href="resultados.php?id_eleccion=<?php
-echo $idEleccion;
-?>"
-class="activo"
+    href="resultados.php?id_eleccion=<?php echo $idEleccion; ?>"
+    class="active"
 >
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
 
-            <span>
-                Resultados
-            </span>
+🏆
 
-        </a>
+<span>
+
+Resultados
+
+</span>
+
+</a>
 
 
-        <a
-            href="graficas.php?id_eleccion=<?php echo $idEleccion; ?>"
-        >
-
-<<<<<<< HEAD
-            📊
-=======
 <a
-href="graficas.php?id_eleccion=<?php
-echo $idEleccion;
-?>"
+    href="graficas.php?id_eleccion=<?php echo $idEleccion; ?>"
 >
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
 
-            <span>
-                Gráficas
-            </span>
+📊
 
-        </a>
+<span>
 
+Gráficas
 
-    </nav>
+</span>
 
-
-    <nav class="menu">
+</a>
 
 
-        <a
-            href="logout.php"
-            onclick="
-                return confirm(
-                    '¿Está seguro de cerrar sesión?'
-                );
-            "
-        >
-
-            🚪
-
-            <span>
-                Cerrar sesión
-            </span>
-
-        </a>
+<?php } else { ?>
 
 
-    </nav>
+<a href="jurado.php">
+
+🏠
+
+<span>
+
+Inicio
+
+</span>
+
+</a>
+
+
+<a
+    href="ingresar_estudiante.php?id_eleccion=<?php echo $idEleccion; ?>"
+>
+
+👤
+
+<span>
+
+Ingresar estudiante
+
+</span>
+
+</a>
+
+
+<a
+    href="resultados.php?id_eleccion=<?php echo $idEleccion; ?>"
+    class="active"
+>
+
+🏆
+
+<span>
+
+Resultados
+
+</span>
+
+</a>
+
+
+<a
+    href="graficas.php?id_eleccion=<?php echo $idEleccion; ?>"
+>
+
+📊
+
+<span>
+
+Gráficas
+
+</span>
+
+</a>
+
+
+<?php } ?>
+
+
+<div
+    style="
+        height:1px;
+        background:rgba(255,255,255,.18);
+        margin:15px 5px;
+    "
+></div>
+
+
+<a
+    href="logout.php"
+    onclick="
+        return confirm(
+            '¿Está seguro de cerrar sesión?'
+        );
+    "
+>
+
+🚪
+
+<span>
+
+Cerrar sesión
+
+</span>
+
+</a>
+
+
+</nav>
 
 
 </aside>
 
 
-<!-- =================================================
+<!-- =========================================================
      CONTENIDO
-================================================= -->
+========================================================= -->
 
 <main class="content">
 
@@ -2416,377 +1680,174 @@ echo $idEleccion;
 <div class="container">
 
 
-<!-- =================================================
-     INFORMACIÓN DE ELECCIÓN
-================================================= -->
+<!-- =========================================================
+     ELECCIÓN
+========================================================= -->
 
 <section class="election-card">
 
 
-    <div class="election-top">
+<div class="election-top">
 
 
-        <div>
-
-            <h1 class="election-title">
-
-                🗳️
-
-                <?php
-
-                echo htmlspecialchars(
-                    $eleccion['nombre']
-                );
-
-                ?>
-
-            </h1>
+<div>
 
 
-            <p class="election-description">
+<h1 class="election-title">
 
-                <?php
+🗳️
 
-                echo htmlspecialchars(
-                    $eleccion['descripcion']
-                    ??
-                    'Proceso democrático institucional'
-                );
+<?php
 
-                ?>
+echo htmlspecialchars(
+    $eleccion['nombre'],
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-            </p>
+?>
 
-        </div>
-
-
-        <?php
-
-        if (
-            strtolower(
-                trim(
-                    (string)
-                    $eleccion['estado']
-                )
-            )
-            ===
-            'abierta'
-        ):
-
-        ?>
-
-            <div class="estado abierta">
-
-                🟢 Elección abierta
-
-            </div>
-
-        <?php
-
-        else:
-
-        ?>
-
-            <div class="estado cerrada">
-
-                🔒 Elección cerrada
-
-            </div>
-
-        <?php
-
-        endif;
-
-        ?>
+</h1>
 
 
-    </div>
+<p class="election-description">
+
+<?php
+
+echo htmlspecialchars(
+    $eleccion['descripcion']
+    ??
+    'Proceso democrático institucional',
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</p>
 
 
-    <div class="dates">
+</div>
 
 
-        <div class="date-box">
+<?php
 
-            <div class="date-label">
-
-                📅 Fecha de inicio
-
-            </div>
-
-
-            <div class="date-value">
-
-                <?php
-
-                echo htmlspecialchars(
-                    $eleccion['fecha_inicio']
-                    ??
-                    'No definida'
-                );
-
-                ?>
-
-            </div>
-
-        </div>
+$estadoEleccion =
+    strtolower(
+        trim(
+            (string)$eleccion['estado']
+        )
+    );
 
 
-        <div class="date-box">
+if (
+    $estadoEleccion === 'abierta'
+) {
 
-            <div class="date-label">
-
-                📅 Fecha de finalización
-
-            </div>
+?>
 
 
-            <div class="date-value">
+<span class="estado estado-abierta">
 
-                <?php
+🟢 Elección abierta
 
-                echo htmlspecialchars(
-                    $eleccion['fecha_fin']
-                    ??
-                    'No definida'
-                );
-
-                ?>
-
-            </div>
-
-        </div>
+</span>
 
 
-    </div>
+<?php
+
+} else {
+
+?>
+
+
+<span class="estado estado-cerrada">
+
+🔒 Elección cerrada
+
+</span>
+
+
+<?php
+
+}
+
+?>
+
+
+</div>
+
+
+<div class="fechas">
+
+
+<div class="fecha">
+
+
+<div class="fecha-label">
+
+📅 Fecha de inicio
+
+</div>
+
+
+<div class="fecha-valor">
+
+<?php
+
+echo htmlspecialchars(
+    $eleccion['fecha_inicio']
+    ??
+    'No definida',
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</div>
+
+
+</div>
+
+
+<div class="fecha">
+
+
+<div class="fecha-label">
+
+📅 Fecha de finalización
+
+</div>
+
+
+<div class="fecha-valor">
+
+<?php
+
+echo htmlspecialchars(
+    $eleccion['fecha_fin']
+    ??
+    'No definida',
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
+
+</div>
+
+
+</div>
+
+
+</div>
 
 
 </section>
 
 
-<!-- =================================================
-     MENSAJE
-================================================= -->
-
-<?php
-
-if (
-    $mesaCerradaAhora
-):
-
-?>
-
-    <div class="mensaje-cerrada">
-
-        🔒 <strong>
-            Mesa cerrada correctamente.
-        </strong>
-
-
-        <br>
-
-
-        La mesa
-
-        <?php
-
-        echo htmlspecialchars(
-            $mesa['nombre_mesa']
-        );
-
-        ?>
-
-        del jurado
-
-        <?php
-
-        echo htmlspecialchars(
-            $nombreJurado
-        );
-
-        ?>
-
-        quedó cerrada.
-
-
-        <br>
-
-
-        La elección general continúa disponible
-        para las demás mesas.
-
-    </div>
-
-<?php
-
-endif;
-
-?>
-
-
-<!-- =================================================
-     ESTADO DE LA MESA
-================================================= -->
-
-<?php
-
-if (
-    $mesaCerrada
-):
-
-?>
-
-    <div class="mesa-ya-cerrada">
-
-        🔒 Mesa cerrada
-
-
-        <br>
-
-
-        <span>
-
-            Esta mesa ya no permite nuevos votos.
-
-        </span>
-
-    </div>
-
-
-<?php
-
-else:
-
-?>
-
-
-    <div class="mesa-abierta">
-
-        🟢
-
-        <strong>
-            Mesa abierta
-        </strong>
-
-
-        <br>
-
-
-        🗳️ Mesa:
-
-        <?php
-
-        echo htmlspecialchars(
-            $mesa['nombre_mesa']
-        );
-
-        ?>
-
-
-        — 👤 Jurado:
-
-        <?php
-
-        echo htmlspecialchars(
-            $nombreJurado
-        );
-
-        ?>
-
-    </div>
-
-
-    <!-- =================================================
-         BOTÓN CERRAR MESA
-    ================================================= -->
-
-    <section class="cerrar-mesa">
-
-
-        <div class="cerrar-info">
-
-            <strong>
-
-                🔒 Cierre de mesa de votación
-
-            </strong>
-
-
-            <span>
-
-                Al cerrar esta mesa no se
-                permitirán nuevos votos
-                para este jurado.
-
-
-                <br>
-
-
-                Las demás mesas de la elección
-                permanecerán abiertas.
-
-            </span>
-
-        </div>
-
-
-        <form
-            method="POST"
-            onsubmit="
-                return confirm(
-                    '¿Está seguro de cerrar SOLAMENTE esta mesa? Las demás mesas continuarán abiertas.'
-                );
-            "
-        >
-
-
-            <input
-                type="hidden"
-                name="cerrar_mesa"
-                value="1"
-            >
-
-
-            <input
-                type="hidden"
-                name="id_eleccion"
-                value="<?php echo $idEleccion; ?>"
-            >
-
-
-            <button
-                type="submit"
-                class="btn-cerrar"
-            >
-
-                🔒 Cerrar mesa
-
-            </button>
-
-
-        </form>
-
-
-    </section>
-
-
-<?php
-
-endif;
-
-?>
-
-
-<<<<<<< HEAD
-<!-- =================================================
-=======
-</div>
-
-
-</div>
-
-
-<!-- =====================================================
+<!-- =========================================================
      MESA DEL JURADO
 ========================================================= -->
 
@@ -2796,30 +1857,40 @@ endif;
 
 
 <?php if (
-    $mesaJuradoExiste
+    $mesa
 ) { ?>
 
 
 <div
-    class="mesa-jurado
-    <?php
+    class="
+        mesa-card
+        <?php
 
-    echo $mesaJuradoAbierta
-        ? 'abierta'
-        : 'cerrada';
+        echo strtolower(
+            trim(
+                (string)$mesa['estado']
+            )
+        ) === 'abierta'
+            ? 'mesa-abierta'
+            : 'mesa-cerrada';
 
-    ?>"
+        ?>
+    "
 >
 
 
-<div class="mesa-contenido">
+<div class="mesa-info">
 
 
 <div class="mesa-icon">
 
 <?php
 
-echo $mesaJuradoAbierta
+echo strtolower(
+    trim(
+        (string)$mesa['estado']
+    )
+) === 'abierta'
     ? '🗳️'
     : '🔒';
 
@@ -2831,31 +1902,33 @@ echo $mesaJuradoAbierta
 <div>
 
 
-<h4>
-
-🏫
+<h2 class="mesa-nombre">
 
 <?php
 
 echo htmlspecialchars(
-    $mesaJurado['nombre_mesa']
+    $mesa['nombre_mesa'],
+    ENT_QUOTES,
+    'UTF-8'
 );
 
 ?>
 
-</h4>
+</h2>
 
 
-<p>
+<p class="mesa-texto">
 
-Mesa asignada a:
+Mesa asignada al jurado
 
 <strong>
 
 <?php
 
 echo htmlspecialchars(
-    $nombreUsuario
+    $nombreUsuario,
+    ENT_QUOTES,
+    'UTF-8'
 );
 
 ?>
@@ -2865,49 +1938,53 @@ echo htmlspecialchars(
 </p>
 
 
-<div class="estado-mesa">
+<div class="mesa-estado">
 
-<?php if (
-    $mesaJuradoAbierta
-) { ?>
+<?php
 
-🟢 Mesa de votación abierta
+if (
+    strtolower(
+        trim(
+            (string)$mesa['estado']
+        )
+    ) === 'abierta'
+) {
 
-<?php } else { ?>
+    echo "🟢 Mesa de votación abierta";
 
-🔒 Mesa de votación cerrada
+} else {
 
-<?php } ?>
+    echo "🔴 Mesa de votación cerrada";
+
+}
+
+?>
 
 </div>
 
 
 <?php if (
-    !$mesaJuradoAbierta &&
-    !empty(
-        $mesaJurado['fecha_cierre']
-    )
+    !empty($mesa['fecha_cierre'])
 ) { ?>
 
-<p
-    style="
-        margin-top:6px;
-        font-size:13px;
-    "
->
 
-📅 Cerrada:
+<p class="mesa-texto">
+
+📅 Fecha de cierre:
 
 <?php
 
 echo htmlspecialchars(
-    $mesaJurado['fecha_cierre']
+    $mesa['fecha_cierre'],
+    ENT_QUOTES,
+    'UTF-8'
 );
 
 ?>
 
 </p>
 
+
 <?php } ?>
 
 
@@ -2915,73 +1992,6 @@ echo htmlspecialchars(
 
 
 </div>
-
-
-<?php if (
-    $mesaJuradoAbierta
-) { ?>
-
-
-<form
-    method="POST"
-    action="cerrar_mesa.php"
-    onsubmit="
-        return confirm(
-            '¿Está seguro de cerrar esta mesa? Después de cerrarla no se podrán registrar nuevos votos en ella.'
-        );
-    "
->
-
-
-<input
-    type="hidden"
-    name="id_mesa"
-    value="<?php
-
-        echo (int)
-        $mesaJurado['id'];
-
-    ?>"
->
-
-
-<input
-    type="hidden"
-    name="id_eleccion"
-    value="<?php
-
-        echo $idEleccion;
-
-    ?>"
->
-
-
-<button
-    type="submit"
-    class="btn-cerrar-mesa"
->
-
-🔒 Cerrar mesa de votación
-
-</button>
-
-
-</form>
-
-
-<?php } else { ?>
-
-
-<span
-    class="mesa-cerrada-label"
->
-
-🔒 Mesa cerrada
-
-</span>
-
-
-<?php } ?>
 
 
 </div>
@@ -2990,12 +2000,10 @@ echo htmlspecialchars(
 <?php } else { ?>
 
 
-<div
-    class="mesa-jurado cerrada"
->
+<div class="mesa-card mesa-cerrada">
 
 
-<div class="mesa-contenido">
+<div class="mesa-info">
 
 
 <div class="mesa-icon">
@@ -3008,24 +2016,24 @@ echo htmlspecialchars(
 <div>
 
 
-<h4>
+<h2 class="mesa-nombre">
 
-🏫 Mesa no asignada
+Mesa no asignada
 
-</h4>
+</h2>
 
 
-<p>
+<p class="mesa-texto">
 
-No existe una mesa asignada
-a este jurado para esta elección.
+No tienes una mesa de votación asignada
+para esta elección.
 
 </p>
 
 
-<div class="estado-mesa">
+<div class="mesa-estado">
 
-🚫 No puede iniciar votaciones
+🚫 No puedes iniciar una votación
 
 </div>
 
@@ -3045,110 +2053,118 @@ a este jurado para esta elección.
 <?php } ?>
 
 
-</div>
-
-
-<!-- =====================================================
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
+<!-- =========================================================
      ESTADÍSTICAS
-================================================= -->
+========================================================= -->
 
 <section class="stats">
 
 
-    <div class="stat-card">
-
-        <div class="stat-icon">
-            🗳️
-        </div>
+<div class="stat">
 
 
-        <div class="stat-number">
+<div class="stat-icon">
 
-            <?php
+🗳️
 
-            echo $totalVotos;
-
-            ?>
-
-        </div>
+</div>
 
 
-        <div class="stat-label">
+<div class="stat-number">
 
-            Votos registrados
+<?php
 
-        </div>
+echo $totalVotos;
 
-    </div>
+?>
 
-
-    <div class="stat-card">
-
-        <div class="stat-icon">
-            👥
-        </div>
+</div>
 
 
-        <div class="stat-number">
+<div class="stat-label">
 
-            <?php
+Votos registrados
 
-            echo $totalCandidatos;
-
-            ?>
-
-        </div>
+</div>
 
 
-        <div class="stat-label">
-
-            Candidatos
-
-        </div>
-
-    </div>
+</div>
 
 
-    <div class="stat-card">
-
-        <div class="stat-icon">
-            🏅
-        </div>
+<div class="stat">
 
 
-        <div class="stat-number">
+<div class="stat-icon">
 
-            <?php
+👥
 
-            echo $totalCargos;
-
-            ?>
-
-        </div>
+</div>
 
 
-        <div class="stat-label">
+<div class="stat-number">
 
-            Cargos
+<?php
 
-        </div>
+echo $totalCandidatos;
 
-    </div>
+?>
+
+</div>
+
+
+<div class="stat-label">
+
+Candidatos
+
+</div>
+
+
+</div>
+
+
+<div class="stat">
+
+
+<div class="stat-icon">
+
+🏅
+
+</div>
+
+
+<div class="stat-number">
+
+<?php
+
+echo $totalCargos;
+
+?>
+
+</div>
+
+
+<div class="stat-label">
+
+Cargos
+
+</div>
+
+
+</div>
 
 
 </section>
 
 
-<!-- =================================================
-     RESULTADOS POR CARGO
-================================================= -->
+<!-- =========================================================
+     RESULTADOS
+========================================================= -->
 
 <?php
 
 if (
     empty($candidatosPorCargo)
-):
+) {
 
 ?>
 
@@ -3156,19 +2172,33 @@ if (
 <section class="cargo">
 
 
-    <div class="cargo-header">
+<div class="cargo-header">
 
-        🏅 Resultados
+🏆 Resultados
 
-    </div>
+</div>
 
 
-    <div class="sin-candidatos">
+<div class="sin-resultados">
 
-        👤 No hay candidatos registrados
-        para esta elección.
+👤
 
-    </div>
+<h3>
+
+No hay resultados disponibles
+
+</h3>
+
+
+<p>
+
+No existen candidatos registrados
+para esta elección.
+
+</p>
+
+
+</div>
 
 
 </section>
@@ -3176,22 +2206,22 @@ if (
 
 <?php
 
-else:
+} else {
 
-?>
-
-
-<?php
 
 foreach (
     $candidatosPorCargo
     as $cargo
-):
+) {
 
 
     $candidatos =
         $cargo['candidatos'];
 
+
+    /*
+     * Encontrar máximo de votos.
+     */
 
     $maxVotos = 0;
 
@@ -3201,194 +2231,36 @@ foreach (
         as $candidato
     ) {
 
-<<<<<<< HEAD
-        $v =
-            (int)
-            $candidato['votos'];
-=======
-        $idCargo =
-            (int)$cargo['id'];
-
-
-        /* =============================================
-           TOTAL VOTOS DEL CARGO
-        ============================================= */
-
-        $totalVotosCargo = 0;
-
-
-        $stmtTotal =
-            $conn->prepare("
-
-                SELECT
-                    COUNT(*) AS total
-
-                FROM votos
-
-                WHERE id_eleccion = ?
-
-                AND id_cargo = ?
-
-            ");
-
-
-        $stmtTotal->bind_param(
-            "ii",
-            $idEleccion,
-            $idCargo
-        );
-
-
-        $stmtTotal->execute();
-
-
-        $resultadoTotal =
-            $stmtTotal->get_result();
-
-
-        $filaTotal =
-            $resultadoTotal->fetch_assoc();
-
-
-        $totalVotosCargo =
-            (int)$filaTotal['total'];
-
-
-        $stmtTotal->close();
-
-
-        /* =============================================
-           CANDIDATOS Y VOTOS
-        ============================================= */
-
-        $resultadosCargo = [];
-
-
-        $stmt =
-            $conn->prepare("
-
-                SELECT
-
-                    c.id,
-
-                    c.nombre,
-
-                    c.apellido,
-
-                    c.curso,
-
-                    c.foto,
-
-                    COUNT(v.id) AS total
-
-                FROM candidatos c
-
-                LEFT JOIN votos v
-
-                    ON v.id_candidato = c.id
-
-                    AND v.id_eleccion = ?
-
-                    AND v.id_cargo = ?
-
-                WHERE c.id_eleccion = ?
-
-                AND c.id_cargo = ?
-
-                GROUP BY
-
-                    c.id,
-
-                    c.nombre,
-
-                    c.apellido,
-
-                    c.curso,
-
-                    c.foto
-
-                ORDER BY
-
-                    total DESC,
-
-                    c.id ASC
-
-            ");
-
-
-        $stmt->bind_param(
-            "iiii",
-            $idEleccion,
-            $idCargo,
-            $idEleccion,
-            $idCargo
-        );
-
-
-        $stmt->execute();
-
-
-        $resultado =
-            $stmt->get_result();
-
-
-        while (
-            $fila =
-            $resultado->fetch_assoc()
-        ) {
-
-            $resultadosCargo[] =
-                $fila;
-
-        }
-
-
-        $stmt->close();
-
-
-        /* =============================================
-           MAYOR CANTIDAD
-        ============================================= */
-
-        $mayorCantidad = 0;
-
-
-        foreach (
-            $resultadosCargo as $fila
-        ) {
-
-            $cantidad =
-                (int)$fila['total'];
-
-
-            if (
-                $cantidad >
-                $mayorCantidad
-            ) {
-
-                $mayorCantidad =
-                    $cantidad;
-
-            }
-
-        }
-
-
-        /* =============================================
-           EMPATES
-        ============================================= */
-
-        $cantidadEmpatados = 0;
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
+        $votos =
+            (int)$candidato['votos'];
 
 
         if (
-            $v > $maxVotos
+            $votos > $maxVotos
         ) {
 
-            $maxVotos = $v;
+            $maxVotos =
+                $votos;
 
         }
+
+    }
+
+
+    /*
+     * Total de votos del cargo.
+     */
+
+    $totalVotosCargo = 0;
+
+
+    foreach (
+        $candidatos
+        as $candidato
+    ) {
+
+        $totalVotosCargo +=
+            (int)$candidato['votos'];
 
     }
 
@@ -3398,390 +2270,192 @@ foreach (
 <section class="cargo">
 
 
-    <div class="cargo-header">
+<div class="cargo-header">
 
-        🏅
+🏅
 
-        <?php
+<?php
 
-        echo htmlspecialchars(
-            $cargo['nombre_cargo']
-        );
+echo htmlspecialchars(
+    $cargo['nombre_cargo'],
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-        ?>
+?>
 
-    </div>
+</div>
 
 
-    <div style="overflow-x:auto;">
+<div class="tabla-contenedor">
 
 
-        <table class="tabla">
+<table class="tabla">
 
 
-            <thead>
+<thead>
 
 
-                <tr>
+<tr>
 
-                    <th>
-                        👤 Candidato
-                    </th>
 
-                    <th>
-                        🎓 Curso
-                    </th>
+<th>
 
-                    <th>
-                        🗳️ Votos
-                    </th>
+👤 Candidato
 
-                    <th>
-                        📊 Porcentaje
-                    </th>
+</th>
 
-                    <th>
-                        🏆 Estado
-                    </th>
 
-                </tr>
+<th>
 
+🎓 Curso
 
-            </thead>
+</th>
 
 
-            <tbody>
+<th>
 
+🗳️ Votos
 
-            <?php
+</th>
 
-            foreach (
-                $candidatos
-                as $candidato
-            ):
 
+<th>
 
-                $votosCandidato =
-                    (int)
-                    $candidato['votos'];
+📊 Porcentaje
 
+</th>
 
-                $porcentaje = 0;
 
+<th>
 
-                if (
-                    $totalVotos > 0
-                ) {
+🏆 Estado
 
-                    $porcentaje =
-                        (
-                            $votosCandidato
-                            /
-                            $totalVotos
-                        ) * 100;
+</th>
 
-                }
 
+</tr>
 
-                $esGanador =
-                    (
-                        $maxVotos > 0
-                        &&
-                        $votosCandidato === $maxVotos
-                    );
 
+</thead>
 
-                /*
-                 * BUSCAR LA FOTO REAL
-                 */
 
-                $foto =
-                    encontrarFotoCandidato(
-                        $candidato['foto']
-                        ??
-                        ''
-                    );
-
-            ?>
-
-
-            <tr>
-
-
-                <td>
-
-
-                    <div class="candidato">
-
-
-                        <?php
-
-                        if (
-                            $foto !== ''
-                        ):
-
-                        ?>
-
-
-                            <img
-                                src="<?php
-                                echo htmlspecialchars(
-                                    $foto
-                                );
-                                ?>"
-                                class="foto"
-                                alt="Foto del candidato"
-                                onerror="
-                                    this.style.display='none';
-                                    this.nextElementSibling.style.display='flex';
-                                "
-                            >
-
-
-                            <div
-                                class="foto-vacia"
-                                style="display:none;"
-                            >
-
-                                👤
-
-                            </div>
-
-
-                        <?php
-
-                        else:
-
-                        ?>
-
-
-                            <div class="foto-vacia">
-
-                                👤
-
-                            </div>
-
-
-                        <?php
-
-                        endif;
-
-                        ?>
-
-
-                        <div>
-
-
-                            <div class="nombre-candidato">
-
-                                <?php
-
-                                echo htmlspecialchars(
-                                    $candidato['nombre']
-                                    . ' '
-                                    . $candidato['apellido']
-                                );
-
-                                ?>
-
-                            </div>
-
-
-                        </div>
-
-
-                    </div>
-
-
-                </td>
-
-
-                <td>
-
-                    🎓
-
-                    <?php
-
-                    echo htmlspecialchars(
-                        $candidato['curso']
-                        ??
-                        ''
-                    );
-
-                    ?>
-
-                </td>
-
-
-                <td>
-
-                    <span class="votos">
-
-                        🗳️
-
-                        <?php
-
-                        echo $votosCandidato;
-
-                        ?>
-
-                    </span>
-
-                </td>
-
-
-                <td>
-
-                    <span class="porcentaje">
-
-                        📊
-
-                        <?php
-
-                        echo number_format(
-                            $porcentaje,
-                            0
-                        );
-
-                        ?>%
-
-                    </span>
-
-                </td>
-
-
-                <td>
-
-
-                    <?php
-
-                    if (
-                        $esGanador
-                    ):
-
-                    ?>
-
-
-                        <span class="ganador">
-
-                            🏆 GANADOR
-
-                        </span>
-
-
-                    <?php
-
-                    endif;
-
-                    ?>
-
-
-                </td>
-
-
-            </tr>
-
-
-            <?php
-
-            endforeach;
-
-            ?>
-
-
-            </tbody>
-
-
-        </table>
-
-
-    </div>
-
-
-</section>
+<tbody>
 
 
 <?php
 
-<<<<<<< HEAD
-endforeach;
-=======
-$foto =
-    trim(
-        (string)$fila['foto']
-    );
-
-
-$rutaFoto =
-    "uploads/candidatos/"
-    .
-    $foto;
-
-
-if (
-    $foto !== ""
-    &&
-    file_exists(
-        $rutaFoto
-    )
+foreach (
+    $candidatos
+    as $candidato
 ) {
 
+
+    $votosCandidato =
+        (int)$candidato['votos'];
+
+
+    $porcentaje = 0;
+
+
+    if (
+        $totalVotosCargo > 0
+    ) {
+
+        $porcentaje =
+            (
+                $votosCandidato
+                /
+                $totalVotosCargo
+            ) * 100;
+
+    }
+
+
+    $esGanador =
+        (
+            $maxVotos > 0 &&
+            $votosCandidato === $maxVotos
+        );
+
+
+    $foto =
+        obtenerFoto(
+            $candidato['foto'] ?? ''
+        );
+
 ?>
+
+
+<tr>
+
+
+<td>
+
+
+<div class="candidato">
+
+
+<?php if (
+    $foto !== ''
+) { ?>
 
 
 <img
-
-src="<?php
-
-echo htmlspecialchars(
-    $rutaFoto
-);
-
-?>"
-
-class="foto"
-
-alt="Foto del candidato"
-
+    src="<?php echo htmlspecialchars(
+        $foto,
+        ENT_QUOTES,
+        'UTF-8'
+    ); ?>"
+    class="foto"
+    alt="Foto del candidato"
+    onerror="
+        this.style.display='none';
+        this.nextElementSibling.style.display='flex';
+    "
 >
 
 
-<?php
+<div
+    class="foto-vacia"
+    style="display:none;"
+>
 
-} else {
-
-?>
-
-
-<div class="sin-foto">
-
-<i class="bi bi-person-fill"></i>
+👤
 
 </div>
 
 
-<?php
-
-}
-
-?>
+<?php } else { ?>
 
 
-<strong>
+<div class="foto-vacia">
+
+👤
+
+</div>
+
+
+<?php } ?>
+
+
+<div class="nombre">
+
 
 <?php
 
 echo htmlspecialchars(
-    $fila['nombre']
-    .
-    " "
-    .
-    $fila['apellido']
+    $candidato['nombre']
+    . ' '
+    . $candidato['apellido'],
+    ENT_QUOTES,
+    'UTF-8'
 );
 
 ?>
 
-</strong>
+
+</div>
 
 
 </div>
@@ -3792,18 +2466,26 @@ echo htmlspecialchars(
 
 <td>
 
+
+🎓
+
 <?php
 
 echo htmlspecialchars(
-    $fila['curso']
+    $candidato['curso']
+    ?? '',
+    ENT_QUOTES,
+    'UTF-8'
 );
 
 ?>
+
 
 </td>
 
 
 <td>
+
 
 <span class="votos">
 
@@ -3821,11 +2503,19 @@ echo $votosCandidato;
 
 <td>
 
+
+<span class="porcentaje">
+
 <?php
 
-echo $porcentaje;
+echo number_format(
+    $porcentaje,
+    1
+);
 
 ?>%
+
+</span>
 
 
 </td>
@@ -3835,52 +2525,23 @@ echo $porcentaje;
 
 
 <?php if (
-    $esEmpate
+    $esGanador
 ) { ?>
 
 
-<span class="badge-empate">
-
-⚠️ EMPATE
-
-</span>
-
-
-<?php
-
-} elseif (
-    $esMayor
-) {
-
-?>
-
-
-<span class="badge-ganador">
+<span class="ganador">
 
 🏆 GANADOR
 
 </span>
 
 
-<?php
-
-} else {
-
-?>
+<?php } else { ?>
 
 
-<span class="text-muted">
+—
 
-Participante
-
-</span>
-
-
-<?php
-
-}
-
-?>
+<?php } ?>
 
 
 </td>
@@ -3892,14 +2553,27 @@ Participante
 <?php
 
 }
->>>>>>> 434b2ebdd65091129a8816585a0e013cea6e82cb
 
 ?>
 
 
+</tbody>
+
+
+</table>
+
+
+</div>
+
+
+</section>
+
+
 <?php
 
-endif;
+}
+
+}
 
 ?>
 

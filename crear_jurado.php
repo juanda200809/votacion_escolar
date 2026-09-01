@@ -2,135 +2,83 @@
 
 session_start();
 
-include("config/conexion.php");
+require_once "config/conexion.php";
+
+$conn->set_charset("utf8mb4");
 
 
 /* =========================================================
-   VERIFICAR ADMINISTRADOR
+   SEGURIDAD
 ========================================================= */
 
 if (
     !isset($_SESSION['id']) ||
     !isset($_SESSION['rol']) ||
-    strtolower(trim($_SESSION['rol'])) !== 'administrador'
+    strtolower(trim((string)$_SESSION['rol'])) !== 'administrador'
 ) {
-
     header("Location: login.php");
     exit();
-
 }
 
+
+/* =========================================================
+   VARIABLES
+========================================================= */
 
 $mensaje = "";
-$tipoMensaje = "";
+$tipoMensaje = "success";
+
+$documento = "";
+$nombre = "";
+$apellido = "";
+$curso = "";
+$correo = "";
 
 
 /* =========================================================
-   ELIMINAR JURADO
+   ELECCIÓN ACTUAL
 ========================================================= */
 
-if (isset($_GET['eliminar'])) {
+$idEleccion = 0;
 
-    $id = (int)$_GET['eliminar'];
+$stmtEleccion = $conn->prepare("
+    SELECT
+        id,
+        nombre,
+        estado
+    FROM elecciones
+    ORDER BY id DESC
+    LIMIT 1
+");
 
-
-    if ($id <= 0) {
-
-        header(
-            "Location: crear_jurado.php?error=eliminar"
-        );
-
-        exit();
-
-    }
-
-
-    /*
-     * Eliminamos solamente usuarios con rol jurado.
-     *
-     * Si existe una mesa relacionada y la base de datos
-     * tiene ON DELETE CASCADE, su mesa también se eliminará.
-     */
-
-    $stmt = $conn->prepare("
-
-        DELETE FROM usuarios
-
-        WHERE id = ?
-
-        AND rol = 'jurado'
-
-    ");
-
-
-    if (!$stmt) {
-
-        header(
-            "Location: crear_jurado.php?error=eliminar"
-        );
-
-        exit();
-
-    }
-
-
-    $stmt->bind_param(
-        "i",
-        $id
+if (!$stmtEleccion) {
+    die(
+        "Error al consultar la elección: "
+        . $conn->error
     );
+}
+
+$stmtEleccion->execute();
+
+$resultadoEleccion =
+    $stmtEleccion->get_result();
+
+$eleccion =
+    $resultadoEleccion->fetch_assoc();
+
+$stmtEleccion->close();
 
 
-    if (
-        $stmt->execute()
-    ) {
+if (!$eleccion) {
 
-        $stmt->close();
-
-        header(
-            "Location: crear_jurado.php?eliminado=1"
-        );
-
-        exit();
-
-    }
-
-
-    $stmt->close();
-
-
-    header(
-        "Location: crear_jurado.php?error=eliminar"
+    die(
+        "No existe ninguna elección registrada."
     );
-
-    exit();
-
 }
 
 
-/* =========================================================
-   MENSAJES DESDE REDIRECCIONES
-========================================================= */
-
-if (isset($_GET['eliminado'])) {
-
-    $mensaje =
-        "El jurado fue eliminado correctamente.";
-
-    $tipoMensaje =
-        "success";
-
-}
-
-
-if (isset($_GET['error'])) {
-
-    $mensaje =
-        "No fue posible realizar la operación.";
-
-    $tipoMensaje =
-        "danger";
-
-}
+$idEleccion =
+    (int)$eleccion['id'];
 
 
 /* =========================================================
@@ -138,102 +86,99 @@ if (isset($_GET['error'])) {
 ========================================================= */
 
 if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['guardar'])
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    &&
+    isset($_POST['registrar_jurado'])
 ) {
-
 
     $documento =
         trim(
-            $_POST['documento'] ?? ""
+            (string)($_POST['documento'] ?? '')
         );
-
 
     $nombre =
         trim(
-            $_POST['nombre'] ?? ""
+            (string)($_POST['nombre'] ?? '')
         );
-
 
     $apellido =
         trim(
-            $_POST['apellido'] ?? ""
+            (string)($_POST['apellido'] ?? '')
         );
-
 
     $curso =
         trim(
-            $_POST['curso'] ?? ""
+            (string)($_POST['curso'] ?? '')
+        );
+
+    $correo =
+        trim(
+            (string)($_POST['correo'] ?? '')
         );
 
 
-    /* =====================================================
-       VALIDAR CAMPOS
-    ===================================================== */
+    /* -----------------------------------------------------
+       VALIDAR DATOS
+    ----------------------------------------------------- */
 
     if (
-        $documento === "" ||
-        $nombre === "" ||
-        $apellido === "" ||
-        $curso === ""
+        $documento === ''
+        ||
+        $nombre === ''
+        ||
+        $apellido === ''
     ) {
 
         $mensaje =
-            "Debe completar todos los campos.";
+            "Complete todos los campos obligatorios.";
 
         $tipoMensaje =
             "danger";
 
-    }
+    } else {
 
 
-    /* =====================================================
-       VALIDAR DOCUMENTO
-    ===================================================== */
+        /* -------------------------------------------------
+           VERIFICAR DOCUMENTO
+        ------------------------------------------------- */
 
-    elseif (
-        !preg_match(
-            '/^[0-9]+$/',
-            $documento
-        )
-    ) {
-
-        $mensaje =
-            "El documento debe contener únicamente números.";
-
-        $tipoMensaje =
-            "danger";
-
-    }
-
-
-    else {
-
-
-        /* =================================================
-           COMPROBAR DOCUMENTO EXISTENTE
-        ================================================= */
-
-        $stmt =
+        $stmtExiste =
             $conn->prepare("
-
-                SELECT
-                    id,
-                    rol
-
+                SELECT id
                 FROM usuarios
-
                 WHERE documento = ?
-
                 LIMIT 1
-
             ");
 
+        if (!$stmtExiste) {
 
-        if (!$stmt) {
+            die(
+                "Error al preparar la consulta: "
+                . $conn->error
+            );
+        }
+
+
+        $stmtExiste->bind_param(
+            "s",
+            $documento
+        );
+
+        $stmtExiste->execute();
+
+        $resultadoExiste =
+            $stmtExiste->get_result();
+
+        $existe =
+            $resultadoExiste->fetch_assoc();
+
+        $stmtExiste->close();
+
+
+        if ($existe) {
 
             $mensaje =
-                "No se pudo comprobar el documento.";
+                "Ya existe un usuario con ese documento.";
 
             $tipoMensaje =
                 "danger";
@@ -241,613 +186,420 @@ if (
         } else {
 
 
-            $stmt->bind_param(
-                "s",
-                $documento
-            );
+            /* ---------------------------------------------
+               CONTRASEÑA
+            --------------------------------------------- */
+
+            $passwordHash =
+                password_hash(
+                    $documento,
+                    PASSWORD_DEFAULT
+                );
 
 
-            $stmt->execute();
+            /* ---------------------------------------------
+               TRANSACCIÓN
+            --------------------------------------------- */
+
+            $conn->begin_transaction();
 
 
-            $resultado =
-                $stmt->get_result();
+            try {
 
 
-            if (
-                $resultado->num_rows > 0
-            ) {
+                /* -----------------------------------------
+                   CREAR JURADO
+                ----------------------------------------- */
 
-
-                $usuarioExistente =
-                    $resultado->fetch_assoc();
-
-
-                $stmt->close();
-
-
-                $rolExistente =
-                    strtolower(
-                        trim(
-                            (string)$usuarioExistente['rol']
+                $stmtJurado =
+                    $conn->prepare("
+                        INSERT INTO usuarios
+                        (
+                            documento,
+                            nombre,
+                            apellido,
+                            correo,
+                            curso,
+                            password,
+                            rol
                         )
+                        VALUES
+                        (
+                            ?,
+                            ?,
+                            ?,
+                            ?,
+                            ?,
+                            ?,
+                            'jurado'
+                        )
+                    ");
+
+
+                if (!$stmtJurado) {
+
+                    throw new Exception(
+                        "No se pudo preparar el registro del jurado."
                     );
+                }
+
+
+                $stmtJurado->bind_param(
+                    "ssssss",
+                    $documento,
+                    $nombre,
+                    $apellido,
+                    $correo,
+                    $curso,
+                    $passwordHash
+                );
 
 
                 if (
-                    $rolExistente === "jurado"
+                    !$stmtJurado->execute()
                 ) {
 
-                    $mensaje =
-                        "Ya existe un jurado con ese documento.";
-
-                } else {
-
-                    $mensaje =
-                        "Ese documento ya pertenece a otro usuario del sistema.";
-
-                }
-
-
-                $tipoMensaje =
-                    "danger";
-
-
-            } else {
-
-
-                $stmt->close();
-
-
-                /* =================================================
-                   INICIAR TRANSACCIÓN
-                ================================================= */
-
-                $conn->begin_transaction();
-
-
-                try {
-
-
-                    /* =============================================
-                       CONTRASEÑA AUTOMÁTICA
-                    ============================================= */
-
-                    $password_hash =
-                        password_hash(
-                            $documento,
-                            PASSWORD_DEFAULT
-                        );
-
-
-                    if (
-                        $password_hash === false
-                    ) {
-
-                        throw new Exception(
-                            "No se pudo generar la contraseña."
-                        );
-
-                    }
-
-
-                    /* =============================================
-                       CORREO
-                    ============================================= */
-
-                    $correo = "";
-
-
-                    /* =============================================
-                       INSERTAR JURADO
-                    ============================================= */
-
-                    $stmtJurado =
-                        $conn->prepare("
-
-                            INSERT INTO usuarios
-                            (
-                                documento,
-                                nombre,
-                                apellido,
-                                correo,
-                                curso,
-                                password,
-                                rol
-                            )
-
-                            VALUES
-                            (
-                                ?,
-                                ?,
-                                ?,
-                                ?,
-                                ?,
-                                ?,
-                                'jurado'
-                            )
-
-                        ");
-
-
-                    if (!$stmtJurado) {
-
-                        throw new Exception(
-                            "No se pudo preparar el registro del jurado."
-                        );
-
-                    }
-
-
-                    $stmtJurado->bind_param(
-
-                        "ssssss",
-
-                        $documento,
-
-                        $nombre,
-
-                        $apellido,
-
-                        $correo,
-
-                        $curso,
-
-                        $password_hash
-
-                    );
-
-
-                    if (
-                        !$stmtJurado->execute()
-                    ) {
-
-                        $stmtJurado->close();
-
-                        throw new Exception(
-                            "No se pudo registrar el jurado."
-                        );
-
-                    }
-
-
-                    /*
-                     * ID REAL DEL JURADO RECIÉN CREADO.
-                     */
-
-                    $idJurado =
-                        (int)$conn->insert_id;
-
+                    $error =
+                        $stmtJurado->error;
 
                     $stmtJurado->close();
 
-
-                    if (
-                        $idJurado <= 0
-                    ) {
-
-                        throw new Exception(
-                            "No se pudo obtener el ID del nuevo jurado."
-                        );
-
-                    }
+                    throw new Exception(
+                        "No se pudo registrar el jurado: "
+                        . $error
+                    );
+                }
 
 
-                    /* =============================================
-                       BUSCAR LA ELECCIÓN ACTUAL
-                    ============================================= */
+                /* -----------------------------------------
+                   ID DEL JURADO
+                ----------------------------------------- */
 
-                    /*
-                     * Tomamos la elección más reciente.
-                     *
-                     * NO modificamos el estado de la elección.
-                     *
-                     * Si está abierta, la mesa comenzará abierta.
-                     * Si está cerrada, la mesa también queda cerrada.
-                     */
-
-                    $stmtEleccion =
-                        $conn->prepare("
-
-                            SELECT
-                                id,
-                                nombre,
-                                estado
-
-                            FROM elecciones
-
-                            ORDER BY id DESC
-
-                            LIMIT 1
-
-                        ");
+                $idJurado =
+                    (int)$conn->insert_id;
 
 
-                    if (!$stmtEleccion) {
-
-                        throw new Exception(
-                            "No se pudo consultar la elección actual."
-                        );
-
-                    }
+                $stmtJurado->close();
 
 
-                    $stmtEleccion->execute();
+                if ($idJurado <= 0) {
+
+                    throw new Exception(
+                        "No se pudo obtener el ID del jurado creado."
+                    );
+                }
 
 
-                    $resultadoEleccion =
-                        $stmtEleccion->get_result();
+                /* -----------------------------------------
+                   BUSCAR NÚMERO DE MESA
+                ----------------------------------------- */
+
+                $stmtNumero =
+                    $conn->prepare("
+                        SELECT
+                            COALESCE(
+                                MAX(
+                                    CAST(
+                                        REPLACE(
+                                            nombre_mesa,
+                                            'Mesa ',
+                                            ''
+                                        ) AS UNSIGNED
+                                    )
+                                ),
+                                0
+                            ) AS ultimo_numero
+
+                        FROM mesas_votacion
+
+                        WHERE id_eleccion = ?
+                    ");
 
 
-                    $eleccion =
-                        $resultadoEleccion->fetch_assoc();
+                if (!$stmtNumero) {
+
+                    throw new Exception(
+                        "No se pudo consultar el número de mesa."
+                    );
+                }
 
 
-                    $stmtEleccion->close();
+                $stmtNumero->bind_param(
+                    "i",
+                    $idEleccion
+                );
 
 
-                    if (!$eleccion) {
+                if (
+                    !$stmtNumero->execute()
+                ) {
 
-                        throw new Exception(
-                            "No existe ninguna elección. Cree una elección antes de registrar jurados."
-                        );
+                    $stmtNumero->close();
 
-                    }
-
-
-                    $idEleccion =
-                        (int)$eleccion['id'];
-
-
-                    $estadoEleccion =
-                        strtolower(
-                            trim(
-                                (string)$eleccion['estado']
-                            )
-                        );
+                    throw new Exception(
+                        "No se pudo calcular el número de mesa."
+                    );
+                }
 
 
-                    /* =============================================
-                       DETERMINAR ESTADO INICIAL DE LA MESA
-                    ============================================= */
-
-                    /*
-                     * La mesa NO se crea cerrada automáticamente
-                     * cuando la elección está abierta.
-                     *
-                     * Esto es lo que corrige el problema actual.
-                     */
-
-                    if (
-                        $estadoEleccion === "abierta"
-                    ) {
-
-                        $estadoMesa =
-                            "abierta";
-
-                    } else {
-
-                        $estadoMesa =
-                            "cerrada";
-
-                    }
+                $resultadoNumero =
+                    $stmtNumero->get_result();
 
 
-                    /* =============================================
-                       COMPROBAR SI YA TIENE MESA
-                    ============================================= */
-
-                    $stmtMesaExiste =
-                        $conn->prepare("
-
-                            SELECT
-                                id,
-                                estado
-
-                            FROM mesas_votacion
-
-                            WHERE id_eleccion = ?
-
-                            AND id_jurado = ?
-
-                            LIMIT 1
-
-                        ");
+                $filaNumero =
+                    $resultadoNumero->fetch_assoc();
 
 
-                    if (!$stmtMesaExiste) {
-
-                        throw new Exception(
-                            "No se pudo comprobar la mesa del jurado."
-                        );
-
-                    }
+                $stmtNumero->close();
 
 
-                    $stmtMesaExiste->bind_param(
-                        "ii",
-                        $idEleccion,
-                        $idJurado
+                $ultimoNumero =
+                    (int)(
+                        $filaNumero['ultimo_numero']
+                        ?? 0
                     );
 
 
-                    $stmtMesaExiste->execute();
-
-
-                    $resultadoMesaExiste =
-                        $stmtMesaExiste->get_result();
-
-
-                    $mesaExistente =
-                        $resultadoMesaExiste->fetch_assoc();
-
-
-                    $stmtMesaExiste->close();
-
-
-                    /* =============================================
-                       CREAR MESA
-                    ============================================= */
-
-                    if (
-                        !$mesaExistente
-                    ) {
-
-
-                        /*
-                         * Nombre de la mesa.
-                         *
-                         * Ejemplo:
-                         * Mesa 1
-                         * Mesa 2
-                         * Mesa 3
-                         */
-
-                        $stmtNumeroMesa =
-                            $conn->prepare("
-
-                                SELECT
-                                    COUNT(*) AS total
-
-                                FROM mesas_votacion
-
-                                WHERE id_eleccion = ?
-
-                            ");
-
-
-                        if (!$stmtNumeroMesa) {
-
-                            throw new Exception(
-                                "No se pudo calcular el número de mesa."
-                            );
-
-                        }
-
-
-                        $stmtNumeroMesa->bind_param(
-                            "i",
-                            $idEleccion
-                        );
-
-
-                        $stmtNumeroMesa->execute();
-
-
-                        $resultadoNumeroMesa =
-                            $stmtNumeroMesa->get_result();
-
-
-                        $filaNumeroMesa =
-                            $resultadoNumeroMesa->fetch_assoc();
-
-
-                        $stmtNumeroMesa->close();
-
-
-                        $numeroMesa =
-                            (
-                                (int)(
-                                    $filaNumeroMesa['total']
-                                    ??
-                                    0
-                                )
-                            )
-                            + 1;
-
-
-                        $nombreMesa =
-                            "Mesa "
-                            .
-                            $numeroMesa;
-
-
-                        /* =========================================
-                           INSERTAR MESA
-                        ========================================= */
-
-                        $stmtMesa =
-                            $conn->prepare("
-
-                                INSERT INTO mesas_votacion
-                                (
-                                    id_eleccion,
-                                    id_jurado,
-                                    nombre_mesa,
-                                    estado,
-                                    fecha_cierre
-                                )
-
-                                VALUES
-                                (
-                                    ?,
-                                    ?,
-                                    ?,
-                                    ?,
-                                    NULL
-                                )
-
-                            ");
-
-
-                        if (!$stmtMesa) {
-
-                            throw new Exception(
-                                "No se pudo preparar la creación de la mesa."
-                            );
-
-                        }
-
-
-                        $stmtMesa->bind_param(
-
-                            "iiss",
-
-                            $idEleccion,
-
-                            $idJurado,
-
-                            $nombreMesa,
-
-                            $estadoMesa
-
-                        );
-
-
-                        if (
-                            !$stmtMesa->execute()
-                        ) {
-
-                            $stmtMesa->close();
-
-                            throw new Exception(
-                                "No se pudo crear la mesa de votación."
-                            );
-
-                        }
-
-
-                        $stmtMesa->close();
-
-
-                    }
-
-
-                    /* =============================================
-                       CONFIRMAR TRANSACCIÓN
-                    ============================================= */
-
-                    $conn->commit();
-
-
-                    /* =============================================
-                       MENSAJE FINAL
-                    ============================================= */
-
-                    if (
-                        $estadoMesa === "abierta"
-                    ) {
-
-                        $mensaje =
-                            "Jurado registrado correctamente. " .
-                            "Su mesa de votación fue creada y está abierta.";
-
-                    } else {
-
-                        $mensaje =
-                            "Jurado registrado correctamente. " .
-                            "Su mesa fue creada, pero la elección actualmente está cerrada.";
-
-                    }
-
-
-                    $tipoMensaje =
-                        "success";
-
-
-                    /* =============================================
-                       LIMPIAR FORMULARIO
-                    ============================================= */
-
-                    $documento = "";
-                    $nombre = "";
-                    $apellido = "";
-                    $curso = "";
-
-
-                } catch (
-                    Throwable $e
-                ) {
-
-
-                    /*
-                     * Si falla la mesa, también se deshace
-                     * la creación del jurado.
-                     */
-
-                    $conn->rollback();
-
-
-                    $mensaje =
-                        $e->getMessage();
-
-                    $tipoMensaje =
-                        "danger";
-
+                $numeroMesa =
+                    $ultimoNumero + 1;
+
+
+                $nombreMesa =
+                    "Mesa " . $numeroMesa;
+
+
+                /* -----------------------------------------
+                   CREAR MESA AUTOMÁTICAMENTE
+                ----------------------------------------- */
+
+                $stmtMesa =
+                    $conn->prepare("
+                        INSERT INTO mesas_votacion
+                        (
+                            id_eleccion,
+                            id_jurado,
+                            nombre_mesa,
+                            estado,
+                            fecha_cierre
+                        )
+                        VALUES
+                        (
+                            ?,
+                            ?,
+                            ?,
+                            'abierta',
+                            NULL
+                        )
+                    ");
+
+
+                if (!$stmtMesa) {
+
+                    throw new Exception(
+                        "No se pudo preparar la creación de la mesa: "
+                        . $conn->error
+                    );
                 }
 
+
+                $stmtMesa->bind_param(
+                    "iis",
+                    $idEleccion,
+                    $idJurado,
+                    $nombreMesa
+                );
+
+
+                if (
+                    !$stmtMesa->execute()
+                ) {
+
+                    $errorMesa =
+                        $stmtMesa->error;
+
+                    $stmtMesa->close();
+
+                    throw new Exception(
+                        "No se pudo crear la mesa automáticamente: "
+                        . $errorMesa
+                    );
+                }
+
+
+                $stmtMesa->close();
+
+
+                /* -----------------------------------------
+                   TODO CORRECTO
+                ----------------------------------------- */
+
+                $conn->commit();
+
+
+                header(
+                    "Location: jurados.php?creado=1"
+                );
+
+                exit();
+
+
+            } catch (Throwable $e) {
+
+
+                $conn->rollback();
+
+
+                $mensaje =
+                    $e->getMessage();
+
+                $tipoMensaje =
+                    "danger";
             }
-
         }
-
     }
-
 }
 
 
 /* =========================================================
-   LISTAR JURADOS
+   ELIMINAR JURADO
 ========================================================= */
 
-$jurados =
-    $conn->query("
+if (
+    isset($_GET['eliminar'])
+) {
 
-        SELECT
-            id,
-            documento,
-            nombre,
-            apellido,
-            curso,
-            fecha_registro
-
-        FROM usuarios
-
-        WHERE rol = 'jurado'
-
-        ORDER BY
-            nombre ASC,
-            apellido ASC
-
-    ");
+    $idJurado =
+        (int)$_GET['eliminar'];
 
 
-if (!$jurados) {
+    if ($idJurado > 0) {
 
-    die(
-        "Error al consultar jurados: "
-        . htmlspecialchars(
-            $conn->error
-        )
-    );
 
+        $conn->begin_transaction();
+
+
+        try {
+
+
+            /* ---------------------------------------------
+               ELIMINAR MESAS DEL JURADO
+            --------------------------------------------- */
+
+            $stmtMesa =
+                $conn->prepare("
+                    DELETE FROM mesas_votacion
+                    WHERE id_jurado = ?
+                ");
+
+
+            if (!$stmtMesa) {
+
+                throw new Exception(
+                    "No se pudo preparar la eliminación de la mesa."
+                );
+            }
+
+
+            $stmtMesa->bind_param(
+                "i",
+                $idJurado
+            );
+
+
+            if (
+                !$stmtMesa->execute()
+            ) {
+
+                $error =
+                    $stmtMesa->error;
+
+                $stmtMesa->close();
+
+                throw new Exception(
+                    "No se pudo eliminar la mesa: "
+                    . $error
+                );
+            }
+
+
+            $stmtMesa->close();
+
+
+            /* ---------------------------------------------
+               ELIMINAR JURADO
+            --------------------------------------------- */
+
+            $stmtJurado =
+                $conn->prepare("
+                    DELETE FROM usuarios
+                    WHERE id = ?
+                    AND LOWER(TRIM(rol)) = 'jurado'
+                ");
+
+
+            if (!$stmtJurado) {
+
+                throw new Exception(
+                    "No se pudo preparar la eliminación del jurado."
+                );
+            }
+
+
+            $stmtJurado->bind_param(
+                "i",
+                $idJurado
+            );
+
+
+            if (
+                !$stmtJurado->execute()
+            ) {
+
+                $error =
+                    $stmtJurado->error;
+
+                $stmtJurado->close();
+
+                throw new Exception(
+                    "No se pudo eliminar el jurado: "
+                    . $error
+                );
+            }
+
+
+            $stmtJurado->close();
+
+
+            $conn->commit();
+
+
+            header(
+                "Location: jurados.php?eliminado=1"
+            );
+
+            exit();
+
+
+        } catch (Throwable $e) {
+
+
+            $conn->rollback();
+
+
+            header(
+                "Location: jurados.php?error="
+                .
+                urlencode(
+                    $e->getMessage()
+                )
+            );
+
+            exit();
+        }
+    }
 }
 
-
-$totalJurados =
-    $jurados->num_rows;
-
 ?>
-
 
 <!DOCTYPE html>
 
@@ -858,167 +610,211 @@ $totalJurados =
 <meta charset="UTF-8">
 
 <meta
-name="viewport"
-content="width=device-width, initial-scale=1">
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
 <title>
-
-Gestión de Jurados
-
+Crear jurado
 </title>
 
 
 <link
-href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-rel="stylesheet">
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+>
 
 
 <link
-rel="stylesheet"
-href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+>
 
 
 <style>
 
 body {
 
-    background:#eef3f9;
+    background: #eef3f9;
 
-    min-height:100vh;
+    min-height: 100vh;
 
 }
 
 
 .contenedor {
 
-    max-width:1400px;
+    max-width: 900px;
 
+    margin:
+        40px auto;
+
+    padding:
+        0 20px;
 }
 
 
 .card-jurado {
 
-    border:none;
+    background: white;
 
-    border-radius:18px;
+    border: none;
+
+    border-radius: 18px;
 
     box-shadow:
-        0 5px 20px
-        rgba(0,0,0,.12);
+        0 6px 25px
+        rgba(0,0,0,.10);
 
-}
-
-
-.titulo {
-
-    color:#0d47a1;
-
-    font-weight:700;
-
+    overflow: hidden;
 }
 
 
 .encabezado {
 
-    background:#0d47a1;
+    background: #0d47a1;
 
-    color:white;
+    color: white;
 
-    border-radius:
-        18px 18px 0 0;
-
-    padding:25px;
-
+    padding: 25px 30px;
 }
 
 
-.icono-jurado {
+.encabezado h1 {
 
-    font-size:55px;
+    margin: 0;
 
+    font-size: 28px;
+
+    font-weight: 800;
 }
 
 
-.info-password {
+.encabezado p {
 
-    background:#cff4fc;
+    margin:
+        7px 0 0;
 
-    color:#055160;
-
-    border:1px solid #b6effb;
-
-    border-radius:10px;
-
-    padding:14px;
-
+    opacity: .85;
 }
 
 
-.table {
+.cuerpo {
 
-    background:white;
-
+    padding: 30px;
 }
 
 
-.table thead th {
+.form-label {
 
-    background:#cfe2ff;
+    font-weight: 700;
 
-    font-weight:700;
-
-    vertical-align:middle;
-
+    color: #26364a;
 }
 
 
-.btn-accion {
+.form-control {
 
-    border-radius:10px;
+    min-height: 48px;
 
-    font-weight:600;
+    border-radius: 9px;
 
+    border:
+        1px solid #ced7e2;
 }
 
 
-.btn-editar {
+.form-control:focus {
 
-    background:#ffc107;
+    border-color: #1674e8;
 
-    border:none;
-
-    color:#000;
-
+    box-shadow:
+        0 0 0 3px
+        rgba(22,116,232,.12);
 }
 
 
-.btn-eliminar {
+.info {
 
-    background:#dc3545;
+    background: #d9f4fc;
 
-    border:none;
+    color: #075985;
 
-    color:white;
+    border-radius: 10px;
 
+    padding: 17px;
+
+    margin-top: 22px;
+
+    margin-bottom: 22px;
 }
 
 
-.buscar {
+.btn-registrar {
 
-    max-width:400px;
+    background: #198754;
 
+    color: white;
+
+    border: none;
+
+    border-radius: 9px;
+
+    padding:
+        12px 22px;
+
+    font-weight: 700;
 }
 
 
-.footer {
+.btn-registrar:hover {
 
-    text-align:center;
+    background: #157347;
 
-    color:#6c757d;
+    color: white;
+}
 
-    margin-top:30px;
 
-    padding:20px;
+.btn-volver {
+
+    background: #6c757d;
+
+    color: white;
+
+    border: none;
+
+    border-radius: 9px;
+
+    padding:
+        12px 22px;
+
+    font-weight: 700;
+
+    text-decoration: none;
+}
+
+
+.btn-volver:hover {
+
+    background: #5c636a;
+
+    color: white;
+}
+
+
+@media(max-width:700px) {
+
+    .contenedor {
+
+        margin:
+            20px auto;
+    }
+
+
+    .cuerpo {
+
+        padding: 20px;
+    }
 
 }
 
@@ -1030,51 +826,27 @@ body {
 <body>
 
 
-<div class="container-fluid contenedor py-4">
+<div class="contenedor">
 
 
-<!-- =====================================================
-     ENCABEZADO
-===================================================== -->
-
-<div class="card card-jurado mb-4">
+<div class="card-jurado">
 
 
 <div class="encabezado">
 
 
-<div class="d-flex
-            justify-content-between
-            align-items-center
-            flex-wrap
-            gap-3">
+<h1>
+
+<i class="bi bi-person-badge-fill"></i>
+
+Crear nuevo jurado
+
+</h1>
 
 
-<div class="d-flex
-            align-items-center
-            gap-3">
+<p>
 
-
-<div class="icono-jurado">
-
-⚖️
-
-</div>
-
-
-<div>
-
-<h2 class="mb-1">
-
-Gestión de Jurados
-
-</h2>
-
-
-<p class="mb-0">
-
-Administre los jurados encargados
-de las votaciones.
+Registrar un jurado para la elección actual.
 
 </p>
 
@@ -1082,51 +854,34 @@ de las votaciones.
 </div>
 
 
-</div>
+<div class="cuerpo">
 
 
-<a
-href="admin.php"
-class="btn btn-light btn-accion">
+<?php if ($mensaje !== "") { ?>
 
 
-<i class="bi bi-arrow-left-circle-fill"></i>
+<div class="alert alert-<?php
 
-Panel Administrador
+echo htmlspecialchars(
+    $tipoMensaje,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-
-</a>
-
-
-</div>
-
-
-</div>
-
-
-<div class="card-body p-4">
-
-
-<!-- =====================================================
-     MENSAJE
-===================================================== -->
-
-<?php if (
-    $mensaje !== ""
-) { ?>
-
-
-<div class="alert alert-<?php echo htmlspecialchars(
-    $tipoMensaje
-); ?>">
+?>">
 
 
 <i class="bi bi-info-circle-fill"></i>
 
-<?php echo htmlspecialchars(
-    $mensaje
-); ?>
+<?php
 
+echo htmlspecialchars(
+    $mensaje,
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
 
 </div>
 
@@ -1134,240 +889,283 @@ Panel Administrador
 <?php } ?>
 
 
-<div class="row g-4">
+<div class="alert alert-primary">
 
 
-<!-- =====================================================
-     FORMULARIO
-===================================================== -->
+<strong>
 
-<div class="col-lg-4">
+Elección actual:
 
-
-<div class="card card-jurado h-100">
+</strong>
 
 
-<div class="card-body p-4">
+<?php
+
+echo htmlspecialchars(
+    $eleccion['nombre'],
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>
 
 
-<h4 class="titulo mb-4">
-
-
-<i class="bi bi-person-badge-fill"></i>
-
-Registrar nuevo jurado
-
-
-</h4>
+</div>
 
 
 <form
-method="POST"
-autocomplete="off">
+    method="POST"
+    autocomplete="off"
+>
 
-
-<!-- DOCUMENTO -->
 
 <div class="mb-3">
 
 
 <label
-class="form-label">
+    for="documento"
+    class="form-label"
+>
 
-
-<strong>
-
-Documento
-
-</strong>
-
+Documento *
 
 </label>
 
 
 <input
+    type="text"
+    class="form-control"
+    id="documento"
+    name="documento"
+    value="<?php
 
-type="text"
+echo htmlspecialchars(
+    $documento,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-name="documento"
-
-class="form-control"
-
-placeholder="Documento del jurado"
-
-required
-
-inputmode="numeric"
-
-pattern="[0-9]+"
-
-value="<?php echo htmlspecialchars(
-    $documento ?? ''
-); ?>">
+?>"
+    required
+>
 
 
 </div>
 
 
-<!-- NOMBRE -->
+<div class="row">
 
-<div class="mb-3">
+
+<div class="col-md-6 mb-3">
 
 
 <label
-class="form-label">
+    for="nombre"
+    class="form-label"
+>
 
-
-<strong>
-
-Nombre
-
-</strong>
-
+Nombre *
 
 </label>
 
 
 <input
+    type="text"
+    class="form-control"
+    id="nombre"
+    name="nombre"
+    value="<?php
 
-type="text"
+echo htmlspecialchars(
+    $nombre,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-name="nombre"
-
-class="form-control"
-
-placeholder="Nombre"
-
-required
-
-value="<?php echo htmlspecialchars(
-    $nombre ?? ''
-); ?>">
+?>"
+    required
+>
 
 
 </div>
 
 
-<!-- APELLIDO -->
-
-<div class="mb-3">
+<div class="col-md-6 mb-3">
 
 
 <label
-class="form-label">
+    for="apellido"
+    class="form-label"
+>
 
-
-<strong>
-
-Apellido
-
-</strong>
-
+Apellido *
 
 </label>
 
 
 <input
+    type="text"
+    class="form-control"
+    id="apellido"
+    name="apellido"
+    value="<?php
 
-type="text"
+echo htmlspecialchars(
+    $apellido,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-name="apellido"
-
-class="form-control"
-
-placeholder="Apellido"
-
-required
-
-value="<?php echo htmlspecialchars(
-    $apellido ?? ''
-); ?>">
+?>"
+    required
+>
 
 
 </div>
 
 
-<!-- CURSO -->
+</div>
+
 
 <div class="mb-3">
 
 
 <label
-class="form-label">
-
-
-<strong>
+    for="curso"
+    class="form-label"
+>
 
 Curso
 
-</strong>
+</label>
 
+
+<input
+    type="text"
+    class="form-control"
+    id="curso"
+    name="curso"
+    value="<?php
+
+echo htmlspecialchars(
+    $curso,
+    ENT_QUOTES,
+    'UTF-8'
+);
+
+?>"
+>
+
+
+</div>
+
+
+<div class="mb-3">
+
+
+<label
+    for="correo"
+    class="form-label"
+>
+
+Correo
+
+<span class="text-muted">
+(opcional)
+</span>
 
 </label>
 
 
 <input
+    type="email"
+    class="form-control"
+    id="correo"
+    name="correo"
+    value="<?php
 
-type="text"
+echo htmlspecialchars(
+    $correo,
+    ENT_QUOTES,
+    'UTF-8'
+);
 
-name="curso"
-
-class="form-control"
-
-placeholder="Ejemplo: 1101"
-
-required
-
-value="<?php echo htmlspecialchars(
-    $curso ?? ''
-); ?>">
+?>"
+>
 
 
 </div>
 
 
-<!-- CONTRASEÑA -->
-
-<div class="info-password mb-4">
+<div class="info">
 
 
-<i class="bi bi-key-fill"></i>
+<div class="mb-2">
 
+🔐
 
 <strong>
-
-Contraseña automática
-
+Contraseña:
 </strong>
 
+será automáticamente el número
+de documento.
 
-<br>
+</div>
 
 
-La contraseña del jurado será
-su <strong>número de documento</strong>.
+<div>
+
+🗳️
+
+<strong>
+Mesa:
+</strong>
+
+al registrar el jurado se creará
+automáticamente una nueva mesa y
+quedará asignada a este jurado.
+
+</div>
 
 
 </div>
 
 
-<!-- GUARDAR -->
+<div class="d-flex
+            justify-content-between
+            gap-2
+            flex-wrap">
+
+
+<a
+    href="jurados.php"
+    class="btn-volver"
+>
+
+<i class="bi bi-arrow-left"></i>
+
+Volver
+
+</a>
+
 
 <button
-
-type="submit"
-
-name="guardar"
-
-class="btn btn-success btn-lg w-100 btn-accion">
+    type="submit"
+    name="registrar_jurado"
+    value="1"
+    class="btn-registrar"
+>
 
 
 <i class="bi bi-person-plus-fill"></i>
 
-Guardar Jurado
-
+Registrar jurado
 
 </button>
+
+
+</div>
 
 
 </form>
@@ -1375,495 +1173,9 @@ Guardar Jurado
 
 </div>
 
-
 </div>
 
-
 </div>
-
-
-<!-- =====================================================
-     LISTA
-===================================================== -->
-
-<div class="col-lg-8">
-
-
-<div class="card card-jurado h-100">
-
-
-<div class="card-body p-4">
-
-
-<div class="d-flex
-            justify-content-between
-            align-items-center
-            flex-wrap
-            gap-2
-            mb-3">
-
-
-<h4 class="titulo mb-0">
-
-
-<i class="bi bi-list-ul"></i>
-
-Jurados registrados
-
-
-</h4>
-
-
-<span class="badge bg-primary fs-6">
-
-
-Total:
-
-<?php echo $totalJurados; ?>
-
-
-</span>
-
-
-</div>
-
-
-<!-- BUSCADOR -->
-
-<div class="input-group buscar mb-3">
-
-
-<span class="input-group-text">
-
-
-<i class="bi bi-search"></i>
-
-
-</span>
-
-
-<input
-
-type="text"
-
-id="buscar"
-
-class="form-control"
-
-placeholder="Buscar jurado...">
-
-
-</div>
-
-
-<!-- TABLA -->
-
-<div class="table-responsive">
-
-
-<table
-class="table table-bordered table-hover align-middle">
-
-
-<thead>
-
-
-<tr>
-
-<th>ID</th>
-
-<th>Documento</th>
-
-<th>Nombre</th>
-
-<th>Apellido</th>
-
-<th>Curso</th>
-
-<th>Acciones</th>
-
-</tr>
-
-
-</thead>
-
-
-<tbody id="tablaJurados">
-
-
-<?php if (
-    $jurados->num_rows > 0
-) {
-
-
-    while (
-        $j =
-        $jurados->fetch_assoc()
-    ) {
-
-?>
-
-
-<tr>
-
-
-<td>
-
-<?php echo (int)$j['id']; ?>
-
-</td>
-
-
-<td>
-
-
-<strong>
-
-<?php echo htmlspecialchars(
-    $j['documento']
-); ?>
-
-</strong>
-
-
-</td>
-
-
-<td>
-
-<?php echo htmlspecialchars(
-    $j['nombre']
-); ?>
-
-</td>
-
-
-<td>
-
-<?php echo htmlspecialchars(
-    $j['apellido']
-); ?>
-
-</td>
-
-
-<td>
-
-
-<span class="badge bg-secondary">
-
-
-<?php echo htmlspecialchars(
-    $j['curso']
-); ?>
-
-
-</span>
-
-
-</td>
-
-
-<td>
-
-
-<div class="d-flex gap-1 flex-wrap">
-
-
-<a
-
-href="editar_jurado.php?id=<?php echo (int)$j['id']; ?>"
-
-class="btn btn-editar btn-sm btn-accion">
-
-
-<i class="bi bi-pencil-square"></i>
-
-Editar
-
-
-</a>
-
-
-<a
-
-href="crear_jurado.php?eliminar=<?php echo (int)$j['id']; ?>"
-
-class="btn btn-eliminar btn-sm btn-accion"
-
-onclick="
-return confirm(
-'¿Está seguro de eliminar este jurado?'
-);
-">
-
-
-<i class="bi bi-trash-fill"></i>
-
-Eliminar
-
-
-</a>
-
-
-</div>
-
-
-</td>
-
-
-</tr>
-
-
-<?php
-
-    }
-
-} else {
-
-?>
-
-
-<tr>
-
-
-<td
-
-colspan="6"
-
-class="text-center text-muted py-5">
-
-
-<i class="bi bi-person-x fs-1"></i>
-
-
-<br>
-
-
-<strong>
-
-No hay jurados registrados.
-
-</strong>
-
-
-</td>
-
-
-</tr>
-
-
-<?php
-
-}
-
-?>
-
-
-</tbody>
-
-
-</table>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<!-- =====================================================
-     INFORMACIÓN
-===================================================== -->
-
-<div class="card card-jurado mt-4">
-
-
-<div class="card-body">
-
-
-<div class="row text-center">
-
-
-<div class="col-md-4">
-
-
-<i
-class="bi bi-person-badge-fill fs-2 text-primary">
-</i>
-
-
-<h5 class="mt-2">
-
-Jurados
-
-</h5>
-
-
-<p class="text-muted">
-
-<?php echo $totalJurados; ?>
-registrados
-
-</p>
-
-
-</div>
-
-
-<div class="col-md-4">
-
-
-<i
-class="bi bi-key-fill fs-2 text-success">
-</i>
-
-
-<h5 class="mt-2">
-
-Contraseña
-
-</h5>
-
-
-<p class="text-muted">
-
-Documento del jurado
-
-</p>
-
-
-</div>
-
-
-<div class="col-md-4">
-
-
-<i
-class="bi bi-shield-check fs-2 text-primary">
-</i>
-
-
-<h5 class="mt-2">
-
-Rol
-
-</h5>
-
-
-<p class="text-muted">
-
-Jurado de votación
-
-</p>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-</div>
-
-
-<div class="footer">
-
-
-<strong>
-
-Sistema de Votaciones Escolares v2.0
-
-</strong>
-
-
-<br>
-
-
-© <?php echo date("Y"); ?>
-
-Todos los derechos reservados.
-
-
-</div>
-
-
-</div>
-
-
-<script>
-
-const buscar =
-document.getElementById(
-    "buscar"
-);
-
-
-const filas =
-document.querySelectorAll(
-    "#tablaJurados tr"
-);
-
-
-if (buscar) {
-
-    buscar.addEventListener(
-        "input",
-        function () {
-
-            const texto =
-                this.value
-                .toLowerCase()
-                .trim();
-
-
-            filas.forEach(
-                function (fila) {
-
-                    const contenido =
-                        fila.textContent
-                        .toLowerCase();
-
-
-                    fila.style.display =
-                        contenido.includes(
-                            texto
-                        )
-                        ? ""
-                        : "none";
-
-                }
-            );
-
-        }
-    );
-
-}
-
-</script>
-
-
-<script
-src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</script>
 
 
 </body>
